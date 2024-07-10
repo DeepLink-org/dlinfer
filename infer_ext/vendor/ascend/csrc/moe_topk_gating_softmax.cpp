@@ -5,7 +5,7 @@ namespace infer_ext {
 
 namespace ascend_ops {
 
-Status moe_topk_gating_softmax(at::Tensor routing_weights, at::Tensor selected_experts,
+at::Tensor moe_topk_gating_softmax(at::Tensor routing_weights, at::Tensor selected_experts,
                                at::Tensor selected_idx, at::Tensor router_logits, int64_t topk) {
     at::Tensor finishedOptional = at::Tensor();
     EXEC_NPU_NO_FORMAT_CHECK_CMD(aclnnMoeGatingTopKSoftmax,
@@ -15,7 +15,7 @@ Status moe_topk_gating_softmax(at::Tensor routing_weights, at::Tensor selected_e
                                  routing_weights,
                                  selected_experts,
                                  selected_idx);
-    return Status::StatusSuccess
+    return router_logits
 }
 
 } // namespace ascend_ops

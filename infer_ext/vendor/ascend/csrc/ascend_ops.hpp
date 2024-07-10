@@ -9,7 +9,7 @@ namespace infer_ext {
 
 namespace ascend_ops {
 
-Status moe_topk_gating_softmax(
+at::Tensor moe_topk_gating_softmax(
     at::Tensor routing_weights,
     at::Tensor selected_experts,
     at::Tensor selected_idx,
