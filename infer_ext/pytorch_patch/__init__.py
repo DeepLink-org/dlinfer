@@ -1,11 +1,13 @@
 import torch
 
-from .device_proxy import *
+from .device_proxy import GetDeviceProxy, GetDeviceStaticProxy
+from .distributed import apply_dist_patch
 
 
 __all__ = [
     "apply_tensor_method_patch",
     "apply_torch_function_patch",
+    "apply_dist_patch",
 ]
 
 

@@ -1,22 +1,22 @@
-#include <torch/torch.h>
+#pragma once
 
-enum class Status {
-    Success = 0,
-    Failed = -1,
-};
+#include <ATen/core/ATen_fwd.h>
+#include <torch/torch.h>
 
 namespace infer_ext {
 
-namespace ascend_ops {
+namespace ascend {
 
-at::Tensor moe_topk_gating_softmax(
-    at::Tensor routing_weights,
-    at::Tensor selected_experts,
-    at::Tensor selected_idx,
-    at::Tensor router_logits,
-    int64_t topk
-);
+at::Tensor npu_prompt_flash_attention_out(
+    const at::Tensor &query, const at::Tensor &key,
+    const at::Tensor &value, at::Tensor &attn_output,
+    const c10::optional<at::Tensor> &padding_mask,
+    const c10::optional<at::Tensor> &atten_mask,
+    c10::optional<at::IntArrayRef> actual_seq_lengths,
+    int64_t num_heads, double scale_value,
+    int64_t pre_tokens, int64_t next_tokens,
+    c10::string_view input_layout, int64_t num_key_value_heads);
 
-} // namespace ascend_ops
+} // namespace ascend
 
 } // namespace infer_ext 

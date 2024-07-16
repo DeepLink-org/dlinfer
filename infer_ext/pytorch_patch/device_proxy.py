@@ -1,6 +1,6 @@
 from functools import partial
 import torch
-from infer_ext.vendor import device_type
+from infer_ext.vendor import get_device_str
 
 
 class _MetaDeviceType(type):
@@ -19,13 +19,13 @@ class _DIPUDevice(metaclass=_MetaDeviceType):
     @staticmethod
     def __replacedipu(arg):
         if "cuda" in arg:
-            arg = arg.replace("cuda", device_type)
+            arg = arg.replace("cuda", get_device_str())
         return arg
 
     def __new__(cls, *args, **kwargs):
         if len(args) == 1 and isinstance(args[0], int):
             # modify default int device type only when "mock cuda".
-            dev_name = device_type + ":" + str(args[0])
+            dev_name = get_device_str() + ":" + str(args[0])
             _device = _MetaDeviceType._torch_device(dev_name)
             return _device
         # handle device as str
