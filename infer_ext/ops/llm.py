@@ -10,6 +10,7 @@ __all__ = [
     "paged_decode_attention",
     "paged_prefill_attention",
     "rms_norm",
+    "moe_gating_topk_softmax",
 ]
 
 
@@ -138,4 +139,13 @@ def rms_norm(
     func_name = sys._getframe().f_code.co_name
     return vendor_ops_registry[func_name](
         hidden_states, weight, epsilon
+    )
+
+def moe_gating_topk_softmax(
+    router_logits: Tensor,
+    topk: int
+):
+    func_name = sys._getframe().f_code.co_name
+    return vendor_ops_registry[func_name](
+        router_logits, topk
     )
