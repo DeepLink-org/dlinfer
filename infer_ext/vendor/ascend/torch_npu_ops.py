@@ -13,6 +13,7 @@ __all__ =[
     "paged_decode_attention",
     "paged_prefill_attention",
     "rms_norm",
+    "moe_gating_topk_softmax",
 ]
 
 @register_ops(vendor_ops_registry)
@@ -174,3 +175,14 @@ def rms_norm(
     epsilon: float
 ):
     return torch.ops.npu.npu_rms_norm(hidden_states, weight, epsilon)[0]
+
+@register_ops(vendor_ops_registry)
+def moe_gating_topk_softmax(
+    router_logits: Tensor,
+    topk: int
+):
+    routing_weights = router_logits.new_empty((*router_logits.shape[:-1], topk))
+    selected_experts = router_logits.new_empty((*router_logits.shape[:-1], topk), dtype=torch.int32)
+    selected_idx = torch.empty_like(selected_experts)
+    return torch.ops.npu_ext.npu_moe_gating_topk_softmax(router_logits, None, topk, routing_weights,
+                                                         selected_experts, selected_idx)

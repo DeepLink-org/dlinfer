@@ -9,6 +9,7 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D__FILENAME__='\"$$(notdir $$(abspath $
 set(CSRC_FILES 
     ${CMAKE_CURRENT_SOURCE_DIR}/csrc/init.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/csrc/flash_attention.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/csrc/moe_gating_topk_softmax.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/csrc/op_api_common.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/csrc/torch_npu_utils.cpp
 )
