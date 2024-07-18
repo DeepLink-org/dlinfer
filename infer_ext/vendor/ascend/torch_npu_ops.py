@@ -5,7 +5,6 @@ import torch_npu
 from infer_ext.vendor import vendor_ops_registry
 from infer_ext.utils.registry import register_ops
 from infer_ext.utils.type_annotation import Tensor, Optional, List
-from lmdeploy.dump_tensor import dump_tensor
 
 __all__ =[
     "apply_rotary_pos_emb",
@@ -54,7 +53,7 @@ def context_attention(
     # cann prompt_fa don't support batch query with different seq_len
     batch = q_start_loc.shape[0]
     seq_len_list = seq_len.tolist()
-    scale_value = 1. / math.sqrt(query.shape[-1] // num_q_heads)
+    scale_value = 1. / math.sqrt(query.shape[-1])
     for i in range(batch):
         start = q_start_loc[i]
         end = start + seq_len[i]
@@ -64,18 +63,11 @@ def context_attention(
         single_v = value[start:end].view(1, single_seqlen, -1)
         single_o = attn_output[start:end].view(1, single_seqlen, -1)
         actual_seq_lengths = seq_len_list[i:i+1]
-        dump_tensor(single_q, "single_q")
-        dump_tensor(single_k, "single_k")
-        dump_tensor(single_v, "single_v")
-        dump_tensor(attn_mask[i], "mask")
-        dump_tensor(actual_seq_lengths[0], "kv_seqlens")
         torch.ops.npu_ext.npu_prompt_flash_attention_out(
             single_q, single_k, single_v, single_o, padding_mask=None,
             atten_mask=attn_mask[i], actual_seq_lengths=actual_seq_lengths, 
             num_heads=num_q_heads, scale_value=scale_value, pre_tokens=2147473647, next_tokens=0,
             input_layout="BSH", num_key_value_heads=num_kv_heads)
-        torch.cuda.synchronize()
-        dump_tensor(single_o, "single_out")
 
 @register_ops(vendor_ops_registry)
 def fill_kv_cache(
@@ -114,15 +106,20 @@ def paged_decode_attention(
                            "support attn_qk_scale yet")
     if block_table.dtype != torch.int32:
         block_table = block_table.to(torch.int32)
-    scale_value = 1. / math.sqrt(query.shape[-1] // num_q_heads)
-    out = torch.ops.npu.npu_incre_flash_attention(
-        query, key_cache, value_cache, padding_mask=None,
+
+    query = query.unsqueeze(0)
+    kv_cache_len = key_cache.shape[0]
+    key_cache = key_cache.view(1, kv_cache_len, -1)
+    value_cache = value_cache.view(1, kv_cache_len, -1)
+    scale_value = 1. / math.sqrt(query.shape[-1])
+
+    torch.ops.npu_ext.npu_incre_flash_attention_v4_out(
+        query, key_cache, value_cache, attn_output.view_as(query), padding_mask=None,
         atten_mask=None, actual_seq_lengths=kv_seq_len.tolist(), antiquant_scale=None,
         antiquant_offset=None, block_table=block_table, dequant_scale1=None,
         quant_scale1=None, dequant_scale2=None, quant_scale2=None, quant_offset2=None,
-        num_heads=num_q_heads, scale_value=scale_value, input_layout="BSH",
+        num_heads=num_q_heads, scale_value=scale_value, input_layout="BSND",
         num_key_value_heads=num_kv_heads, block_size=block_size, inner_precise=1)
-    attn_output.copy_(out)
 
 @register_ops(vendor_ops_registry)
 def paged_prefill_attention(
@@ -154,22 +151,21 @@ def paged_prefill_attention(
     batch = q_start_loc.shape[0]
     q_seq_len_list = q_seq_len.tolist()
     kv_seq_len_list = kv_seq_len.tolist()
-    scale_value = 1. / math.sqrt(query.shape[-1] // num_q_heads)
+    scale_value = 1. / math.sqrt(query.shape[-1])
     for i in range(batch):
         start = q_start_loc[i]
         mask = attn_mask[i]
         for j in range(q_seq_len_list[i]):
             single_q = query[start + j:start + j + 1].view(1, 1, -1)
-            single_out = attn_output[start + j:start + j + 1].view(1, 1, -1)
-            tmp_out = torch.ops.npu.npu_incre_flash_attention(
-                single_q, key_cache, value_cache, padding_mask=None,
+            single_o = attn_output[start + j:start + j + 1].view(1, 1, -1)
+            torch.ops.npu_ext.npu_incre_flash_attention_v4_out(
+                single_q, key_cache, value_cache, single_o, padding_mask=None,
                 atten_mask=mask[j:j + 1], actual_seq_lengths=kv_seq_len_list[i:i+1],
                 antiquant_scale=None, antiquant_offset=None, block_table=block_table,
                 dequant_scale1=None, quant_scale1=None, dequant_scale2=None,
                 quant_scale2=None, quant_offset2=None,
                 num_heads=num_q_heads, scale_value=scale_value, input_layout="BSH",
                 num_key_value_heads=num_kv_heads, block_size=block_size, inner_precise=1)
-            single_out.copy_(tmp_out)
 
 @register_ops(vendor_ops_registry)
 def rms_norm(
