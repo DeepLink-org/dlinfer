@@ -108,18 +108,19 @@ def paged_decode_attention(
     if block_table.dtype != torch.int32:
         block_table = block_table.to(torch.int32)
 
-    query = query.unsqueeze(0)
+    bs, _, dim = query.shape
+    query = query.view(bs, 1, num_q_heads*dim)
     kv_cache_len = key_cache.shape[0]
     key_cache = key_cache.view(1, kv_cache_len, -1)
     value_cache = value_cache.view(1, kv_cache_len, -1)
-    scale_value = 1. / math.sqrt(query.shape[-1])
+    scale_value = 1. / math.sqrt(dim)
 
     torch.ops.npu_ext.npu_incre_flash_attention_v4_out(
         query, key_cache, value_cache, attn_output.view_as(query), padding_mask=None,
         atten_mask=None, actual_seq_lengths=kv_seq_len.tolist(), antiquant_scale=None,
         antiquant_offset=None, block_table=block_table, dequant_scale1=None,
         quant_scale1=None, dequant_scale2=None, quant_scale2=None, quant_offset2=None,
-        num_heads=num_q_heads, scale_value=scale_value, input_layout="BSND",
+        num_heads=num_q_heads, scale_value=scale_value, input_layout="BSH",
         num_key_value_heads=num_kv_heads, block_size=block_size, inner_precise=1)
 
 @register_ops(vendor_ops_registry)
