@@ -60,8 +60,8 @@ def context_attention(
         end = start + seq_len[i]
         single_seqlen = int(seq_len[i])
         single_q = query[start:end].view(1, single_seqlen, -1)
-        single_k = key[start:end].view(1, single_seqlen, -1)
-        single_v = value[start:end].view(1, single_seqlen, -1)
+        single_k = key[start:end].reshape(1, single_seqlen, -1)
+        single_v = value[start:end].reshape(1, single_seqlen, -1)
         single_o = attn_output[start:end].view(1, single_seqlen, -1)
         actual_seq_lengths = seq_len_list[i:i+1]
         torch.ops.npu_ext.npu_prompt_flash_attention_out(
