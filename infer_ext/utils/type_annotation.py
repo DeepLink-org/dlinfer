@@ -1,5 +1,2 @@
-import torch
-from typing import Optional, List
-
-
-Tensor = torch.Tensor
+from torch import Tensor
+from typing import Optional, List, Union, Any
