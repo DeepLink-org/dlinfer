@@ -3,6 +3,9 @@
 
 #include <ATen/ScalarOps.h>
 #include <c10/core/TensorImpl.h>
+// using torch_npu acl headers in stead of cann's
+// pre include before hccl/hccl.h to prevent mismatch between two vesions of acl.h
+#include <third_party/acl/inc/acl/acl.h>
 #include <hccl/hccl.h>
 
 #include <torch_npu/csrc/core/npu/NPUException.h>
