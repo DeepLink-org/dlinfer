@@ -1,7 +1,6 @@
 import math
 import queue
 import threading
-from typing import List, Optional, Tuple, Union
 
 import torch
 import torch.nn.functional as F
@@ -19,6 +18,9 @@ from transformers.modeling_outputs import (
             SequenceClassifierOutputWithPast,
             TokenClassifierOutput,
 )
+from typing import Optional, Dict, Any, Tuple
+from typing import List, Optional, Tuple, Union
+import typing
 from transformers.modeling_utils import PreTrainedModel
 from transformers.pytorch_utils import ALL_LAYERNORM_LAYERS
 from transformers.utils import (
@@ -29,22 +31,21 @@ from transformers.utils import (
             replace_return_docstrings,
 )
 
-import modeling_internlm2
-from ascend_kernels import rms_norm, apply_rotary_pos_emb, context_attention
+import os
+import sys
+from .ascend_kernels import rms_norm, apply_rotary_pos_emb, context_attention
 from dataclasses import dataclass, field, fields
 
-@register_class_method_patch(modeling_internlm2.InternLM2RMSNorm, 'forward')
 def modeling_internlm2_InternLM2RMSNorm_forward(self, hidden_states):
     ret = rms_norm(hidden_states, self.weight, self.variance_epsilon)
     return ret
 
 @dataclass
 class StepContext:
-...
+    ...
 
 stepcontext = StepContext()
 
-@register_class_method_patch(modeling_internlm2.InternLM2Attention, 'forward')
 def modeling_internlm2_InternLM2Attention_forward(
     self,
     hidden_states: torch.Tensor,
@@ -119,7 +120,6 @@ def modeling_internlm2_InternLM2Attention_forward(
     return attn_output, attn_weights, past_key_value
 
 
-@register_class_method_patch(modeling_internlm2.InternLM2ForCausalLM, 'prepare_inputs_for_generation')
 def modeling_internlm2_InternLM2ForCausalLM_prepare_inputs_for_generation(
     self,
     input_ids,
@@ -213,7 +213,6 @@ from transformers.models.auto.configuration_auto import AutoConfig
 import transformers.cache_utils
 
 
-@register_class_method_patch(transformers.cache_utils.DynamicCache, 'update')
 def transformers_cache_utils_dynamiccache_update(
     self,
     key_states: torch.Tensor,
@@ -250,4 +249,5 @@ def transformers_cache_utils_dynamiccache_update(
         self.value_cache[layer_idx] = torch.cat([self.value_cache[layer_idx], value_states], dim=1)
 
     return self.key_cache[layer_idx], self.value_cache[layer_idx]
+
 
