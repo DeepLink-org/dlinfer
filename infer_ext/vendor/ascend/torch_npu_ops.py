@@ -91,7 +91,7 @@ def paged_decode_attention(
     query: Tensor,
     key_cache: Tensor,
     value_cache: Tensor,
-    block_table: Tensor,
+    block_table: Optional[Tensor],
     block_size: int,
     kv_seq_len: Tensor,
     num_q_heads: int,
@@ -105,7 +105,7 @@ def paged_decode_attention(
     if attn_qk_scale is not None:
         raise RuntimeError("paged_decode_attention does not "
                            "support attn_qk_scale yet")
-    if block_table.dtype != torch.int32:
+    if isinstance(block_table, torch.Tensor) and block_table.dtype != torch.int32:
         block_table = block_table.to(torch.int32)
 
     bs, _, dim = query.shape
