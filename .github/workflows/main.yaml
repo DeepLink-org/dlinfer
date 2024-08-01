@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - lwj_add_ci
   pull_request:
     branches:
       - main
