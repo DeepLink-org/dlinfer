@@ -1,0 +1,54 @@
+name: InferExt ci
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - lwj_add_ci
+  pull_request:
+    branches:
+      - main
+
+env:
+  CI_PATH: '/data2/wugeshui/GitHub/${{ github.repository }}/${GITHUB_RUN_NUMBER}'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  Clone:
+    runs-on: pjlab_ascend_Atlas_800T_A2
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create custom directory
+        run: |
+          set -ex
+          echo ${{ env.CI_PATH }}
+          mkdir -p ${{ env.CI_PATH }}
+
+      - name: Clean custom directory
+        run: |
+          set -ex
+          if [ -d "${{ env.CI_PATH }}" ]; then
+            rm -rf ${{ env.CI_PATH }}/*
+          fi
+
+      - name: Move code to custom directory
+        run: |
+          set -ex
+          mv $GITHUB_WORKSPACE/* ${{ env.CI_PATH }}/
+
+  Tests:
+    runs-on: pjlab_ascend_Atlas_800T_A2
+    needs: [Clone]
+    steps:
+      - name: RunTests
+        run: |
+          set -ex
+          cd ${{ env.CI_PATH }}
+          
+
+  
