@@ -1,7 +1,7 @@
 import filecmp
 import importlib
 import importlib.util
-import os
+import os, sys
 import typing
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
@@ -24,6 +24,7 @@ def patched_get_class_in_module(class_name: str, module_path: Union[str, os.Path
     if name.endswith(".py"):
         name = name[:-3]
     name = name.replace(os.path.sep, ".")
+    module_path = module_path if module_path.endswith(".py") else f"{module_path}.py"
     module_spec = importlib.util.spec_from_file_location(name, location=Path(HF_MODULES_CACHE) / module_path)
     module = sys.modules.get(name)
     if module is None:
