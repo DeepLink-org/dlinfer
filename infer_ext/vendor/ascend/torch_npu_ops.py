@@ -29,6 +29,9 @@ def apply_rotary_pos_emb(
     if position_ids is not None:
         cos = cos_full[position_ids]
         sin = sin_full[position_ids]
+    query = query.contiguous()
+    key = key.contiguous()
+
     torch.ops.npu.npu_apply_rotary_pos_emb(query, key, cos, sin, "BSND")
 
 @register_ops(vendor_ops_registry)
@@ -55,6 +58,12 @@ def context_attention(
     batch = q_start_loc.shape[0]
     seq_len_list = seq_len.tolist()
     scale_value = 1. / math.sqrt(query.shape[-1])
+
+    # only support contiguous q,k,v
+    query = query.contiguous()
+    key = key.contiguous()
+    value = value.contiguous()
+
     for i in range(batch):
         start = q_start_loc[i]
         end = start + seq_len[i]
@@ -80,6 +89,11 @@ def fill_kv_cache(
 ):
     block_num, block_size, head, dim = key_cache.shape
     block_total = block_num * block_size
+
+    # only support contiguous k,v
+    key = key.contiguous()
+    value = value.contiguous()
+
     key_cache_reshaped = key_cache.view(block_total, head, dim)
     value_cache_reshaped = value_cache.view(block_total, head, dim)
     torch.ops.npu.npu_scatter_nd_update_(key_cache_reshaped, kv_indices, key)
@@ -109,6 +123,7 @@ def paged_decode_attention(
         block_table = block_table.to(torch.int32)
 
     bs, _, dim = query.shape
+    query = query.contiguous()
     query = query.view(bs, 1, num_q_heads*dim)
     kv_cache_len = key_cache.shape[0]
     key_cache = key_cache.view(1, kv_cache_len, -1)
@@ -154,6 +169,7 @@ def paged_prefill_attention(
     q_seq_len_list = q_seq_len.tolist()
     kv_seq_len_list = kv_seq_len.tolist()
     scale_value = 1. / math.sqrt(query.shape[-1])
+    query = query.contiguous()
     for i in range(batch):
         start = q_start_loc[i]
         mask = attn_mask[i]
@@ -175,6 +191,7 @@ def rms_norm(
     weight: Tensor,
     epsilon: float
 ):
+    hidden_states = hidden_states.contiguous()
     return torch.ops.npu.npu_rms_norm(hidden_states, weight, epsilon)[0]
 
 @register_ops(vendor_ops_registry)
