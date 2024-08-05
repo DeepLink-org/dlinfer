@@ -35,16 +35,16 @@ import os
 import sys
 from .ascend_kernels import rms_norm, apply_rotary_pos_emb, context_attention
 from dataclasses import dataclass, field, fields
+import infer_ext.ops as ext_ops
 
 def modeling_internlm2_InternLM2RMSNorm_forward(self, hidden_states):
-    ret = rms_norm(hidden_states, self.weight, self.variance_epsilon)
-    return ret
+    return ext_ops.rms_norm(hidden_states, self.weight, self.variance_epsilon)
 
 @dataclass
-class StepContext:
+class TransformerBlockContext:
     ...
 
-stepcontext = StepContext()
+transformer_block_context = TransformerBlockContext()
 
 def modeling_internlm2_InternLM2Attention_forward(
     self,
@@ -76,21 +76,18 @@ def modeling_internlm2_InternLM2Attention_forward(
     )
 
     query_states = qkv_states[..., : self.num_key_value_groups, :]
-    # query_states = rearrange(query_states, "b q h gs d -> b q (h gs) d").transpose(1, 2)
-    # key_states = qkv_states[..., -2, :].transpose(1, 2)
-    # value_states = qkv_states[..., -1, :].transpose(1, 2)
     query_states = rearrange(query_states, "b q h gs d -> b q (h gs) d")
-    key_states = qkv_states[..., -2, :].contiguous()
+    key_states = qkv_states[..., -2, :]
     value_states = qkv_states[..., -1, :]
 
-    global stepcontext
+    global transformer_block_context
     if self.layer_idx == 0:
-        stepcontext = StepContext()
+        #transformer_block_context = TransformerBlockContext()
         cos, sin = self.rotary_emb(value_states, position_ids)
-        setattr(stepcontext, 'sin', sin)
-        setattr(stepcontext, 'cos', cos)
-    sin = stepcontext.sin
-    cos = stepcontext.cos
+        setattr(transformer_block_context, 'sin', sin)
+        setattr(transformer_block_context, 'cos', cos)
+    sin = transformer_block_context.sin
+    cos = transformer_block_context.cos
     query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
 
     if past_key_value is not None:
@@ -245,6 +242,8 @@ def transformers_cache_utils_dynamiccache_update(
         self.key_cache.append(key_states)
         self.value_cache.append(value_states)
     else:
+        #ext.ops.fill_contiguous_kvcache(self.key_cache[layer_idx], key_states)
+        #ext.ops.fill_contiguous_kvcache(self.value_cache[layer_idx], value_states)
         self.key_cache[layer_idx] = torch.cat([self.key_cache[layer_idx], key_states], dim=1)
         self.value_cache[layer_idx] = torch.cat([self.value_cache[layer_idx], value_states], dim=1)
 

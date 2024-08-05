@@ -2,10 +2,6 @@ import infer_ext.ops as ext_ops
 import torch
 from torch import Tensor
 
-
-def rms_norm(hidden_states: Tensor, weight: Tensor, epsilon: float = 1e-6):
-    return ext_ops.rms_norm(hidden_states, weight, epsilon)
-
 def apply_rotary_pos_emb(
     query_states: Tensor,
     key_states: Tensor,
@@ -18,6 +14,8 @@ def apply_rotary_pos_emb(
 ):
     cos = cos.unsqueeze(unsqueeze_dim)
     sin = sin.unsqueeze(unsqueeze_dim)
+    query_states = query_states.contiguous()
+    key_states = key_states.contiguous()
     ext_ops.apply_rotary_pos_emb(query_states, key_states,
                                  cos, sin, None, None, None)
     if q_embed is None:
@@ -36,6 +34,7 @@ def context_attention(
     value_states: Tensor,
     mask: list,
 ):
+    batch_size = query_states.shape[0]
     query_states = query_states.squeeze(0)
     key_states = key_states.squeeze(0)
     value_states = value_states.squeeze(0)
@@ -43,7 +42,7 @@ def context_attention(
     kv_seq_len, num_kv_heads, _ = value_states.shape
     attn_output = torch.empty_like(query_states)
 
-    for i in range(1):
+    for i in range(batch_size):
         if q_seq_len == kv_seq_len:
             ext_ops.context_attention(
                 attn_output,
