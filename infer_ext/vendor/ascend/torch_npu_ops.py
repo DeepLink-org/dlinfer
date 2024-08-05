@@ -78,6 +78,8 @@ def context_attention(
             atten_mask=attn_mask[i], actual_seq_lengths=actual_seq_lengths, 
             num_heads=num_q_heads, scale_value=scale_value, pre_tokens=2147473647, next_tokens=0,
             input_layout="BSH", num_key_value_heads=num_kv_heads)
+        # TODO remvoe sync
+        torch.cuda.synchronize()
 
 @register_ops(vendor_ops_registry)
 def fill_kv_cache(
@@ -137,6 +139,8 @@ def paged_decode_attention(
         quant_scale1=None, dequant_scale2=None, quant_scale2=None, quant_offset2=None,
         num_heads=num_q_heads, scale_value=scale_value, input_layout="BSH",
         num_key_value_heads=num_kv_heads, block_size=block_size, inner_precise=1)
+    # TODO remvoe sync
+    torch.cuda.synchronize()
 
 @register_ops(vendor_ops_registry)
 def paged_prefill_attention(
