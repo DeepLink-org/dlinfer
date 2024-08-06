@@ -57,7 +57,7 @@ jobs:
 
   Tests:
     runs-on: pjlab_ascend_910B
-    needs: [Clone]
+    needs: [CloneAndBuild]
     steps:
       - name: RunTests
         run: |
