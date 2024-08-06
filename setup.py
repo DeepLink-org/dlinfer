@@ -54,7 +54,6 @@ def main():
         url="https://github.com/DeepLink-org/InferExt",
         packages=find_packages(),
         package_data=get_package_data(),
-        exclude_package_data={"": ["tests/*"]},
         cmake_args=get_cmake_args(),
         cmake_install_target="install",
         classifiers=[
