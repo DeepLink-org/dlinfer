@@ -1,8 +1,8 @@
 from multiprocessing import Process
 
 import pytest
-from utils.config_utils import  get_torch_model_list
-from utils.pipeline_chat import (assert_pipeline_chat_log,
+from ci_utils.config_utils import  get_torch_model_list
+from ci_utils.pipeline_chat import (assert_pipeline_chat_log,
                                  run_pipeline_chat_test)
 
 

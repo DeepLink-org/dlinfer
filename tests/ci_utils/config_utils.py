@@ -1,7 +1,7 @@
 import os
 
 import yaml
-from utils.get_run_config import get_tp_num
+from ci_utils.get_run_config import get_tp_num
 
 
 def get_torch_model_list(tp_num: int = None, model_type: str = 'chat_model'):
