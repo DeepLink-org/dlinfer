@@ -52,10 +52,10 @@ jobs:
       - name: Make and clean directory for lmdeploy
         run: |
           set -ex
-          echo ${{ env.LMDEPLOY_PATH }}
-          if [ -d "${{ env.LMDEPLOY_PATH }}" ]; then
-            rm -rf ${{ env.LMDEPLOY_PATH }}
-            mkdir -p ${{ env.LMDEPLOY_PATH }}
+          echo ${{env.LMDEPLOY_PATH }}
+          if [ -d "${{env.LMDEPLOY_PATH }}" ]; then
+            rm -rf ${{env.LMDEPLOY_PATH }}
+            mkdir -p ${{env.LMDEPLOY_PATH }}
           fi
 
       - name: Clone lmdeploy
@@ -71,7 +71,7 @@ jobs:
       - name: RunTests
         run: |
           set -ex
-          export PYTHONPATH=${{env.LMDEPLOY_PATH }}/lmdeploy:$PYTHONPATH
+          export PYTHONPATH=${{env.LMDEPLOY_PATH }}:$PYTHONPATH
           cd ${{env.CI_PATH }}
           pytest tests -x --alluredir=allure-results --clean-alluredir
 
