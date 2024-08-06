@@ -10,6 +10,7 @@ on:
 
 env:
   CI_PATH: '/data2/wugeshui/GitHub/${{ github.repository }}/${GITHUB_RUN_NUMBER}'
+  LMDEPLOY_PATH: '/data2/wugeshui/GitHub/lmdeploy/${GITHUB_RUN_NUMBER}'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -51,8 +52,8 @@ jobs:
       - name: Clone lmdeploy
         run: |
           set -ex
-          git clone https://github.com/DeepLink-org/lmdeploy.git -b infer_ext ${{ env.CI_PATH }}
-          export PYTHONPATH=${{ env.CI_PATH }}/lmdeploy:$PYTHONPATH
+          git clone https://github.com/DeepLink-org/lmdeploy.git -b infer_ext ${{ env.LMDEPLOY_PATH }}
+          export PYTHONPATH=${{ env.LMDEPLOY_PATH }}/lmdeploy:$PYTHONPATH
 
 
   Tests:
