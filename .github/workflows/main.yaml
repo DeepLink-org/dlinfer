@@ -53,10 +53,9 @@ jobs:
         run: |
           set -ex
           echo ${{ env.LMDEPLOY_PATH }}
-          mkdir -p ${{ env.LMDEPLOY_PATH }}
-          set -ex
           if [ -d "${{ env.LMDEPLOY_PATH }}" ]; then
-            rm -rf ${{ env.LMDEPLOY_PATH }}/*
+            rm -rf ${{ env.LMDEPLOY_PATH }}
+            mkdir -p ${{ env.LMDEPLOY_PATH }}
           fi
 
       - name: Clone lmdeploy
