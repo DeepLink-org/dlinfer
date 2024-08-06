@@ -1,0 +1,26 @@
+prompt:使用python编写一个int数组的冒泡排序代码
+output:好的，以下是使用 Python 实现冒泡排序的示例代码：
+
+```python
+def bubble_sort(arr):
+    n = len(arr)
+    # 遍历所有数组元素
+    for i in range(n):
+        # 最后 i 个元素已经排好序了，不需要再比较
+        for j in range(0, n-i-1):
+            # 如果当前元素比下一个元素大，则交换它们的位置
+            if arr[j] > arr[j+1]:
+                arr[j], arr[j+1] = arr[j+1], arr[j]
+    return arr
+```
+
+这个函数接受一个整数类型的列表作为输入，并返回已排序的列表。在主程序中，您可以像这样调用该函数：
+
+```python
+my_list = [64, 34, 25, 12, 22, 11, 90]
+sorted_list = bubble_sort(my_list)
+print(sorted_list)
+```
+
+输出应该为：`[11, 12, 22, 25, 34, 64, 90]`。
+result:True, reason:

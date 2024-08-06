@@ -30,30 +30,30 @@ chinese_poem_case:
             - \n
         - len_g:
             5
-# english_poem_case:
-#     - write a romantic English poem in English:
-#         - contain:
-#             - " "
-#         - contain:
-#             - "."
-#             - ","
-#         - len_g:
-#             30
-# emoji_case:
-#     - 请输出👍赞的emoji#print output the emoji of good👍:
-#         - contain:
-#             - 👍
-#             - 😊
-#             - 😀
-#             - 🎉
-#             - 👏
-#             - 👌
-#             - good
-#             - like
-#             - 赞
-#             - 好
-#             - '!'
-#             - u1f44d
+english_poem_case:
+    - write a romantic English poem in English:
+        - contain:
+            - " "
+        - contain:
+            - "."
+            - ","
+        - len_g:
+            30
+emoji_case:
+    - 请输出👍赞的emoji#print output the emoji of good👍:
+        - contain:
+            - 👍
+            - 😊
+            - 😀
+            - 🎉
+            - 👏
+            - 👌
+            - good
+            - like
+            - 赞
+            - 好
+            - '!'
+            - u1f44d
 traditional_chinese_case:
     - 介紹澳門景點，使用繁體:
         - contain:

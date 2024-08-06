@@ -1,0 +1,3 @@
+prompt:你好，你叫什么名字#hi, what's your name
+output:
+result:True, reason:
