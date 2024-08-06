@@ -73,8 +73,7 @@ jobs:
       - name: RunTests
         run: |
           set -ex
-          cd ${{ env.CI_PATH }}/InferExt
-          pytest autotest -x --alluredir=allure-results --clean-alluredir
-          
+          cd ${{ env.CI_PATH }}
+          pytest tests -x --alluredir=allure-results --clean-alluredir
 
   
