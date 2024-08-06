@@ -55,32 +55,37 @@ def context_attention(
         raise RuntimeError("paged_decode_attention does not "
                            "support attn_qk_scale yet")
     # cann prompt_fa don't support batch query with different seq_len
-    batch = q_start_loc.shape[0]
     seq_len_list = seq_len.tolist()
-    scale_value = 1. / math.sqrt(query.shape[-1])
 
-    # only support contiguous q,k,v
     query = query.contiguous()
     key = key.contiguous()
     value = value.contiguous()
 
-    for i in range(batch):
-        start = q_start_loc[i]
-        end = start + seq_len[i]
-        single_seqlen = int(seq_len[i])
-        single_q = query[start:end].view(1, single_seqlen, -1)
-        single_k = key[start:end].reshape(1, single_seqlen, -1)
-        single_v = value[start:end].reshape(1, single_seqlen, -1)
-        single_o = attn_output[start:end].view(1, single_seqlen, -1)
-        actual_seq_lengths = seq_len_list[i:i+1]
-        torch.ops.npu_ext.npu_prompt_flash_attention_out(
-            single_q, single_k, single_v, single_o, padding_mask=None,
-            atten_mask=attn_mask[i], actual_seq_lengths=actual_seq_lengths, 
-            num_heads=num_q_heads, scale_value=scale_value, pre_tokens=2147473647, next_tokens=0,
+    if attn_mask:
+        batch = q_start_loc.shape[0]
+        scale_value = 1. / math.sqrt(query.shape[-1])
+        for i in range(batch):
+            start = q_start_loc[i]
+            end = start + seq_len[i]
+            single_seqlen = int(seq_len[i])
+            single_q = query[start:end].view(1, single_seqlen, -1)
+            single_k = key[start:end].reshape(1, single_seqlen, -1)
+            single_v = value[start:end].reshape(1, single_seqlen, -1)
+            single_o = attn_output[start:end].view(1, single_seqlen, -1)
+            actual_seq_lengths = seq_len_list[i:i+1]
+            torch.ops.npu_ext.npu_prompt_flash_attention_out(
+                single_q, single_k, single_v, single_o, padding_mask=None,
+                atten_mask=attn_mask[i], actual_seq_lengths=actual_seq_lengths, 
+                num_heads=num_q_heads, scale_value=scale_value, pre_tokens=2147473647, next_tokens=0,
+                input_layout="BSH", num_key_value_heads=num_kv_heads)
+            # TODO remvoe sync
+            torch.cuda.synchronize()
+    else:
+        # For now, the value of attn_mask is None only in vit
+        scale_value = 1. / math.sqrt(query.shape[-1] // num_q_heads)
+        attn_output[:] = torch.ops.npu.npu_prompt_flash_attention(query, key, value,
+            actual_seq_lengths=seq_len_list, num_heads=num_q_heads, scale_value=scale_value,
             input_layout="BSH", num_key_value_heads=num_kv_heads)
-        # TODO remvoe sync
-        torch.cuda.synchronize()
-
 @register_ops(vendor_ops_registry)
 def fill_kv_cache(
     key: Tensor,

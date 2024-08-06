@@ -33,7 +33,7 @@ from transformers.utils import (
 
 import os
 import sys
-from .ascend_kernels import rms_norm, apply_rotary_pos_emb, context_attention
+from .ascend_kernels import apply_rotary_pos_emb, context_attention
 from dataclasses import dataclass, field, fields
 import infer_ext.ops as ext_ops
 
