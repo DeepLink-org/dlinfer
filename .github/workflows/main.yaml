@@ -71,8 +71,8 @@ jobs:
       - name: RunTests
         run: |
           set -ex
-          export PYTHONPATH=${{env.LMDEPLOY_PATH }}/lmdeploy:$PYTHONPATH
+          export PYTHONPATH=${{env.LMDEPLOY_PATH }}/lmdeploy:${{env.CI_PATH }}/tests:$PYTHONPATH
           cd ${{env.CI_PATH }}    
-          PYTHONPATH=tests:${PYTHONPATH} pytest tests -x --alluredir=allure-results --clean-alluredir
+          pytest tests -x --alluredir=allure-results --clean-alluredir
 
   
