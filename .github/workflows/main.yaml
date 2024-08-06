@@ -10,7 +10,7 @@ on:
 
 env:
   CI_PATH: '/data2/wugeshui/GitHub/${{ github.repository }}/${GITHUB_RUN_NUMBER}'
-  LMDEPLOY_PATH: '/data2/wugeshui/GitHub/lmdeploy/'
+  LMDEPLOY_PATH: '/data2/wugeshui/GitHub/lmdeploy'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -71,8 +71,8 @@ jobs:
       - name: RunTests
         run: |
           set -ex
-          export PYTHONPATH=${{ env.LMDEPLOY_PATH }}/lmdeploy:$PYTHONPATH
-          cd ${{ env.CI_PATH }}    
-          pytest tests -x --alluredir=allure-results --clean-alluredir
+          export PYTHONPATH=${{env.LMDEPLOY_PATH }}/lmdeploy:$PYTHONPATH
+          cd ${{env.CI_PATH }}    
+          PYTHONPATH=tests:${PYTHONPATH} pytest tests -x --alluredir=allure-results --clean-alluredir
 
   
