@@ -67,6 +67,8 @@ jobs:
   Tests:
     runs-on: pjlab_ascend_910B
     needs: [CloneAndBuild]
+    env:
+      REPORT_DIR: /data2/wugeshui/GitHub/ci_log/test_reports
     steps:
       - name: RunTests
         run: |
@@ -74,5 +76,22 @@ jobs:
           export PYTHONPATH=${{env.LMDEPLOY_PATH }}:$PYTHONPATH
           cd ${{env.CI_PATH }}
           pytest tests -x --alluredir=allure-results --clean-alluredir
+
+      - name: Generate reports
+        if: always()
+        run: |
+          export date_today="$(date +'%Y%m%d-%H%M%S')"
+          export report_dir="$REPORT_DIR/$date_today"
+          echo "Save report to $report_dir"
+          mv allure-results $report_dir
+
+      - name: Clear workfile
+        if: always()
+        run: |
+          export workdir=$(pwd)
+          cd ..
+          rm -rf $workdir
+          mkdir $workdir
+          chmod -R 777 $workdir    
 
   
