@@ -1,8 +1,3 @@
-import random
-from time import sleep
-
-import torch
-
 from lmdeploy.model import MODELS
 
 

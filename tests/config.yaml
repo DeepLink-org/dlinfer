@@ -1,21 +1,10 @@
 model_path: /data2/share_data
-dst_path: /nvme/qa_test_models/autotest_model
 log_path: /root/tmp/InferExt/tests/log
-dataset_path: /nvme/qa_test_models/...dataset
 
 tp_config:
-    # internlm-chat-20b: 2
-    # internlm2-chat-20b: 2
-    # Baichuan2-13B-Chat: 2
     Mixtral-8x7B-Instruct-v0.1: 2
-    # internlm2-20b: 2
-    # Qwen-VL-Chat: 2
-    # llava-v1.5-13b: 2
-    # Qwen2-7B-Instruct: 2
-    # InternVL2-40B: 2
 
 pytorch_chat_model:
-    # - internlm_model_data/internlm2-chat-7b
-    # - llama_model_data/llama-2-70b-chat-hf
+    - internlm_model_data/internlm2-chat-7b
     - llama_model_data/llama-2-7b-chat-hf
-    # - mixtral_model_data/Mixtral-8x7B-Instruct-v0.1
+    - mixtral_model_data/Mixtral-8x7B-Instruct-v0.1

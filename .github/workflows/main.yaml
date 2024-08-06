@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  Clone and Build:
+  CloneAndBuild:
     runs-on: pjlab_ascend_910B
     steps:
       - name: Checkout code
@@ -62,7 +62,8 @@ jobs:
       - name: RunTests
         run: |
           set -ex
-          cd ${{ env.CI_PATH }}
+          cd ${{ env.CI_PATH }}/InferExt
+          pytest autotest -x --alluredir=allure-results --clean-alluredir
           
 
   
