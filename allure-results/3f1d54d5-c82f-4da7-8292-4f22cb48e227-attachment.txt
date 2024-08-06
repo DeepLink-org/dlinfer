@@ -1,6 +1,0 @@
-########## from pretrained
-log config:  reproduce config info:
-engine_config = PytorchEngineConfig(model_name='', tp=1, session_len=None, max_batch_size=128, cache_max_entry_count=0.8, eviction_type='recompute', prefill_interval=16, block_size=64, num_cpu_blocks=0, num_gpu_blocks=0, adapters=None, max_prefill_token_num=4096, thread_safe=False, enable_prefix_caching=False, device_type='ascend', download_dir=None, revision=None)
-gen_config = GenerationConfig(n=1, max_new_tokens=512, top_p=1.0, top_k=1, temperature=0.8, repetition_penalty=1.0, ignore_eos=False, random_seed=None, stop_words=None, bad_words=None, min_new_tokens=None, skip_special_tokens=True, logprobs=None)
-pipe = pipeline("/data2/share_data/internlm_model_data/internlm2-chat-7b",  backend_config=engine_config)
-res = pipe("Hi, pls introduce shanghai", gen_config=gen_config)

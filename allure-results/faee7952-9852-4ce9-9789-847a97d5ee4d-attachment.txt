@@ -1,6 +1,0 @@
-prompt:介绍乌鲁木齐的景点#Introducing urumqi’s attractions
-output:
-result:False, reason:urumqi,乌鲁木齐,乌市,xinjiang,新疆,uwumqi,Ürümqi doesn't exist in 
-prompt:介绍它的相应美食#please introduce some delicious foods
-output:
-result:False, reason:urumqi,乌鲁木齐,乌市,xinjiang,新疆,uwumqi,Ürümqi doesn't exist in 
