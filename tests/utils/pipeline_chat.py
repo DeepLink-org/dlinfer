@@ -5,8 +5,8 @@ from subprocess import PIPE
 import allure
 import torch
 from pytest import assume
-from utils.get_run_config import get_model_name, get_tp_num
-from utils.rule_condition_assert import assert_result
+from .get_run_config import get_model_name, get_tp_num
+from .rule_condition_assert import assert_result
 
 from lmdeploy import pipeline
 from lmdeploy.messages import GenerationConfig
