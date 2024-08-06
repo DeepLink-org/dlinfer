@@ -62,7 +62,6 @@ jobs:
         run: |
           set -ex
           git clone https://github.com/DeepLink-org/lmdeploy.git -b infer_ext ${{ env.LMDEPLOY_PATH }}
-          export PYTHONPATH=${{ env.LMDEPLOY_PATH }}/lmdeploy:$PYTHONPATH
 
 
   Tests:
@@ -72,7 +71,8 @@ jobs:
       - name: RunTests
         run: |
           set -ex
-          cd ${{ env.CI_PATH }}
+          export PYTHONPATH=${{ env.LMDEPLOY_PATH }}/lmdeploy:$PYTHONPATH
+          cd ${{ env.CI_PATH }}    
           pytest tests -x --alluredir=allure-results --clean-alluredir
 
   
