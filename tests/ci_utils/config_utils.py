@@ -1,6 +1,6 @@
 import os
-
 import yaml
+
 from ci_utils.get_run_config import get_tp_num
 
 

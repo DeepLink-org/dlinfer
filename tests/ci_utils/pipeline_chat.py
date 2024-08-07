@@ -18,7 +18,6 @@ def run_pipeline_chat_test(config,
                            cases_info,
                            model_case,
                            type,
-                           worker_id: str = '',
                            extra: object = None,
                            use_local_model: bool = True):
     log_path = config.get('log_path')
@@ -39,7 +38,7 @@ def run_pipeline_chat_test(config,
 
     config_log = os.path.join(
         log_path, '_'.join([
-            'pipeline', 'config', type, worker_id,
+            'pipeline', 'config', type, 
             model_case.split('/')[1] + '.log'
         ]))
     file = open(config_log, 'w')
@@ -60,7 +59,7 @@ def run_pipeline_chat_test(config,
         case_info = cases_info.get(case)
         pipeline_chat_log = os.path.join(
             log_path, '_'.join([
-                'pipeline', 'chat', type, worker_id,
+                'pipeline', 'chat', type,
                 model_case.split('/')[1], case + '.log'
             ]))
 
@@ -91,13 +90,12 @@ def run_pipeline_chat_test(config,
 def assert_pipeline_chat_log(config,
                              cases_info,
                              model_case,
-                             type,
-                             worker_id: str = ''):
+                             type,):
     log_path = config.get('log_path')
 
     config_log = os.path.join(
         log_path, '_'.join([
-            'pipeline', 'config', type, worker_id,
+            'pipeline', 'config', type,
             model_case.split('/')[1] + '.log'
         ]))
 
@@ -112,7 +110,7 @@ def assert_pipeline_chat_log(config,
         with allure.step('case - ' + case):
             pipeline_chat_log = os.path.join(
                 log_path, '_'.join([
-                    'pipeline', 'chat', type, worker_id,
+                    'pipeline', 'chat', type,
                     model_case.split('/')[1], case + '.log'
                 ]))
 

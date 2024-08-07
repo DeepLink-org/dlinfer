@@ -42,15 +42,3 @@ def assert_result(input, rule_condition, model_name):
                     return False, input + ' length: ' + str(
                         len(input)) + ', should greater than ' + str(value)
         return True, ''
-
-
-if __name__ == '__main__':
-    input = '成都的景点hot potdddd'
-    condition = ([[{
-        'contain': ['hot pot']
-    }, {
-        'contain': ['。']
-    }, {
-        'len_g': [10]
-    }]])
-    print(assert_result(input, condition))
