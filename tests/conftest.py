@@ -3,9 +3,9 @@ import os
 import pytest
 import yaml
 
-cli_prompt_case_file = 'tests/chat_prompt_case.yaml'
-common_prompt_case_file = 'tests/prompt_case.yaml'
-config_file = 'tests/config.yaml'
+cli_prompt_case_file = './chat_prompt_case.yaml'
+common_prompt_case_file = './prompt_case.yaml'
+config_file = './config.yaml'
 
 
 @pytest.fixture(scope='session')

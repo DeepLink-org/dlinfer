@@ -15,7 +15,7 @@ def get_torch_model_list(tp_num: int = None, model_type: str = 'chat_model'):
         return case_list
 
 def get_config():
-    config_path = os.path.join('tests/config.yaml')
+    config_path = os.path.join('./config.yaml')
     with open(config_path) as f:
         config = yaml.load(f.read(), Loader=yaml.SafeLoader)
     return config

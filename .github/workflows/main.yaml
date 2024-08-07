@@ -74,9 +74,9 @@ jobs:
         run: |
           set -ex
           source /usr/local/Ascend/ascend-toolkit/set_env.sh
-          export PYTHONPATH=/data2/wugeshui/.local/lib/python3.10/site-packages:${{env.LMDEPLOY_PATH }}:$PYTHONPATH && echo $PYTHONPATH
-          cd ${{env.CI_PATH }}
-          pytest tests -x --alluredir=allure-results --clean-alluredir
+          export PYTHONPATH=${{env.LMDEPLOY_PATH }}:$PYTHONPATH && echo $PYTHONPATH
+          cd ${{env.CI_PATH }}/tests
+          pytest ./ -x --alluredir=allure-results --clean-alluredir
 
       - name: Generate reports
         if: always()
