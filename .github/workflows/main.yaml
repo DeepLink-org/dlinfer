@@ -81,7 +81,6 @@ jobs:
       - name: Generate reports
         if: always()
         run: |
-          cd ${{env.CI_PATH }}
           export date_today="$(date +'%Y%m%d-%H%M%S')"
           export report_dir="$REPORT_DIR/$date_today"
           echo "Save report to $report_dir"
