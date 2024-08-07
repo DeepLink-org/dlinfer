@@ -14,6 +14,7 @@ __all__ =[
     "paged_prefill_attention",
     "rms_norm",
     "moe_gating_topk_softmax",
+    "get_cache_len",
 ]
 
 @register_ops(vendor_ops_registry)
@@ -121,6 +122,10 @@ def fill_contiguous_kvcache(
     key_cache = torch.cat([key_cache, key_state], dim=1)
     value_cache = torch.cat([value_cache, value_state], dim=1)
     return key_cache, value_cache
+
+@register_ops(vendor_ops_registry)
+def get_cache_len(cache: Tensor):
+    return cache.shape[1]
 
 @register_ops(vendor_ops_registry)
 def paged_decode_attention(

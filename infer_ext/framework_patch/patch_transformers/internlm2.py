@@ -1,3 +1,5 @@
+# Copyright 2024 HuggingFace Inc.
+
 import torch
 from einops import rearrange
 from transformers.cache_utils import Cache
@@ -106,7 +108,7 @@ def modeling_internlm2_InternLM2ForCausalLM_prepare_inputs_for_generation(
             cache_length = past_length if max_cache_length is None else torch.min(max_cache_length, past_length)
         # TODO joao: remove this `else` after `generate` prioritizes `Cache` objects
         else:
-            cache_length = past_length = past_key_values[0][0].shape[1]
+            cache_length = past_length = ext_ops.get_cache_len(past_key_values[0][0])
             max_cache_length = None
 
         # Keep only the unprocessed tokens:

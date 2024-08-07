@@ -14,6 +14,7 @@ __all__ = [
     "moe_gating_topk_softmax",
     "fused_attention",
     "fill_contiguous_kvcache",
+    "get_cache_len",
 ]
 
 
@@ -206,3 +207,9 @@ def fill_contiguous_kvcache(
     return vendor_ops_registry[func_name](
         key_cache, value_cache, key_state, value_state
     )
+
+def get_cache_len(cache: Tensor):
+    func_name = sys._getframe().f_code.co_name
+    return vendor_ops_registry[func_name](cache)
+
+
