@@ -1,0 +1,29 @@
+identity:
+    - 你好，你叫什么名字#hi, what's your name:
+chinese_poem_case:
+    - 给我一首中文诗，需要添加标点符号，请用中文回答Give me a Chinese poem in Chinese:
+        - contain:
+            - "，"
+            - "。"
+            - poem
+            - poetry
+            - \n
+        - len_g:
+            5
+code_testcase:
+    - 使用python编写一个int数组的冒泡排序代码:
+        - contain:
+            - def
+            - bubble
+            - 冒泡
+            - code
+            - python
+        - llama2:
+            - contain:
+                - def
+                - bubble
+                - 冒泡
+                - code
+                - python
+                - assist
+                - however
