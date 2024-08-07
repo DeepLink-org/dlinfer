@@ -125,3 +125,6 @@ core.*
 
 # CI temp directory
 mmlab_pack
+
+# generated config
+/infer_ext/vendor/vendor.yaml

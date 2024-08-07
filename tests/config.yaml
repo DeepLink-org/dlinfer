@@ -1,0 +1,10 @@
+model_path: /data2/share_data
+log_path: /data2/wugeshui/GitHub/ci_log/logs
+
+tp_config:
+    Mixtral-8x7B-Instruct-v0.1: 2
+
+pytorch_chat_model:
+    - internlm_model_data/internlm2-chat-7b
+    - llama_model_data/llama-2-7b-chat-hf
+    - mixtral_model_data/Mixtral-8x7B-Instruct-v0.1
