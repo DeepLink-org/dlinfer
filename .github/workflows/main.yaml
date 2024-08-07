@@ -73,6 +73,7 @@ jobs:
       - name: RunTests
         run: |
           set -ex
+          source /usr/local/Ascend/ascend-toolkit/set_env.sh
           export PYTHONPATH=${{env.LMDEPLOY_PATH }}:$PYTHONPATH && echo $PYTHONPATH
           cd ${{env.CI_PATH }}
           pytest tests -x --alluredir=allure-results --clean-alluredir
