@@ -1,4 +1,5 @@
 import sys
+import torch
 from infer_ext.vendor import vendor_ops_registry
 from infer_ext.utils.type_annotation import Tensor, Optional, List
 
@@ -11,6 +12,8 @@ __all__ = [
     "paged_prefill_attention",
     "rms_norm",
     "moe_gating_topk_softmax",
+    "fused_attention",
+    "fill_contiguous_kvcache",
 ]
 
 
@@ -148,4 +151,58 @@ def moe_gating_topk_softmax(
     func_name = sys._getframe().f_code.co_name
     return vendor_ops_registry[func_name](
         router_logits, topk
+    )
+
+# TODO only for internlm on transformers lib.
+# see issue #9 for details
+def fused_attention(
+    query_states: Tensor,
+    key_states: Tensor,
+    value_states: Tensor,
+    mask: list,
+):
+    batch_size = query_states.shape[0]
+    query_states = query_states.squeeze(0)
+    key_states = key_states.squeeze(0)
+    value_states = value_states.squeeze(0)
+    q_seq_len, num_q_heads, _ = query_states.shape
+    kv_seq_len, num_kv_heads, _ = value_states.shape
+    attn_output = torch.empty_like(query_states)
+
+    for i in range(batch_size):
+        if q_seq_len == kv_seq_len:
+            context_attention(
+                attn_output,
+                query_states,
+                key_states,
+                value_states,
+                torch.tensor([kv_seq_len-q_seq_len], dtype=torch.int64, device=query_states.device),
+                torch.tensor([kv_seq_len], dtype=torch.int64, device=query_states.device),
+                num_q_heads,
+                num_kv_heads,
+                mask[i:i + 1],
+            )
+        else:
+            paged_decode_attention(
+                attn_output,
+                query_states,
+                key_states,
+                value_states,
+                block_table=None,
+                block_size=0,
+                kv_seq_len=torch.tensor([kv_seq_len], dtype=torch.int64, device=query_states.device),
+                num_q_heads=num_q_heads,
+                num_kv_heads=num_kv_heads
+            )
+    return attn_output
+
+def fill_contiguous_kvcache(
+    key_cache: Tensor,
+    value_cache: Tensor,
+    key_state: Tensor,
+    value_state: Tensor
+):
+    func_name = sys._getframe().f_code.co_name
+    return vendor_ops_registry[func_name](
+        key_cache, value_cache, key_state, value_state
     )

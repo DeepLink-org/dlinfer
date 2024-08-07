@@ -1,50 +1,18 @@
-import math
-import queue
-import threading
-
 import torch
-import torch.nn.functional as F
-import torch.utils.checkpoint
 from einops import rearrange
-from torch import nn
-from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
-from transformers.activations import ACT2FN
-from transformers.cache_utils import Cache, DynamicCache, StaticCache
-from transformers.modeling_attn_mask_utils import AttentionMaskConverter
-from transformers.modeling_outputs import (
-            BaseModelOutputWithPast,
-            CausalLMOutputWithPast,
-            QuestionAnsweringModelOutput,
-            SequenceClassifierOutputWithPast,
-            TokenClassifierOutput,
-)
+from transformers.cache_utils import Cache
 from typing import Optional, Dict, Any, Tuple
-from typing import List, Optional, Tuple, Union
-import typing
-from transformers.modeling_utils import PreTrainedModel
-from transformers.pytorch_utils import ALL_LAYERNORM_LAYERS
-from transformers.utils import (
-            add_start_docstrings,
-            add_start_docstrings_to_model_forward,
-            is_flash_attn_greater_or_equal_2_10,
-            logging,
-            replace_return_docstrings,
-)
-
-import os
-import sys
-from .ascend_kernels import apply_rotary_pos_emb, context_attention
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass
 import infer_ext.ops as ext_ops
-
-def modeling_internlm2_InternLM2RMSNorm_forward(self, hidden_states):
-    return ext_ops.rms_norm(hidden_states, self.weight, self.variance_epsilon)
 
 @dataclass
 class TransformerBlockContext:
     ...
 
 transformer_block_context = TransformerBlockContext()
+
+def modeling_internlm2_InternLM2RMSNorm_forward(self, hidden_states):
+    return ext_ops.rms_norm(hidden_states, self.weight, self.variance_epsilon)
 
 def modeling_internlm2_InternLM2Attention_forward(
     self,
@@ -82,20 +50,19 @@ def modeling_internlm2_InternLM2Attention_forward(
 
     global transformer_block_context
     if self.layer_idx == 0:
-        #transformer_block_context = TransformerBlockContext()
         cos, sin = self.rotary_emb(value_states, position_ids)
         setattr(transformer_block_context, 'sin', sin)
         setattr(transformer_block_context, 'cos', cos)
     sin = transformer_block_context.sin
     cos = transformer_block_context.cos
-    query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
+    query_states, key_states = ext_ops.apply_rotary_pos_emb(query_states, key_states, cos, sin, None, None, None)
 
     if past_key_value is not None:
         # sin and cos are specific to RoPE models; cache_position needed for the static cache
         cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}
         key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
 
-    attn_output = context_attention(query_states, key_states, value_states, [attention_mask.to(torch.bool)])
+    attn_output = ext_ops.fused_attention(query_states, key_states, value_states, [attention_mask.to(torch.bool)])
 
     attn_output = attn_output.reshape(bsz, q_len, self.hidden_size)
 
@@ -196,20 +163,6 @@ def modeling_internlm2_InternLM2ForCausalLM_prepare_inputs_for_generation(
     )
     return model_inputs
 
-from transformers import AutoModelForCausalLM
-from transformers.configuration_utils import PretrainedConfig
-from transformers.dynamic_module_utils import resolve_trust_remote_code, get_class_from_dynamic_module
-from transformers.utils import (
-    CONFIG_NAME,
-    cached_file,
-    extract_commit_hash,
-    find_adapter_config_file,
-    is_peft_available,
-)
-from transformers.models.auto.configuration_auto import AutoConfig
-import transformers.cache_utils
-
-
 def transformers_cache_utils_dynamiccache_update(
     self,
     key_states: torch.Tensor,
@@ -242,10 +195,11 @@ def transformers_cache_utils_dynamiccache_update(
         self.key_cache.append(key_states)
         self.value_cache.append(value_states)
     else:
-        #ext.ops.fill_contiguous_kvcache(self.key_cache[layer_idx], key_states)
-        #ext.ops.fill_contiguous_kvcache(self.value_cache[layer_idx], value_states)
-        self.key_cache[layer_idx] = torch.cat([self.key_cache[layer_idx], key_states], dim=1)
-        self.value_cache[layer_idx] = torch.cat([self.value_cache[layer_idx], value_states], dim=1)
+        self.key_cache[layer_idx], self.value_cache[layer_idx] = ( 
+            ext_ops.fill_contiguous_kvcache(self.key_cache[layer_idx], 
+                                            self.value_cache[layer_idx],
+                                            key_states, value_states)
+        )
 
     return self.key_cache[layer_idx], self.value_cache[layer_idx]
 

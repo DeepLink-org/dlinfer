@@ -1,7 +1,6 @@
 import transformers
 import inspect
 
-
 def apply_model_patches(module):
     if module.__name__ == 'transformers_modules.internlm2-chat-7b.modeling_internlm2':
         from . import internlm2

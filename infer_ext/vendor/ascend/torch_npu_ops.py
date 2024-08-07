@@ -26,6 +26,8 @@ def apply_rotary_pos_emb(
     cos_full: Optional[Tensor],
     sin_full: Optional[Tensor]
 ):
+    cos = cos.unsqueeze(2)
+    sin = sin.unsqueeze(2)
     if position_ids is not None:
         cos = cos_full[position_ids]
         sin = sin_full[position_ids]
@@ -33,6 +35,8 @@ def apply_rotary_pos_emb(
     key = key.contiguous()
 
     torch.ops.npu.npu_apply_rotary_pos_emb(query, key, cos, sin, "BSND")
+
+    return query, key
 
 @register_ops(vendor_ops_registry)
 def context_attention(
@@ -86,6 +90,7 @@ def context_attention(
         attn_output[:] = torch.ops.npu.npu_prompt_flash_attention(query, key, value,
             actual_seq_lengths=seq_len_list, num_heads=num_q_heads, scale_value=scale_value,
             input_layout="BSH", num_key_value_heads=num_kv_heads)
+
 @register_ops(vendor_ops_registry)
 def fill_kv_cache(
     key: Tensor,
@@ -105,6 +110,17 @@ def fill_kv_cache(
     value_cache_reshaped = value_cache.view(block_total, head, dim)
     torch.ops.npu.npu_scatter_nd_update_(key_cache_reshaped, kv_indices, key)
     torch.ops.npu.npu_scatter_nd_update_(value_cache_reshaped, kv_indices, value)
+
+@register_ops(vendor_ops_registry)
+def fill_contiguous_kvcache(
+    key_cache: Tensor,
+    value_cache: Tensor,
+    key_state: Tensor,
+    value_state: Tensor
+):
+    key_cache = torch.cat([key_cache, key_state], dim=1)
+    value_cache = torch.cat([value_cache, value_state], dim=1)
+    return key_cache, value_cache
 
 @register_ops(vendor_ops_registry)
 def paged_decode_attention(
