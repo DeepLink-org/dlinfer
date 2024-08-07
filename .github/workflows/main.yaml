@@ -10,13 +10,14 @@ on:
 
 env:
   CI_PATH: '/data2/wugeshui/GitHub/${{ github.repository }}/${GITHUB_RUN_NUMBER}'
+  LMDEPLOY_PATH: '/data2/wugeshui/GitHub/lmdeploy'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  Clone:
+  CloneAndBuild:
     runs-on: pjlab_ascend_Atlas_800T_A2
     steps:
       - name: Checkout code
@@ -40,14 +41,59 @@ jobs:
           set -ex
           mv $GITHUB_WORKSPACE/* ${{ env.CI_PATH }}/
 
+      - name: Build and install InferExt
+        run: |
+          set -ex
+          cd ${{ env.CI_PATH }}
+          echo "y" | pip uninstall infer_ext
+          pip install -r requirements.txt --index-url https://download.pytorch.org/whl/cpu
+          DEVICE=ascend python3 setup.py install --user
+      
+      - name: Make and clean directory for lmdeploy
+        run: |
+          set -ex
+          echo ${{env.LMDEPLOY_PATH }}
+          if [ -d "${{env.LMDEPLOY_PATH }}" ]; then
+            rm -rf ${{env.LMDEPLOY_PATH }}
+            mkdir -p ${{env.LMDEPLOY_PATH }}
+          fi
+
+      - name: Clone lmdeploy
+        run: |
+          set -ex
+          git clone https://github.com/DeepLink-org/lmdeploy.git -b infer_ext ${{ env.LMDEPLOY_PATH }}
+
+
   Tests:
     runs-on: pjlab_ascend_Atlas_800T_A2
-    needs: [Clone]
+    needs: [CloneAndBuild]
+    env:
+      REPORT_DIR: /data2/wugeshui/GitHub/ci_log/test_reports
     steps:
       - name: RunTests
         run: |
           set -ex
-          cd ${{ env.CI_PATH }}
-          
+          source /usr/local/Ascend/ascend-toolkit/set_env.sh
+          export PYTHONPATH=${{env.LMDEPLOY_PATH }}:$PYTHONPATH && echo $PYTHONPATH
+          cd ${{env.CI_PATH }}/tests
+          pytest ./ -x --alluredir=allure-results --clean-alluredir
+
+      - name: Generate reports
+        if: always()
+        run: |
+          export date_today="$(date +'%Y%m%d-%H%M%S')"
+          export report_dir="$REPORT_DIR/$date_today"
+          echo "Save report to $report_dir"
+          cd ${{env.CI_PATH }}/tests
+          mv allure-results $report_dir
+
+      - name: Clear workfile
+        if: always()
+        run: |
+          export workdir=$(pwd)
+          cd ..
+          rm -rf $workdir
+          mkdir $workdir
+          chmod -R 777 $workdir    
 
   
