@@ -1,6 +1,9 @@
 import torch
 import torch_npu
+
+origin_torch_compile = torch.compile
 from torch_npu.contrib import transfer_to_npu
+torch.compile = origin_torch_compile
 
 __all__ = [
     "apply_vendor_pytorch_patch",
