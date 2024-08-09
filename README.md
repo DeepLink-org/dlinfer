@@ -5,11 +5,8 @@
 ### ascend
 InferExt在Atlas_800T_A2上依赖torch和torch_npu，运行以下命令安装torch、torch_npu及其依赖。
 ```
-pip3 install torch==2.1.0 torchvision==0.16.0 --index-url https://download.pytorch.org/whl/cpu
-pip3 install pyyaml
-pip3 install setuptools
-pip3 install torch-npu==2.1.0.post3
-pip3 install scikit-build cmake
+pip3 install requirements.txt --index-url https://download.pytorch.org/whl/cpu
+
 ```
 完成上述准备工作后，使用如下命令即可安装InferExt。
 ```

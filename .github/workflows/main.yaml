@@ -47,7 +47,7 @@ jobs:
           cd ${{ env.CI_PATH }}
           echo "y" | pip uninstall infer_ext
           pip install -r requirements.txt --index-url https://download.pytorch.org/whl/cpu
-          DEVICE=ascend python3 setup.py install --user
+          DEVICE=ascend python3 setup.py develop --user
       
       - name: Make and clean directory for lmdeploy
         run: |
@@ -62,7 +62,7 @@ jobs:
         run: |
           set -ex
           git clone https://github.com/DeepLink-org/lmdeploy.git -b infer_ext ${{ env.LMDEPLOY_PATH }}
-
+          cd ${{ env.LMDEPLOY_PATH }} && git apply /data2/wugeshui/GitHub/patchs/fix-exit-multi-npu.patch
 
   Tests:
     runs-on: pjlab_ascend_Atlas_800T_A2
@@ -74,9 +74,12 @@ jobs:
         run: |
           set -ex
           source /usr/local/Ascend/ascend-toolkit/set_env.sh
-          export PYTHONPATH=${{env.LMDEPLOY_PATH }}:$PYTHONPATH && echo $PYTHONPATH
-          cd ${{env.CI_PATH }}/tests
-          pytest ./ -x --alluredir=allure-results --clean-alluredir
+          export PYTHONPATH=${{env.LMDEPLOY_PATH }}:$PYTHONPATH
+          cd ${{env.CI_PATH }}/tests/e2e
+          export INFEREXT_TEST_DIR=${{env.CI_PATH }}/tests 
+          echo $PYTHONPATH && pwd
+          pytest ./ -s -x --alluredir=allure-results --clean-alluredir
+          python ./test_model_tp2.py
 
       - name: Generate reports
         if: always()
@@ -84,7 +87,7 @@ jobs:
           export date_today="$(date +'%Y%m%d-%H%M%S')"
           export report_dir="$REPORT_DIR/$date_today"
           echo "Save report to $report_dir"
-          cd ${{env.CI_PATH }}/tests
+          cd ${{env.CI_PATH }}/tests/e2e
           mv allure-results $report_dir
 
       - name: Clear workfile
