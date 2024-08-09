@@ -78,7 +78,7 @@ jobs:
           cd ${{env.CI_PATH }}/tests/e2e
           export INFEREXT_TEST_DIR=${{env.CI_PATH }}/tests 
           echo $PYTHONPATH && pwd
-          pytest ./ -x --alluredir=allure-results --clean-alluredir
+          pytest ./ -s -x --alluredir=allure-results --clean-alluredir
           python ./test_model_2tp.py
 
       - name: Generate reports
