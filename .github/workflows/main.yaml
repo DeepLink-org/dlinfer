@@ -87,7 +87,7 @@ jobs:
           export date_today="$(date +'%Y%m%d-%H%M%S')"
           export report_dir="$REPORT_DIR/$date_today"
           echo "Save report to $report_dir"
-          cd ${{env.CI_PATH }}/tests
+          cd ${{env.CI_PATH }}/tests/e2e
           mv allure-results $report_dir
 
       - name: Clear workfile
