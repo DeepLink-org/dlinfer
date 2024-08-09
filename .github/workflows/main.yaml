@@ -79,7 +79,7 @@ jobs:
           export INFEREXT_TEST_DIR=${{env.CI_PATH }}/tests 
           echo $PYTHONPATH && pwd
           pytest ./ -s -x --alluredir=allure-results --clean-alluredir
-          python ./test_model_2tp.py
+          python ./test_model_tp2.py
 
       - name: Generate reports
         if: always()
