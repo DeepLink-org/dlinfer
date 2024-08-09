@@ -5,7 +5,7 @@
 
 # How to run test locally
 1. 修改config.yml中对应的模型路径和log_path
-2. `export INFEREXT_TEST_DIR=/path/to/Inferext/tests`
+2. `export INFEREXT_TEST_DIR=/path/to/InferExt/tests`
 3. 运行
    ```
    cd /path/to/tests/e2e
