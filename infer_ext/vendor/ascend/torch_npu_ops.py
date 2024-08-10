@@ -39,8 +39,10 @@ def apply_rotary_pos_emb(
     cos_full: Optional[Tensor],
     sin_full: Optional[Tensor]
 ) -> Tuple[Tensor, Tensor]:
-    cos = cos.unsqueeze(2)
-    sin = sin.unsqueeze(2)
+    if len(cos.shape) < 4:
+        cos = cos.unsqueeze(2)
+    if len(sin.shape) < 4:
+        sin = sin.unsqueeze(2)
     if position_ids is not None:
         cos = cos_full[position_ids]
         sin = sin_full[position_ids]

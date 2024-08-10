@@ -205,6 +205,6 @@ def fill_contiguous_kvcache(
         key_state, value_state
     )
 
-def get_cache_len(cache: Tensor):
+def get_cache_len(cache: Tensor) -> int:
     return vendor_ops_registry["get_cache_len"](cache)
 
