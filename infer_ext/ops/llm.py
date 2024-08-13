@@ -13,6 +13,9 @@ __all__ = [
     "paged_prefill_attention",
     "rms_norm",
     "moe_gating_topk_softmax",
+    "fused_attention",
+    "fill_contiguous_kvcache",
+    "get_cache_len",
 ]
 
 
@@ -176,3 +179,32 @@ def moe_gating_topk_softmax(
     return vendor_ops_registry["moe_gating_topk_softmax"](
         router_logits, topk
     )
+
+
+# TODO only for internlm on transformers lib.
+# see issue #9 for details
+def fused_attention(
+    query_states: Tensor,
+    key_states: Tensor,
+    value_states: Tensor,
+    mask: list,
+) -> Tensor:
+    return vendor_ops_registry["fused_attention"](
+        query_states, key_states,
+        value_states, mask
+    )
+
+def fill_contiguous_kvcache(
+    key_cache: Tensor,
+    value_cache: Tensor,
+    key_state: Tensor,
+    value_state: Tensor
+) -> Tuple[Tensor, Tensor]:
+    return vendor_ops_registry["fill_contiguous_kvcache"](
+        key_cache, value_cache,
+        key_state, value_state
+    )
+
+def get_cache_len(cache: Tensor) -> int:
+    return vendor_ops_registry["get_cache_len"](cache)
+
