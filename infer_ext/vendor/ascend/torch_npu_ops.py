@@ -15,6 +15,7 @@ __all__ =[
     "paged_prefill_attention",
     "rms_norm",
     "moe_gating_topk_softmax",
+    "get_cache_len",
 ]
 
 @register_ops(vendor_ops_registry)
@@ -38,9 +39,15 @@ def apply_rotary_pos_emb(
     cos_full: Optional[Tensor],
     sin_full: Optional[Tensor]
 ) -> Tuple[Tensor, Tensor]:
+    if len(cos.shape) < 4:
+        cos = cos.unsqueeze(2)
+    if len(sin.shape) < 4:
+        sin = sin.unsqueeze(2)
     if position_ids is not None:
         cos = cos_full[position_ids]
         sin = sin_full[position_ids]
+    query = query.contiguous()
+    key = key.contiguous()
     return torch.ops.npu.npu_apply_rotary_pos_emb(query, key, cos, sin, "BSND")
 
 @register_ops(vendor_ops_registry)
@@ -65,6 +72,11 @@ def context_attention(
                            "support attn_qk_scale yet")
     # cann prompt_fa don't support batch query with different seq_len
     seq_len_list = seq_len.tolist()
+
+    query = query.contiguous()
+    key = key.contiguous()
+    value = value.contiguous()
+
     if attn_mask:
         batch = q_start_loc.shape[0]
         scale_value = 1. / math.sqrt(query.shape[-1])
@@ -82,6 +94,8 @@ def context_attention(
                 atten_mask=attn_mask[i], actual_seq_lengths=actual_seq_lengths, 
                 num_heads=num_q_heads, scale_value=scale_value, pre_tokens=2147473647, next_tokens=0,
                 input_layout="BSH", num_key_value_heads=num_kv_heads)
+            # TODO remvoe sync
+            torch.cuda.synchronize()
     else:
         # For now, the value of attn_mask is None only in vit
         scale_value = 1. / math.sqrt(query.shape[-1] // num_q_heads)
@@ -101,11 +115,31 @@ def fill_kv_cache(
     head, dim = key.shape[1:]
     block_num, block_size = key_cache.shape[:2]
     block_total = block_num * block_size
+
+    # only support contiguous k,v
+    key = key.contiguous()
+    value = value.contiguous()
+
     key_cache_reshaped = key_cache.view(block_total, head, dim)
     value_cache_reshaped = value_cache.view(block_total, head, dim)
     torch.ops.npu.npu_scatter_nd_update_(key_cache_reshaped, kv_indices, key)
     torch.ops.npu.npu_scatter_nd_update_(value_cache_reshaped, kv_indices, value)
     return key_cache, value_cache
+
+@register_ops(vendor_ops_registry)
+def fill_contiguous_kvcache(
+    key_cache: Tensor,
+    value_cache: Tensor,
+    key_state: Tensor,
+    value_state: Tensor
+) -> Tuple[Tensor, Tensor]:
+    key_cache = torch.cat([key_cache, key_state], dim=1)
+    value_cache = torch.cat([value_cache, value_state], dim=1)
+    return key_cache, value_cache
+
+@register_ops(vendor_ops_registry)
+def get_cache_len(cache: Tensor):
+    return cache.shape[1]
 
 @register_ops(vendor_ops_registry)
 def paged_decode_attention(
@@ -131,6 +165,7 @@ def paged_decode_attention(
         block_table = block_table.to(torch.int32)
 
     bs, _, dim = query.shape
+    query = query.contiguous()
     query = query.view(bs, 1, num_q_heads * dim)
     kv_cache_len = key_cache.shape[0]
     key_cache = key_cache.view(1, kv_cache_len, -1)
@@ -144,6 +179,8 @@ def paged_decode_attention(
         quant_scale1=None, dequant_scale2=None, quant_scale2=None, quant_offset2=None,
         num_heads=num_q_heads, scale_value=scale_value, input_layout="BSH",
         num_key_value_heads=num_kv_heads, block_size=block_size, inner_precise=1)
+    # TODO remvoe sync
+    torch.cuda.synchronize()
     return attn_output
 
 @register_ops(vendor_ops_registry)
@@ -177,6 +214,7 @@ def paged_prefill_attention(
     q_seq_len_list = q_seq_len.tolist()
     kv_seq_len_list = kv_seq_len.tolist()
     scale_value = 1. / math.sqrt(query.shape[-1])
+    query = query.contiguous()
     for i in range(batch):
         start = q_start_loc[i]
         mask = attn_mask[i]
@@ -199,6 +237,7 @@ def rms_norm(
     weight: Tensor,
     epsilon: float
 ) -> Tensor:
+    hidden_states = hidden_states.contiguous()
     return torch.ops.npu.npu_rms_norm(hidden_states, weight, epsilon)[0]
 
 @register_ops(vendor_ops_registry)
@@ -211,3 +250,52 @@ def moe_gating_topk_softmax(
     selected_idx = torch.empty_like(selected_experts)
     return torch.ops.npu_ext.npu_moe_gating_topk_softmax(router_logits, None, topk, routing_weights,
                                                          selected_experts, selected_idx)
+
+# TODO only for internlm on transformers lib.
+# see issue #9 for details
+@register_ops(vendor_ops_registry)
+def fused_attention(
+    query_states: Tensor,
+    key_states: Tensor,
+    value_states: Tensor,
+    mask: list,
+) -> Tensor:
+    batch_size = query_states.shape[0]
+    query_states = query_states.squeeze(0)
+    key_states = key_states.squeeze(0)
+    value_states = value_states.squeeze(0)
+    q_seq_len, num_q_heads, _ = query_states.shape
+    kv_seq_len, num_kv_heads, _ = value_states.shape
+    attn_output = torch.empty_like(query_states)
+
+    for i in range(batch_size):
+        if q_seq_len == kv_seq_len:
+            context_attention(
+                query_states,
+                key_states,
+                value_states,
+                torch.tensor([kv_seq_len-q_seq_len], dtype=torch.int64, device=query_states.device),
+                torch.tensor([kv_seq_len], dtype=torch.int64, device=query_states.device),
+                num_q_heads,
+                num_kv_heads,
+                mask[i:i + 1],
+                None,
+                None,
+                attn_output,
+            )
+        else:
+            paged_decode_attention(
+                query_states,
+                key_states,
+                value_states,
+                None,
+                0,
+                torch.tensor([kv_seq_len], dtype=torch.int64, device=query_states.device),
+                num_q_heads,
+                num_kv_heads,
+                None,
+                None,
+                attn_output,
+            )
+    return attn_output
+
