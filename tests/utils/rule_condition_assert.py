@@ -1,9 +1,9 @@
 def assert_result(input, rule_condition, model_name):
-    input = input.replace('\n', '\\n')
+    input = input.replace("\n", "\\n")
     input_lower = input.lower()
     for dict in rule_condition:
         if dict is None:
-            return True, ''
+            return True, ""
 
         for rule in dict:
             operator = list(rule.keys())[0]
@@ -14,20 +14,19 @@ def assert_result(input, rule_condition, model_name):
         for rule in dict:
             operator = list(rule.keys())[0]
             value = list(rule.values())[0]
-            if operator == 'contain':
+            if operator == "contain":
                 if isinstance(value, list):
                     tmpResult = False
                     for word in value:
                         if word.lower() in input_lower:
                             tmpResult = True
                     if tmpResult is False:
-                        return False, ','.join(
-                            value) + " doesn't exist in " + input
+                        return False, ",".join(value) + " doesn't exist in " + input
                 else:
                     if value.lower() not in input_lower:
                         msg = value + " doesn't exist in:" + input
                         return False, msg
-            if operator == 'not_contain':
+            if operator == "not_contain":
                 if isinstance(value, list):
                     for word in value:
                         if word.lower() in input_lower:
@@ -37,8 +36,9 @@ def assert_result(input, rule_condition, model_name):
                     if value.lower() in input_lower:
                         msg = value + " shouldn't exist in " + input
                         return False, msg
-            if operator == 'len_g':
+            if operator == "len_g":
                 if len(input) < int(value):
-                    return False, input + ' length: ' + str(
-                        len(input)) + ', should greater than ' + str(value)
-        return True, ''
+                    return False, input + " length: " + str(
+                        len(input)
+                    ) + ", should greater than " + str(value)
+        return True, ""
