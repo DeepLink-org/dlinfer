@@ -7,7 +7,7 @@ from tests.utils.pipeline_chat import assert_pipeline_chat_log, run_pipeline_cha
 
 
 @pytest.mark.skip(
-    reason="There is unresovalbe issue with the pytest mutil processe spwaning"
+    reason="There is unresolvable issue with the pytest multi process spawning"
 )
 def test_pipeline_chat_pytorch_tp2(env_config, case_config):
     model_case_list = get_torch_model_list(tp_num=2)
