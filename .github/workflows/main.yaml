@@ -40,8 +40,8 @@ jobs:
         run: |
           set -ex
           mv $GITHUB_WORKSPACE/* ${{ env.CI_PATH }}/
-          mv $GITHUB_WORKSPACE/.* ${{ env.CI_PATH }}/
-          
+          mv $GITHUB_WORKSPACE/.github ${{ env.CI_PATH }}/
+
       - name: Build and install InferExt
         run: |
           set -ex
