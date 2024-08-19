@@ -40,6 +40,7 @@ jobs:
         run: |
           set -ex
           mv $GITHUB_WORKSPACE/* ${{ env.CI_PATH }}/
+          mv $GITHUB_WORKSPACE/.github ${{ env.CI_PATH }}/
 
       - name: Build and install InferExt
         run: |
@@ -62,7 +63,8 @@ jobs:
         run: |
           set -ex
           git clone https://github.com/DeepLink-org/lmdeploy.git -b infer_ext ${{ env.LMDEPLOY_PATH }}
-          cd ${{ env.LMDEPLOY_PATH }} && git apply /data2/wugeshui/GitHub/patchs/fix-exit-multi-npu.patch
+          cd ${{ env.LMDEPLOY_PATH }} && git checkout 83a1105a9c7fc0ce22aaa4be84ab28697d73a65f
+          git apply ${{env.CI_PATH }}/.github/ci/fix-exit-multi-npu.patch
 
   Tests:
     runs-on: pjlab_ascend_910B
