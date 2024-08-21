@@ -17,7 +17,7 @@ set(_GLIBCXX_USE_CXX11_ABI "0" CACHE STRING "")
 set(DEVICE "" CACHE STRING "device string, default empty string")
 string(TOLOWER "${DEVICE}" DEVICE)
 
-list(APPEND SUPPORTED_DEVICE "ascend")
+list(APPEND SUPPORTED_DEVICE "ascend" "camb")
 
 if(NOT DEVICE)
   message(FATAL_ERROR "Please specify variable DEVICE of infer_ext!")
