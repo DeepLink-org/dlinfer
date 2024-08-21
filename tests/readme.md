@@ -12,5 +12,5 @@
    #run tp=1 model
    pytest ./ -s -x --alluredir=allure-results --clean-alluredir
    #run tp=2 model
-   python ./test_model_tp2.py
+   python ./test_model_tp2.py --model_type=chat --device_type=ascend
    ```

@@ -7,6 +7,8 @@ from pytest_assume.plugin import assume
 from lmdeploy import pipeline
 from lmdeploy.messages import GenerationConfig
 from lmdeploy import PytorchEngineConfig
+from lmdeploy.vl import load_image
+from lmdeploy.vl.constants import IMAGE_TOKEN
 
 from .config_utils import get_model_name, get_tp_num
 from .rule_condition_assert import assert_result
@@ -16,7 +18,7 @@ def run_pipeline_chat_test(
     config,
     cases_info,
     model_case,
-    type,
+    device_type,
     extra: object = None,
     use_local_model: bool = True,
 ):
@@ -28,8 +30,7 @@ def run_pipeline_chat_test(
         hf_path = model_path + "/" + model_case
     else:
         hf_path = model_case
-    # InferExt is only for ascend backend for now, we can add more backend support by exposing device_type arg
-    backend_config = PytorchEngineConfig(tp=tp, device_type="ascend")
+    backend_config = PytorchEngineConfig(tp=tp, device_type=device_type)
     print("backend_config: ", backend_config)
     pipe = pipeline(hf_path, backend_config=backend_config)
 
@@ -38,7 +39,15 @@ def run_pipeline_chat_test(
 
     config_log = os.path.join(
         log_path,
-        "_".join(["pipeline", "config", type, model_case.split("/")[1] + ".log"]),
+        "_".join(
+            [
+                device_type,
+                "pipeline",
+                "config",
+                "pytorch",
+                model_case.split("/")[1] + ".log",
+            ]
+        ),
     )
     file = open(config_log, "w")
     log_string = "\n".join(
@@ -61,7 +70,14 @@ def run_pipeline_chat_test(
         pipeline_chat_log = os.path.join(
             log_path,
             "_".join(
-                ["pipeline", "chat", type, model_case.split("/")[1], case + ".log"]
+                [
+                    device_type,
+                    "pipeline",
+                    "chat",
+                    "pytorch",
+                    model_case.split("/")[1],
+                    case + ".log",
+                ]
             ),
         )
 
@@ -87,12 +103,22 @@ def run_pipeline_chat_test(
     torch.cuda.empty_cache()
 
 
-def assert_pipeline_chat_log(config, cases_info, model_case, type, use_pytest=True):
+def assert_pipeline_chat_log(
+    config, cases_info, model_case, device_type, use_pytest=True
+):
     log_path = config.get("log_path")
 
     config_log = os.path.join(
         log_path,
-        "_".join(["pipeline", "config", type, model_case.split("/")[1] + ".log"]),
+        "_".join(
+            [
+                device_type,
+                "pipeline",
+                "config",
+                "pytorch",
+                model_case.split("/")[1] + ".log",
+            ]
+        ),
     )
 
     allure.attach.file(config_log, attachment_type=allure.attachment_type.TEXT)
@@ -106,7 +132,14 @@ def assert_pipeline_chat_log(config, cases_info, model_case, type, use_pytest=Tr
             pipeline_chat_log = os.path.join(
                 log_path,
                 "_".join(
-                    ["pipeline", "chat", type, model_case.split("/")[1], case + ".log"]
+                    [
+                        device_type,
+                        "pipeline",
+                        "chat",
+                        "pytorch",
+                        model_case.split("/")[1],
+                        case + ".log",
+                    ]
                 ),
             )
 
@@ -131,4 +164,150 @@ def assert_pipeline_chat_log(config, cases_info, model_case, type, use_pytest=Tr
             else:
                 if not result:
                     log_results.append((case, msg))
+    return log_results
+
+
+PIC1 = (
+    "https://raw.githubusercontent.com/"
+    + "open-mmlab/mmdeploy/main/tests/data/tiger.jpeg"
+)
+PIC2 = (
+    "https://raw.githubusercontent.com/"
+    + "open-mmlab/mmdeploy/main/demo/resources/human-pose.jpg"
+)
+
+
+def run_pipeline_vl_chat_test(config, model_case, device_type):
+    log_path = config.get("log_path")
+    tp = get_tp_num(config, model_case)
+    model_path = config.get("model_path")
+    hf_path = model_path + "/" + model_case
+    backend_config = PytorchEngineConfig(
+        tp=tp, session_len=8192, device_type=device_type
+    )
+    pipe = pipeline(hf_path, backend_config=backend_config)
+
+    pipeline_chat_log = os.path.join(
+        log_path, device_type + "_pipeline_vl_chat_" + model_case.split("/")[1] + ".log"
+    )
+    file = open(pipeline_chat_log, "w")
+
+    image = load_image(PIC1)
+    prompt = "describe this image"
+    response = pipe((prompt, image))
+    result = "tiger" in response.text.lower() or "虎" in response.text.lower()
+    file.writelines(
+        "result:"
+        + str(result)
+        + ", reason: simple example tiger not in "
+        + response.text
+        + "\n"
+    )
+
+    prompts = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": prompt},
+                {"type": "image_url", "image_url": {"url": PIC1}},
+            ],
+        }
+    ]
+    response = pipe(prompts)
+    result = "tiger" in response.text.lower() or "虎" in response.text.lower()
+    file.writelines(
+        "result:"
+        + str(result)
+        + ", reason: OpenAI format example: tiger not in "
+        + response.text
+        + "\n"
+    )
+
+    image_urls = [PIC2, PIC1]
+    images = [load_image(img_url) for img_url in image_urls]
+    # test for multi batchs
+    response = pipe((prompt, images))
+    result = (
+        "tiger" in response.text.lower()
+        or "ski" in response.text.lower()
+        or "虎" in response.text.lower()
+        or "滑雪" in response.text.lower()
+    )
+    file.writelines(
+        "result:"
+        + str(result)
+        + ", reason: Multi-images example: tiger or ski not in "
+        + response.text
+        + "\n"
+    )
+
+    image_urls = [PIC2, PIC1]
+    prompts = [(prompt, load_image(img_url)) for img_url in image_urls]
+    response = pipe(prompts)
+    result = (
+        "ski" in response[0].text.lower() or "滑雪" in response[0].text.lower()
+    ) and ("tiger" in response[1].text.lower() or "虎" in response[1].text.lower())
+    file.writelines(
+        "result:"
+        + str(result)
+        + ", reason: Batch example: ski or tiger not in "
+        + str(response)
+        + "\n"
+    )
+    # test for conversation
+    image = load_image(PIC2)
+    sess = pipe.chat((prompt, image))
+    result = "ski" in sess.response.text.lower() or "滑雪" in sess.response.text.lower()
+    file.writelines(
+        "result:"
+        + str(result)
+        + ", reason: Multi-turn example: ski not in "
+        + sess.response.text
+        + "\n"
+    )
+    sess = pipe.chat("What is the woman doing?", session=sess)
+    result = "ski" in sess.response.text.lower() or "滑雪" in sess.response.text.lower()
+    file.writelines(
+        "result:"
+        + str(result)
+        + ", reason: Multi-turn example: ski not in "
+        + sess.response.text
+        + "\n"
+    )
+
+    file.close()
+
+    del pipe
+    torch.cuda.empty_cache()
+
+
+def assert_pipeline_vl_chat_log(config, model_case, device_type, use_pytest=True):
+    log_path = config.get("log_path")
+
+    pipeline_chat_log = os.path.join(
+        log_path, device_type + "_pipeline_vl_chat_" + model_case.split("/")[1] + ".log"
+    )
+
+    allure.attach.file(pipeline_chat_log, attachment_type=allure.attachment_type.TEXT)
+
+    msg = "result is empty, please check again"
+    result = False
+    with open(pipeline_chat_log, "r") as f:
+        lines = f.readlines()
+        for line in lines:
+            if "result:False, reason:" in line:
+                result = False
+                msg = line
+                break
+            if "result:True, reason:" in line and result is False:
+                result = True
+                msg = ""
+
+    log_results = []
+    if use_pytest:
+        with assume:
+            assert result, msg
+    else:
+        if not result:
+            log_results.append((result, msg))
     return log_results
