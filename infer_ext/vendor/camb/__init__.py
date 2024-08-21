@@ -1,0 +1,1 @@
+device_str = 'mlu'
