@@ -9,7 +9,7 @@ from infer_ext.utils.type_annotation import Tensor, Optional, Sequence, Tuple
 __all__ =[
     "add_rms_norm",
     "apply_rotary_pos_emb",
-    "context_attention",
+    "prefill_attention",
     "fill_kv_cache",
     "paged_decode_attention",
     "paged_prefill_attention",
@@ -36,42 +36,36 @@ def apply_rotary_pos_emb(
     cos: Optional[Tensor],
     sin: Optional[Tensor],
     position_ids: Optional[Tensor],
-    cos_full: Optional[Tensor],
-    sin_full: Optional[Tensor]
+    cos_sin_cache: Optional[Tensor],
 ) -> Tuple[Tensor, Tensor]:
     if len(cos.shape) < 4:
         cos = cos.unsqueeze(2)
     if len(sin.shape) < 4:
         sin = sin.unsqueeze(2)
-    if position_ids is not None:
-        cos = cos_full[position_ids]
-        sin = sin_full[position_ids]
     query = query.contiguous()
     key = key.contiguous()
     return torch.ops.npu.npu_apply_rotary_pos_emb(query, key, cos, sin, "BSND")
 
 @register_ops(vendor_ops_registry)
-def context_attention(
+def prefill_attention(
     query: Tensor,
     key: Tensor,
     value: Tensor,
     q_start_loc: Tensor,
-    seq_len: Tensor,
+    q_seq_len: Tensor,
+    max_q_seq_len: int,
     num_q_heads: int,
     num_kv_heads: int,
     attn_mask: Sequence[Optional[Tensor]],
-    attn_qk_scale: Optional[float],
+    softmax_scale: Optional[float],
     alibi_slopes: Optional[Sequence[float]],
     attn_output: Optional[Tensor],
 ) -> Tensor:
     if alibi_slopes is not None:
         raise RuntimeError("paged_decode_attention does not "
                            "support alibi_slopes yet")
-    if attn_qk_scale is not None:
-        raise RuntimeError("paged_decode_attention does not "
-                           "support attn_qk_scale yet")
     # cann prompt_fa don't support batch query with different seq_len
-    seq_len_list = seq_len.tolist()
+    seq_len_list = q_seq_len.tolist()
 
     query = query.contiguous()
     key = key.contiguous()
@@ -82,8 +76,8 @@ def context_attention(
         scale_value = 1. / math.sqrt(query.shape[-1])
         for i in range(batch):
             start = q_start_loc[i]
-            end = start + seq_len[i]
-            single_seqlen = int(seq_len[i])
+            end = start + seq_len_list[i]
+            single_seqlen = int(seq_len_list[i])
             single_q = query[start:end].view(1, single_seqlen, -1)
             single_k = key[start:end].reshape(1, single_seqlen, -1)
             single_v = value[start:end].reshape(1, single_seqlen, -1)
@@ -149,18 +143,16 @@ def paged_decode_attention(
     block_table: Optional[Tensor],
     block_size: int,
     kv_seq_len: Tensor,
+    max_kv_seq_len: int,
     num_q_heads: int,
     num_kv_heads: int,
-    attn_qk_scale: Optional[float],
+    softmax_scale: Optional[float],
     alibi_slopes: Optional[Sequence[float]],
     attn_output: Optional[Tensor],
 ) -> Tensor:
     if alibi_slopes is not None:
         raise RuntimeError("paged_decode_attention does not "
                            "support alibi_slopes yet")
-    if attn_qk_scale is not None:
-        raise RuntimeError("paged_decode_attention does not "
-                           "support attn_qk_scale yet")
     if isinstance(block_table, torch.Tensor) and block_table.dtype != torch.int32:
         block_table = block_table.to(torch.int32)
 
@@ -196,16 +188,16 @@ def paged_prefill_attention(
     num_q_heads: int,
     num_kv_heads: int,
     attn_mask: Sequence[Optional[Tensor]],
-    attn_qk_scale: Optional[float],
+    softmax_scale: Optional[float],
     alibi_slopes: Optional[Sequence[float]],
     attn_output: Optional[Tensor],
 ) -> Tensor:
     if alibi_slopes is not None:
         raise RuntimeError("paged_decode_attention does not "
                            "support alibi_slopes yet")
-    if attn_qk_scale is not None:
+    if softmax_scale is not None:
         raise RuntimeError("paged_decode_attention does not "
-                           "support attn_qk_scale yet")
+                           "support softmax_scale yet")
     if block_table.dtype != torch.int32:
         block_table = block_table.to(torch.int32)
 
@@ -258,7 +250,7 @@ def fused_attention(
     query_states: Tensor,
     key_states: Tensor,
     value_states: Tensor,
-    mask: list,
+    mask: Sequence[Optional[Tensor]],
 ) -> Tensor:
     batch_size = query_states.shape[0]
     query_states = query_states.squeeze(0)
@@ -270,7 +262,7 @@ def fused_attention(
 
     for i in range(batch_size):
         if q_seq_len == kv_seq_len:
-            context_attention(
+            prefill_attention(
                 query_states,
                 key_states,
                 value_states,

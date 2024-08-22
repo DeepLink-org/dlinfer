@@ -12,8 +12,8 @@ def InternAttention_naive_attn(self, x):
     attention_mask = None
     start_loc = torch.tensor([N * i for i in range(B)],  device=q.device, dtype=torch.int64)
     seq_len = torch.tensor([N for _ in range(B)], device=q.device, dtype=torch.int64)
-    ext_ops.context_attention(q, k, v, start_loc, seq_len, self.num_heads,
-                              self.num_heads, attn_mask=attention_mask, attn_qk_scale=None, alibi_slopes=None, attn_output=x)
+    ext_ops.prefill_attention(q, k, v, start_loc, seq_len, N, self.num_heads,
+                              self.num_heads, attn_mask=attention_mask, softmax_scale=None, alibi_slopes=None, attn_output=x)
 
     x = self.proj(x.reshape(B, N, C))
     x = self.proj_drop(x)
