@@ -10,6 +10,10 @@ def apply_model_patches(module):
         transformers.cache_utils.DynamicCache.update = internlm2.transformers_cache_utils_dynamiccache_update
     elif module.__name__ == 'transformers_modules.modeling_internvl_chat':
         from . import internvl
-        vit_module = inspect.getmodule(module.InternVisionModel)
-        vit_module.InternAttention._naive_attn = internvl.InternAttention_naive_attn
-        vit_module.InternRMSNorm.forward = internvl.InternRMSNorm_forward
+        module = inspect.getmodule(module.InternVisionModel)
+        module.InternAttention._naive_attn = internvl.InternAttention_naive_attn
+        module.InternRMSNorm.forward = internvl.InternRMSNorm_forward
+    elif module.__name__ == 'transformers_modules.cogvlm-chat.modeling_cogvlm':
+        from . import cogvlm_ascend
+        module.EVA2CLIPModel = cogvlm_ascend.PatchedEVA2CLIPModel
+
