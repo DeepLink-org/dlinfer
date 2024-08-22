@@ -11,7 +11,7 @@ on:
 env:
   CI_PATH: '/data2/wugeshui/GitHub/${{ github.repository }}/${GITHUB_RUN_NUMBER}'
   LMDEPLOY_PATH: '/data2/wugeshui/GitHub/lmdeploy'
-  LMDEPLOY_COMMIT_OR_BRANCH: '01a9b4dda1d6d6a74e36903b80f0f77908a11217'
+  LMDEPLOY_COMMIT_OR_BRANCH: 'db3a184d08ba0c0811bb1951f1474d26f5e6b08f'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
