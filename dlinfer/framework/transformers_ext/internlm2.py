@@ -5,7 +5,7 @@ from einops import rearrange
 from transformers.cache_utils import Cache
 from typing import Optional, Dict, Any, Tuple
 from dataclasses import dataclass
-import infer_ext.ops as ext_ops
+import dlinfer.ops as ext_ops
 
 @dataclass
 class TransformerBlockContext:
@@ -57,7 +57,7 @@ def modeling_internlm2_InternLM2Attention_forward(
         setattr(transformer_block_context, 'cos', cos)
     sin = transformer_block_context.sin
     cos = transformer_block_context.cos
-    query_states, key_states = ext_ops.apply_rotary_pos_emb(query_states, key_states, cos, sin, None, None, None)
+    query_states, key_states = ext_ops.apply_rotary_pos_emb(query_states, key_states, cos, sin, None, None)
 
     if past_key_value is not None:
         # sin and cos are specific to RoPE models; cache_position needed for the static cache

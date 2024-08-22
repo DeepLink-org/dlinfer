@@ -3,7 +3,7 @@
 #include <ATen/core/ATen_fwd.h>
 #include <torch/torch.h>
 
-namespace infer_ext {
+namespace dlinfer {
 
 namespace ascend {
 
@@ -35,4 +35,4 @@ at::Tensor npu_incre_flash_attention_v4_out(
 
 } // namespace ascend
 
-} // namespace infer_ext 
+} // namespace dlinfer 

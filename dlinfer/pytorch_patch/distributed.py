@@ -6,8 +6,8 @@ from torch.distributed import (
     default_pg_timeout,
 )
 
-from infer_ext.utils.type_annotation import *
-from infer_ext.vendor import get_comm_str
+from dlinfer.utils.type_annotation import *
+from dlinfer.vendor import get_comm_str
 
 
 # change nccl to internal used dicl, so existing model can keep nccl as backend name.

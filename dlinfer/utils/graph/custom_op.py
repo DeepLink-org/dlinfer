@@ -4,8 +4,8 @@ from functools import wraps
 import torch._custom_ops
 from torch.library import Library, impl
 
-from infer_ext.utils.type_annotation import Callable, Optional, Sequence, Dict
-from infer_ext.vendor import dispatch_key
+from dlinfer.utils.type_annotation import Callable, Optional, Sequence, Dict
+from dlinfer.vendor import dispatch_key
 
 library_impl_dict: Dict[str, Library] = dict()
 

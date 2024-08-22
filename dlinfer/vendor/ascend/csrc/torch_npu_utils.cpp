@@ -98,7 +98,7 @@ namespace torch_npu {
     NPUTensorImpl::~NPUTensorImpl() {};
 } // namespace torch_npu
 
-namespace infer_ext {
+namespace dlinfer {
 namespace ascend {
 
 aclDataType convert_to_acl_data_type(const at::ScalarType &data_type) {
@@ -193,4 +193,4 @@ void SetDeterministic() {
 }
 
 } // namespace ascend
-} // namespace infer_ext
+} // namespace dlinfer
