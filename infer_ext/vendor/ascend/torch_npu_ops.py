@@ -5,6 +5,7 @@ import torch_npu
 from infer_ext.vendor import vendor_ops_registry
 from infer_ext.utils.registry import register_ops
 from infer_ext.utils.type_annotation import Tensor, Optional, Sequence, Tuple
+from infer_ext.vendor.ascend.atb_ops import atb_rope_operation, atb_self_attention, atb_paged_attention
 
 __all__ =[
     "add_rms_norm",
@@ -48,6 +49,7 @@ def apply_rotary_pos_emb(
         sin = sin_full[position_ids]
     query = query.contiguous()
     key = key.contiguous()
+    return atb_rope_operation(query, key, cos, sin)
     return torch.ops.npu.npu_apply_rotary_pos_emb(query, key, cos, sin, "BSND")
 
 @register_ops(vendor_ops_registry)
@@ -64,12 +66,15 @@ def context_attention(
     alibi_slopes: Optional[Sequence[float]],
     attn_output: Optional[Tensor],
 ) -> Tensor:
+    atb_self_attention(query, key, value, q_start_loc, seq_len, num_q_heads,
+                       num_kv_heads, attn_mask, attn_qk_scale, alibi_slopes, attn_output)
+    return attn_output
     if alibi_slopes is not None:
         raise RuntimeError("paged_decode_attention does not "
                            "support alibi_slopes yet")
-    if attn_qk_scale is not None:
-        raise RuntimeError("paged_decode_attention does not "
-                           "support attn_qk_scale yet")
+    # if attn_qk_scale is not None:
+    #     raise RuntimeError("paged_decode_attention does not "
+    #                        "support attn_qk_scale yet")
     # cann prompt_fa don't support batch query with different seq_len
     seq_len_list = seq_len.tolist()
 
@@ -79,7 +84,7 @@ def context_attention(
 
     if attn_mask:
         batch = q_start_loc.shape[0]
-        scale_value = 1. / math.sqrt(query.shape[-1])
+        scale_value = attn_qk_scale if attn_qk_scale else 1. / math.sqrt(query.shape[-1])
         for i in range(batch):
             start = q_start_loc[i]
             end = start + seq_len[i]
@@ -98,7 +103,7 @@ def context_attention(
             torch.cuda.synchronize()
     else:
         # For now, the value of attn_mask is None only in vit
-        scale_value = 1. / math.sqrt(query.shape[-1] // num_q_heads)
+        scale_value = attn_qk_scale if attn_qk_scale else 1. / math.sqrt(query.shape[-1] // num_q_heads)
         attn_output[:] = torch.ops.npu.npu_prompt_flash_attention(query, key, value,
             actual_seq_lengths=seq_len_list, num_heads=num_q_heads, scale_value=scale_value,
             input_layout="BSH", num_key_value_heads=num_kv_heads)
@@ -121,9 +126,10 @@ def fill_kv_cache(
     value = value.contiguous()
 
     key_cache_reshaped = key_cache.view(block_total, head, dim)
-    value_cache_reshaped = value_cache.view(block_total, head, dim)
     torch.ops.npu.npu_scatter_nd_update_(key_cache_reshaped, kv_indices, key)
-    torch.ops.npu.npu_scatter_nd_update_(value_cache_reshaped, kv_indices, value)
+    if value_cache.shape[-1]:
+        value_cache_reshaped = value_cache.view(block_total, head, dim)
+        torch.ops.npu.npu_scatter_nd_update_(value_cache_reshaped, kv_indices, value)
     return key_cache, value_cache
 
 @register_ops(vendor_ops_registry)
@@ -155,12 +161,15 @@ def paged_decode_attention(
     alibi_slopes: Optional[Sequence[float]],
     attn_output: Optional[Tensor],
 ) -> Tensor:
+    atb_paged_attention(query, key_cache, value_cache, block_table, block_size, kv_seq_len,
+                        num_q_heads, num_kv_heads, attn_qk_scale, alibi_slopes, attn_output)
+    return attn_output
     if alibi_slopes is not None:
         raise RuntimeError("paged_decode_attention does not "
                            "support alibi_slopes yet")
-    if attn_qk_scale is not None:
-        raise RuntimeError("paged_decode_attention does not "
-                           "support attn_qk_scale yet")
+    # if attn_qk_scale is not None:
+    #     raise RuntimeError("paged_decode_attention does not "
+    #                        "support attn_qk_scale yet")
     if isinstance(block_table, torch.Tensor) and block_table.dtype != torch.int32:
         block_table = block_table.to(torch.int32)
 
@@ -170,7 +179,7 @@ def paged_decode_attention(
     kv_cache_len = key_cache.shape[0]
     key_cache = key_cache.view(1, kv_cache_len, -1)
     value_cache = value_cache.view(1, kv_cache_len, -1)
-    scale_value = 1. / math.sqrt(dim)
+    scale_value = attn_qk_scale if attn_qk_scale else 1. / math.sqrt(dim)
 
     torch.ops.npu_ext.npu_incre_flash_attention_v4_out(
         query, key_cache, value_cache, attn_output.view_as(query), padding_mask=None,
@@ -203,9 +212,9 @@ def paged_prefill_attention(
     if alibi_slopes is not None:
         raise RuntimeError("paged_decode_attention does not "
                            "support alibi_slopes yet")
-    if attn_qk_scale is not None:
-        raise RuntimeError("paged_decode_attention does not "
-                           "support attn_qk_scale yet")
+    # if attn_qk_scale is not None:
+    #     raise RuntimeError("paged_decode_attention does not "
+    #                        "support attn_qk_scale yet")
     if block_table.dtype != torch.int32:
         block_table = block_table.to(torch.int32)
 
@@ -213,7 +222,7 @@ def paged_prefill_attention(
     batch = q_start_loc.shape[0]
     q_seq_len_list = q_seq_len.tolist()
     kv_seq_len_list = kv_seq_len.tolist()
-    scale_value = 1. / math.sqrt(query.shape[-1])
+    scale_value = attn_qk_scale if attn_qk_scale else 1. / math.sqrt(query.shape[-1])
     query = query.contiguous()
     for i in range(batch):
         start = q_start_loc[i]
