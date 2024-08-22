@@ -20,6 +20,22 @@ __all__ =[
 ]
 
 @register_ops(vendor_ops_registry)
+def rms_norm(
+    hidden_states: Tensor,
+    weight: Tensor,
+    epsilon: float
+) -> Tensor:
+    assert 1 < hidden_states.ndim < 4, "only support hidden_states: [total_seq_len, head_size], [batch_size, seq_lens, head_size]"
+    
+    hidden_states = hidden_states.contiguous()
+    shape = hidden_states.shape
+    hidden_states = hidden_states.view(-1, shape[-1])
+    store_output_before_norm = False
+    normed_hidden_states = bt_ops.fused_rms_norm(hidden_states, None, weight, None, None, epsilon, store_output_before_norm)[0]
+    normed_hidden_states = normed_hidden_states.view(shape)
+    return normed_hidden_states
+
+@register_ops(vendor_ops_registry)
 def apply_rotary_pos_emb(
     query: Tensor,
     key: Tensor,
