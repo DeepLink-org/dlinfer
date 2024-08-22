@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(infer_ext LANGUAGES CXX)
+project(dlinfer LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -20,11 +20,11 @@ string(TOLOWER "${DEVICE}" DEVICE)
 list(APPEND SUPPORTED_DEVICE "ascend")
 
 if(NOT DEVICE)
-  message(FATAL_ERROR "Please specify variable DEVICE of infer_ext!")
+  message(FATAL_ERROR "Please specify variable DEVICE of dlinfer!")
 elseif(NOT DEVICE IN_LIST SUPPORTED_DEVICE)
   message(FATAL_ERROR "Device ${DEVICE} is not supported! Supported devices: ${SUPPORTED_DEVICE}")
 endif()
 
 find_package(Torch REQUIRED)
 
-add_subdirectory(infer_ext/vendor/${DEVICE})
+add_subdirectory(dlinfer/vendor/${DEVICE})

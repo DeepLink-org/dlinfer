@@ -128,7 +128,7 @@ inline aclTensor *ConvertType(const at::Tensor &at_tensor)
     }
     TORCH_CHECK(torch_npu::utils::is_npu(at_tensor), "only npu tensor is supported", OPS_ERROR(ErrCode::PARAM));
     at::ScalarType scalar_data_type = at_tensor.scalar_type();
-    aclDataType acl_data_type = infer_ext::ascend::convert_to_acl_data_type(scalar_data_type);
+    aclDataType acl_data_type = dlinfer::ascend::convert_to_acl_data_type(scalar_data_type);
     c10::SmallVector<int64_t, 5> storageDims;
     // if acl_data_type is ACL_STRING, storageDims is empty.
     if (acl_data_type != ACL_STRING) {
@@ -153,9 +153,9 @@ inline aclTensor *ConvertType(const at::Tensor &at_tensor)
             format = ACL_FORMAT_ND;
     }
 
-    if (infer_ext::ascend::is_scalar_wrapped_to_tensor(at_tensor)) {
+    if (dlinfer::ascend::is_scalar_wrapped_to_tensor(at_tensor)) {
         c10::Scalar expScalar = at_tensor.item();
-        at::Tensor aclInput = infer_ext::ascend::copy_scalar_to_device(expScalar, scalar_data_type);
+        at::Tensor aclInput = dlinfer::ascend::copy_scalar_to_device(expScalar, scalar_data_type);
         return aclCreateTensor(aclInput.sizes().data(), aclInput.sizes().size(), acl_data_type,
                                aclInput.strides().data(), aclInput.storage_offset(), format, storageDims.data(),
                                storageDims.size(), const_cast<void *>(aclInput.storage().data()));
@@ -176,7 +176,7 @@ inline aclScalar *ConvertType(const at::Scalar &at_scalar)
     }
 
     at::ScalarType scalar_data_type = at_scalar.type();
-    aclDataType acl_data_type = infer_ext::ascend::convert_to_acl_data_type(scalar_data_type);
+    aclDataType acl_data_type = dlinfer::ascend::convert_to_acl_data_type(scalar_data_type);
     aclScalar *acl_scalar = nullptr;
     switch (scalar_data_type) {
         case at::ScalarType::Double:
@@ -302,7 +302,7 @@ inline aclScalar *ConvertType(const c10::optional<at::Scalar> &opt_scalar)
 
 inline aclDataType ConvertType(const at::ScalarType scalarType)
 {
-    return infer_ext::ascend::convert_to_acl_data_type(scalarType);
+    return dlinfer::ascend::convert_to_acl_data_type(scalarType);
 }
 
 template <typename T> T ConvertType(T value)
@@ -504,7 +504,7 @@ template <typename... Args> bool hit_cache(aclrtStream acl_stream, const char *a
     }
     void *workspace_addr = nullptr;
     if (workspace_size != 0) {
-        auto workspace_tensor = infer_ext::ascend::unsafe_empty_workspace(workspace_size);
+        auto workspace_tensor = dlinfer::ascend::unsafe_empty_workspace(workspace_size);
         workspace_addr = const_cast<void *>(workspace_tensor.storage().data());
     }
     auto acl_call = [workspace_addr, workspace_size, acl_stream, executor, phrase2]() -> int {
@@ -595,7 +595,7 @@ auto DecodeDevice(Ts&... args) -> at::Device
         if (hit_cache(acl_stream, #aclnn_api, opApiFuncAddr, __VA_ARGS__)) {                                           \
             break;                                                                                                     \
         }                                                                                                              \
-        infer_ext::ascend::SetDeterministic();                                                                            \
+        dlinfer::ascend::SetDeterministic();                                                                            \
         if (initMemFunc) {                                                                                             \
             initMemFunc(nullptr, false);                                                                               \
         }                                                                                                              \
@@ -606,7 +606,7 @@ auto DecodeDevice(Ts&... args) -> at::Device
             OPS_ERROR(ErrCode::INTERNAL));                                                                             \
         void *workspace_addr = nullptr;                                                                                \
         if (workspace_size != 0) {                                                                                     \
-            auto workspace_tensor = infer_ext::ascend::unsafe_empty_workspace(workspace_size);             \
+            auto workspace_tensor = dlinfer::ascend::unsafe_empty_workspace(workspace_size);             \
             workspace_addr = const_cast<void *>(workspace_tensor.storage().data());                                    \
         }                                                                                                              \
         auto acl_call = [converted_params, workspace_addr, workspace_size, acl_stream, executor]() -> int {            \
@@ -658,7 +658,7 @@ auto DecodeDevice(Ts&... args) -> at::Device
         if (hit_cache(acl_stream, #aclnn_api, opApiFuncAddr, __VA_ARGS__)) {                                           \
             break;                                                                                                     \
         }                                                                                                              \
-        infer_ext::ascend::SetDeterministic();                                                                            \
+        dlinfer::ascend::SetDeterministic();                                                                            \
         if (initMemFunc) {                                                                                             \
             initMemFunc(nullptr, false);                                                                               \
         }                                                                                                              \
@@ -668,7 +668,7 @@ auto DecodeDevice(Ts&... args) -> at::Device
         TORCH_CHECK(workspace_status == 0, "call " #aclnn_api " failed, detail:", aclGetRecentErrMsg());               \
         void *workspace_addr = nullptr;                                                                                \
         if (workspace_size != 0) {                                                                                     \
-            auto workspace_tensor = infer_ext::ascend::unsafe_empty_workspace(workspace_size);             \
+            auto workspace_tensor = dlinfer::ascend::unsafe_empty_workspace(workspace_size);             \
             workspace_addr = const_cast<void *>(workspace_tensor.storage().data());                                    \
         }                                                                                                              \
         auto acl_call = [converted_params, workspace_addr, workspace_size, acl_stream, executor]()->int {              \
@@ -720,7 +720,7 @@ auto DecodeDevice(Ts&... args) -> at::Device
             initPTACacheThreadLocalFunc();                                                                             \
             setPTAHashKeyFunc(0);                                                                                      \
         }                                                                                                              \
-        infer_ext::ascend::SetDeterministic();                                                                            \
+        dlinfer::ascend::SetDeterministic();                                                                            \
         if (initMemFunc) {                                                                                             \
             initMemFunc(nullptr, false);                                                                               \
         }                                                                                                              \
@@ -731,7 +731,7 @@ auto DecodeDevice(Ts&... args) -> at::Device
             OPS_ERROR(ErrCode::INTERNAL));                                                                             \
         void *workspace_addr = nullptr;                                                                                \
         if (workspace_size != 0) {                                                                                     \
-            auto workspace_tensor = infer_ext::ascend::unsafe_empty_workspace(workspace_size);             \
+            auto workspace_tensor = dlinfer::ascend::unsafe_empty_workspace(workspace_size);             \
             workspace_addr = const_cast<void *>(workspace_tensor.storage().data());                                    \
         }                                                                                                              \
         auto acl_call = [converted_params, workspace_addr, workspace_size, acl_stream, executor]() -> int {            \
@@ -844,7 +844,7 @@ private:
             initPTACacheThreadLocalFunc();                                                                             \
             setPTAHashKeyFunc(0);                                                                                      \
         }                                                                                                              \
-        infer_ext::ascend::SetDeterministic();                                                                            \
+        dlinfer::ascend::SetDeterministic();                                                                            \
         if (initMemFunc) {                                                                                             \
             initMemFunc(nullptr, false);                                                                               \
         }                                                                                                              \
@@ -855,7 +855,7 @@ private:
             OPS_ERROR(ErrCode::INTERNAL));                                                                             \
         void *workspace_addr = nullptr;                                                                                \
         if (workspace_size != 0) {                                                                                     \
-            auto workspace_tensor = infer_ext::ascend::unsafe_empty_workspace(workspace_size);             \
+            auto workspace_tensor = dlinfer::ascend::unsafe_empty_workspace(workspace_size);             \
             workspace_addr = const_cast<void *>(workspace_tensor.storage().data());                                    \
         }                                                                                                              \
         auto acl_call = [converted_params, workspace_addr, workspace_size, acl_stream, executor, apiName]() -> int {   \

@@ -3,7 +3,7 @@ import os
 import pytest
 import yaml
 
-TEST_DIR = os.environ.get("INFEREXT_TEST_DIR")
+TEST_DIR = os.environ.get("DLINFER_TEST_DIR")
 common_prompt_case_file = TEST_DIR + "/e2e/prompt_case.yaml"
 config_file = TEST_DIR + "/e2e/config.yaml"
 
