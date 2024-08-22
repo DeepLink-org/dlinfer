@@ -1,5 +1,5 @@
 import torch
-import infer_ext.ops as ext_ops
+import dlinfer.ops as ext_ops
 
 def InternAttention_naive_attn(self, x):
     B, N, C = x.shape

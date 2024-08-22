@@ -3,7 +3,7 @@
 #include <c10/core/ScalarType.h>
 #include <third_party/acl/inc/acl/acl_base.h>
 
-namespace infer_ext {
+namespace dlinfer {
 namespace ascend {
 
 #define AT_ALL_SCALAR_TYPE_AND_ACL_DATATYPE_PAIR(_)                            \
@@ -53,4 +53,4 @@ at::Tensor unsafe_empty_workspace(uint64_t workspace_size);
 void SetDeterministic();
 
 }  // namespace ascend
-}  // namespace infer_ext
+}  // namespace dlinfer

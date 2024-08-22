@@ -3,7 +3,7 @@ import yaml
 
 from lmdeploy.model import MODELS
 
-TEST_DIR = os.environ.get("INFEREXT_TEST_DIR")
+TEST_DIR = os.environ.get("DLINFER_TEST_DIR")
 
 
 def get_torch_model_list(tp_num: int = None, model_type: str = "chat_model"):

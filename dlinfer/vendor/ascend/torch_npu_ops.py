@@ -2,9 +2,9 @@ import math
 import torch
 import torch_npu
 
-from infer_ext.vendor import vendor_ops_registry
-from infer_ext.utils.registry import register_ops
-from infer_ext.utils.type_annotation import Tensor, Optional, Sequence, Tuple
+from dlinfer.vendor import vendor_ops_registry
+from dlinfer.utils.registry import register_ops
+from dlinfer.utils.type_annotation import Tensor, Optional, Sequence, Tuple
 
 __all__ =[
     "add_rms_norm",

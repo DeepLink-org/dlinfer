@@ -5,7 +5,7 @@ from einops import rearrange
 from transformers.cache_utils import Cache
 from typing import Optional, Dict, Any, Tuple
 from dataclasses import dataclass
-import infer_ext.ops as ext_ops
+import dlinfer.ops as ext_ops
 
 @dataclass
 class TransformerBlockContext:

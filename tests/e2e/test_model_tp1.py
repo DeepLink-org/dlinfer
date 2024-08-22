@@ -1,7 +1,7 @@
 from multiprocessing import Process
 import pytest
 
-import infer_ext
+import dlinfer
 
 from ..utils.config_utils import get_torch_model_list
 from ..utils.pipeline_chat import (

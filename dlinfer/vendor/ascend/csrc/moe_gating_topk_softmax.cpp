@@ -3,7 +3,7 @@
 #include <ATen/ops/tensor.h>
 #include <tuple>
 
-namespace infer_ext {
+namespace dlinfer {
 
 namespace ascend {
 
@@ -19,4 +19,4 @@ namespace ascend {
 
 } // namespace ascend
 
-} // namespace infer_ext
+} // namespace dlinfer

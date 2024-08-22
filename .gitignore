@@ -127,4 +127,4 @@ core.*
 mmlab_pack
 
 # generated config
-/infer_ext/vendor/vendor.yaml
+/dlinfer/vendor/vendor.yaml

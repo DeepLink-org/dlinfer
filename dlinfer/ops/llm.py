@@ -1,6 +1,6 @@
-from infer_ext.vendor import vendor_ops_registry
-from infer_ext.utils.type_annotation import Tensor, Optional, Sequence, Tuple
-from infer_ext.utils.graph.custom_op import \
+from dlinfer.vendor import vendor_ops_registry
+from dlinfer.utils.type_annotation import Tensor, Optional, Sequence, Tuple
+from dlinfer.utils.graph.custom_op import \
     register_custom_op, register_custom_op_default_value
 
 
@@ -19,7 +19,7 @@ __all__ = [
 ]
 
 
-@register_custom_op("infer_ext::add_rms_norm",
+@register_custom_op("dlinfer::add_rms_norm",
                     ["hidden_states", "residual"])
 def add_rms_norm(
     hidden_states: Tensor,
@@ -31,7 +31,7 @@ def add_rms_norm(
         hidden_states, residual, weight, epsilon
     )
 
-@register_custom_op("infer_ext::apply_rotary_pos_emb",
+@register_custom_op("dlinfer::apply_rotary_pos_emb",
                     ["query", "key"])
 def apply_rotary_pos_emb(
     query: Tensor,
@@ -49,7 +49,7 @@ def apply_rotary_pos_emb(
     'softmax_scale': None,
     'alibi_slopes': None,
 })
-@register_custom_op("infer_ext::prefill_attention", ["attn_output"])
+@register_custom_op("dlinfer::prefill_attention", ["attn_output"])
 def prefill_attention(
     query: Tensor,
     key: Tensor,
@@ -79,7 +79,7 @@ def prefill_attention(
         attn_output,
     )
 
-@register_custom_op("infer_ext::fill_kv_cache",
+@register_custom_op("dlinfer::fill_kv_cache",
                     ["key_cache", "value_cache"])
 def fill_kv_cache(
     key: Tensor,
@@ -96,7 +96,7 @@ def fill_kv_cache(
     'softmax_scale': None,
     'alibi_slopes': None,
 })
-@register_custom_op("infer_ext::paged_decode_attention", ["attn_output"])
+@register_custom_op("dlinfer::paged_decode_attention", ["attn_output"])
 def paged_decode_attention(
     query: Tensor,
     key_cache: Tensor,
@@ -130,7 +130,7 @@ def paged_decode_attention(
     'softmax_scale': None,
     'alibi_slopes': None,
 })
-@register_custom_op("infer_ext::paged_prefill_attention", ["attn_output"])
+@register_custom_op("dlinfer::paged_prefill_attention", ["attn_output"])
 def paged_prefill_attention(
     query: Tensor,
     key_cache: Tensor,
@@ -164,7 +164,7 @@ def paged_prefill_attention(
         attn_output,
     )
 
-@register_custom_op("infer_ext::rms_norm", ["hidden_states"])
+@register_custom_op("dlinfer::rms_norm", ["hidden_states"])
 def rms_norm(
     hidden_states: Tensor,
     weight: Tensor,
