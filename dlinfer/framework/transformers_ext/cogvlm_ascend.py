@@ -38,9 +38,9 @@ class PatchedAttention(nn.Module):
         qkv = qkv.reshape(B, L, 3, H).permute(2, 0, 1, 3)  # 3, B, L, H
         q, k, v = qkv[0], qkv[1], qkv[2]
 
-        ext_ops.context_attention(
+        ext_ops.prefill_attention(
             query=q, key=k, value=v,
-            q_start_loc=None, seq_len_list=None,
+            q_start_loc=None, q_seq_len=None, max_q_seq_len=L,
             num_q_heads=self.num_heads, num_kv_heads=self.num_heads,
             attn_mask=None, attn_output=q
         )
