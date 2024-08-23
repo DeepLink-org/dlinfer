@@ -5,8 +5,10 @@
 #include <ostream>
 // using torch_npu acl headers in stead of cann's
 // pre include before hccl/hccl.h to prevent mismatch between two vesions of acl.h
-#include <hccl/hccl.h>
+// clang-format off
 #include <third_party/acl/inc/acl/acl.h>
+#include <hccl/hccl.h>
+// clang-format on
 #include <torch_npu/csrc/core/NPUTensorImpl.h>
 #include <torch_npu/csrc/core/npu/DeviceUtils.h>
 #include <torch_npu/csrc/core/npu/NPUCachingAllocator.h>
