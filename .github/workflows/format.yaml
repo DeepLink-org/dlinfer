@@ -1,4 +1,4 @@
-name: format
+name: dlinfer format ci
 
 on:
   workflow_dispatch:
