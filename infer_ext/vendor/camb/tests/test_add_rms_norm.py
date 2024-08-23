@@ -6,8 +6,8 @@ from infer_ext.utils.registry import register_ops
 from infer_ext.utils.type_annotation import Tensor, Optional, Sequence, Tuple
 from torch.nn.parameter import Parameter
 
-import sys
-sys.path.append("..")
+import sys 
+sys.path.append("..") 
 import camb_ops
 
 class FuseRMSNorm(torch.nn.Module):
@@ -36,7 +36,7 @@ class FuseRMSNorm(torch.nn.Module):
 
 def compare_tensor(a, b, prec):
     epsilon = 1.0 / 16384
-
+    
     diff = a - b
     diff = diff.abs().pow(2).sum()
     a_pow_sum = a.pow(2).sum()
@@ -47,40 +47,41 @@ def compare_tensor(a, b, prec):
     diff = torch.div(diff, (a_pow_sum * 1.0))
     return diff.sqrt().item() <= prec
 
-def test_rms_norm0():
+def test_add_rms_norm0():
     H, C = 4096, 4096
     eps = 1e-6
     input = torch.randn(H, C, device="mlu", dtype=torch.half)
     residual = torch.randn(H, C, device="mlu", dtype=torch.half)
     weight = Parameter(torch.randn(C, device="mlu", dtype=torch.half))
-    
-    print("test_rms_norm0: H={}, C={}, testing...".format(H, C))
-    ref_normed_out = vendor_ops_registry["rms_norm"](input, weight, eps)
+    print("test_add_rms_norm0: H={}, C={}, testing...".format(H, C))
+    ref_normed_out, ref_added_out = vendor_ops_registry["add_rms_norm"](input, residual, weight, eps)
     rms_norm = FuseRMSNorm(weight, eps=eps)
-    normed_out = rms_norm(input, None)[0]
+    normed_out, added_out = rms_norm(input, residual)
 
-    if compare_tensor(normed_out, ref_normed_out, 0.003):
-        print("test_rms_norm0: pass")
+    if compare_tensor(normed_out, ref_normed_out, 0.003) and \
+        compare_tensor(added_out, ref_added_out, 0.003): 
+        print("test_add_rms_norm0: pass")
     else:
-        print("test_rms_norm0: not close")
+        print("test_add_rms_norm0: not close")
 
-def test_rms_norm1():
+def test_add_rms_norm1():
     N, H, C = 64, 64, 4096
     eps = 1e-6
     input = torch.randn(N, H, C, device="mlu", dtype=torch.half)
     residual = torch.randn(N, H, C, device="mlu", dtype=torch.half)
     weight = Parameter(torch.randn(C, device="mlu", dtype=torch.half))
-   
-    print("test_rms_norm1: N={}, H={}, C={}, testing...".format(N, H, C))
-    ref_normed_out = vendor_ops_registry["rms_norm"](input.clone(), weight, eps)
-    rms_norm = FuseRMSNorm(weight, eps=eps)
-    normed_out = rms_norm(input, None)[0]
 
-    if compare_tensor(normed_out, ref_normed_out, 0.003):
-        print("test_rms_norm1: pass")
+    print("test_add_rms_norm1: N={}, H={}, C={}, testing...".format(N, H, C))
+    ref_normed_out, ref_added_out = vendor_ops_registry["add_rms_norm"](input.clone(), residual, weight, eps)
+    rms_norm = FuseRMSNorm(weight, eps=eps)
+    normed_out, added_out = rms_norm(input, residual)
+
+    if compare_tensor(normed_out, ref_normed_out, 0.003) and \
+        compare_tensor(added_out, ref_added_out, 0.003):
+        print("test_add_rms_norm1: pass")
     else:
-        print("test_rms_norm1: not close")
-        
+        print("test_add_rms_norm1: not close")
+
 if __name__ == "__main__":
-    test_rms_norm0()
-    test_rms_norm1()
+    test_add_rms_norm0()
+    test_add_rms_norm1()
