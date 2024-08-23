@@ -81,5 +81,35 @@ def apply_rotary_pos_emb(
     bt_ops.apply_rotary(embeded_key, key, sin, cos, position_ids, cu_seq_lens, interleaved, False, False, max_context_len)
     return embeded_query,embeded_key
 
+@register_ops(vendor_ops_registry)
+def paged_decode_attention(
+    query: Tensor,
+    key_cache: Tensor,
+    value_cache: Tensor,
+    block_table: Optional[Tensor],
+    block_size: int,
+    kv_seq_len: Tensor,
+    num_q_heads: int,
+    num_kv_heads: int,
+    attn_qk_scale: Optional[float],
+    alibi_slopes: Optional[Sequence[float]],
+    attn_output: Optional[Tensor],
+) -> Tensor:
+    assert query.ndim == 4, "only support q:[batch,seq_q=1, head ,head_dim]"
+    assert query.shape[1] == 1, "only support seq_q = 1 in paged decode attention"
+    assert key_cache.ndim == 4, "only support k_cache:[num_blocks, kv_head_num, block_size, head_size]"
+    assert value_cache.ndim == 4, "only support v_cache:[num_blocks, kv_head_num, block_size, head_size]"
+    assert block_table.ndim == 2, "only support bloack_table:[batch_size, max_num_blocks_per_seq]"
+    batch_size = block_table.shape[0]
+    dim = query.shape[3]
+    k_cache_quant_scale = None
+    v_cache_quant_scale = None
+    max_context_lens = torch.max(kv_seq_len)
+    softmax_scale = 1. / math.sqrt(dim)
+
+    out = attn_output.view_as(query)
+
+    bt_ops.single_query_cached_kv_attn(query, key_cache, value_cache, block_table, kv_seq_len,k_cache_quant_scale, v_cache_quant_scale, alibi_slopes, out, max_context_lens, 0, 0, softmax_scale)
+
 if __name__ == '__main__':
     pass
