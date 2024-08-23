@@ -39,10 +39,10 @@ class PatchedAttention(nn.Module):
         q, k, v = qkv[0], qkv[1], qkv[2]
 
         ext_ops.prefill_attention(
-            query=q, key=k, value=v,
-            q_start_loc=None, q_seq_len=None, max_q_seq_len=L,
-            num_q_heads=self.num_heads, num_kv_heads=self.num_heads,
-            attn_mask=None, attn_output=q
+            q, k, v,
+            None, None, L,
+            self.num_heads, self.num_heads,
+            None, attn_output=q
         )
         output = self.dense(q.view(B, L, -1))
         output = self.output_dropout(output)

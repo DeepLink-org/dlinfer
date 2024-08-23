@@ -14,6 +14,6 @@ def apply_model_patches(module):
         vit_module.InternAttention._naive_attn = internvl.InternAttention_naive_attn
         vit_module.InternRMSNorm.forward = internvl.InternRMSNorm_forward
     elif module.__name__ == 'transformers_modules.cogvlm-chat.modeling_cogvlm':
-        from . import cogvlm_ascend
-        module.EVA2CLIPModel = cogvlm_ascend.PatchedEVA2CLIPModel
+        from . import cogvlm
+        module.EVA2CLIPModel = cogvlm.PatchedEVA2CLIPModel
 
