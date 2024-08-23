@@ -6,7 +6,7 @@ from dlinfer.vendor import vendor_ops_registry
 from dlinfer.utils.registry import register_ops
 from dlinfer.utils.type_annotation import Tensor, Optional, Sequence, Tuple
 
-__all__ =[
+__all__ = [
     "add_rms_norm",
     "apply_rotary_pos_emb",
     "prefill_attention",
@@ -18,6 +18,7 @@ __all__ =[
     "get_cache_len",
 ]
 
+
 @register_ops(vendor_ops_registry)
 def add_rms_norm(
     hidden_states: Tensor,
@@ -25,9 +26,11 @@ def add_rms_norm(
     weight: Tensor,
     epsilon: float,
 ) -> Tuple[Tensor, Tensor]:
-    normed_hidden_states, _, added_hidden_states= \
-        torch.ops.npu.npu_add_rms_norm(hidden_states, residual, weight, epsilon)
+    normed_hidden_states, _, added_hidden_states = torch.ops.npu.npu_add_rms_norm(
+        hidden_states, residual, weight, epsilon
+    )
     return normed_hidden_states, added_hidden_states
+
 
 @register_ops(vendor_ops_registry)
 def apply_rotary_pos_emb(
@@ -46,6 +49,7 @@ def apply_rotary_pos_emb(
     key = key.contiguous()
     return torch.ops.npu.npu_apply_rotary_pos_emb(query, key, cos, sin, "BSND")
 
+
 @register_ops(vendor_ops_registry)
 def prefill_attention(
     query: Tensor,
@@ -62,8 +66,9 @@ def prefill_attention(
     attn_output: Optional[Tensor],
 ) -> Tensor:
     if alibi_slopes is not None:
-        raise RuntimeError("paged_decode_attention does not "
-                           "support alibi_slopes yet")
+        raise RuntimeError(
+            "paged_decode_attention does not " "support alibi_slopes yet"
+        )
     # cann prompt_fa don't support batch query with different seq_len
     seq_len_list = q_seq_len.tolist()
 
@@ -73,7 +78,7 @@ def prefill_attention(
 
     if attn_mask:
         batch = q_start_loc.shape[0]
-        scale_value = 1. / math.sqrt(query.shape[-1])
+        scale_value = 1.0 / math.sqrt(query.shape[-1])
         for i in range(batch):
             start = q_start_loc[i]
             end = start + seq_len_list[i]
@@ -82,21 +87,39 @@ def prefill_attention(
             single_k = key[start:end].reshape(1, single_seqlen, -1)
             single_v = value[start:end].reshape(1, single_seqlen, -1)
             single_o = attn_output[start:end].view(1, single_seqlen, -1)
-            actual_seq_lengths = seq_len_list[i:i+1]
+            actual_seq_lengths = seq_len_list[i : i + 1]
             torch.ops.npu_ext.npu_prompt_flash_attention_out(
-                single_q, single_k, single_v, single_o, padding_mask=None,
-                atten_mask=attn_mask[i], actual_seq_lengths=actual_seq_lengths, 
-                num_heads=num_q_heads, scale_value=scale_value, pre_tokens=2147473647, next_tokens=0,
-                input_layout="BSH", num_key_value_heads=num_kv_heads)
+                single_q,
+                single_k,
+                single_v,
+                single_o,
+                padding_mask=None,
+                atten_mask=attn_mask[i],
+                actual_seq_lengths=actual_seq_lengths,
+                num_heads=num_q_heads,
+                scale_value=scale_value,
+                pre_tokens=2147473647,
+                next_tokens=0,
+                input_layout="BSH",
+                num_key_value_heads=num_kv_heads,
+            )
             # TODO remvoe sync
             torch.cuda.synchronize()
     else:
         # For now, the value of attn_mask is None only in vit
-        scale_value = 1. / math.sqrt(query.shape[-1] // num_q_heads)
-        attn_output[:] = torch.ops.npu.npu_prompt_flash_attention(query, key, value,
-            actual_seq_lengths=seq_len_list, num_heads=num_q_heads, scale_value=scale_value,
-            input_layout="BSH", num_key_value_heads=num_kv_heads)
+        scale_value = 1.0 / math.sqrt(query.shape[-1] // num_q_heads)
+        attn_output[:] = torch.ops.npu.npu_prompt_flash_attention(
+            query,
+            key,
+            value,
+            actual_seq_lengths=seq_len_list,
+            num_heads=num_q_heads,
+            scale_value=scale_value,
+            input_layout="BSH",
+            num_key_value_heads=num_kv_heads,
+        )
     return attn_output
+
 
 @register_ops(vendor_ops_registry)
 def fill_kv_cache(
@@ -120,20 +143,20 @@ def fill_kv_cache(
     torch.ops.npu.npu_scatter_nd_update_(value_cache_reshaped, kv_indices, value)
     return key_cache, value_cache
 
+
 @register_ops(vendor_ops_registry)
 def fill_contiguous_kvcache(
-    key_cache: Tensor,
-    value_cache: Tensor,
-    key_state: Tensor,
-    value_state: Tensor
+    key_cache: Tensor, value_cache: Tensor, key_state: Tensor, value_state: Tensor
 ) -> Tuple[Tensor, Tensor]:
     key_cache = torch.cat([key_cache, key_state], dim=1)
     value_cache = torch.cat([value_cache, value_state], dim=1)
     return key_cache, value_cache
 
+
 @register_ops(vendor_ops_registry)
 def get_cache_len(cache: Tensor):
     return cache.shape[1]
+
 
 @register_ops(vendor_ops_registry)
 def paged_decode_attention(
@@ -151,8 +174,9 @@ def paged_decode_attention(
     attn_output: Optional[Tensor],
 ) -> Tensor:
     if alibi_slopes is not None:
-        raise RuntimeError("paged_decode_attention does not "
-                           "support alibi_slopes yet")
+        raise RuntimeError(
+            "paged_decode_attention does not " "support alibi_slopes yet"
+        )
     if isinstance(block_table, torch.Tensor) and block_table.dtype != torch.int32:
         block_table = block_table.to(torch.int32)
 
@@ -162,18 +186,35 @@ def paged_decode_attention(
     kv_cache_len = key_cache.shape[0]
     key_cache = key_cache.view(1, kv_cache_len, -1)
     value_cache = value_cache.view(1, kv_cache_len, -1)
-    scale_value = 1. / math.sqrt(dim)
+    scale_value = 1.0 / math.sqrt(dim)
 
     torch.ops.npu_ext.npu_incre_flash_attention_v4_out(
-        query, key_cache, value_cache, attn_output.view_as(query), padding_mask=None,
-        atten_mask=None, actual_seq_lengths=kv_seq_len.tolist(), antiquant_scale=None,
-        antiquant_offset=None, block_table=block_table, dequant_scale1=None,
-        quant_scale1=None, dequant_scale2=None, quant_scale2=None, quant_offset2=None,
-        num_heads=num_q_heads, scale_value=scale_value, input_layout="BSH",
-        num_key_value_heads=num_kv_heads, block_size=block_size, inner_precise=1)
+        query,
+        key_cache,
+        value_cache,
+        attn_output.view_as(query),
+        padding_mask=None,
+        atten_mask=None,
+        actual_seq_lengths=kv_seq_len.tolist(),
+        antiquant_scale=None,
+        antiquant_offset=None,
+        block_table=block_table,
+        dequant_scale1=None,
+        quant_scale1=None,
+        dequant_scale2=None,
+        quant_scale2=None,
+        quant_offset2=None,
+        num_heads=num_q_heads,
+        scale_value=scale_value,
+        input_layout="BSH",
+        num_key_value_heads=num_kv_heads,
+        block_size=block_size,
+        inner_precise=1,
+    )
     # TODO remvoe sync
     torch.cuda.synchronize()
     return attn_output
+
 
 @register_ops(vendor_ops_registry)
 def paged_prefill_attention(
@@ -193,11 +234,13 @@ def paged_prefill_attention(
     attn_output: Optional[Tensor],
 ) -> Tensor:
     if alibi_slopes is not None:
-        raise RuntimeError("paged_decode_attention does not "
-                           "support alibi_slopes yet")
+        raise RuntimeError(
+            "paged_decode_attention does not " "support alibi_slopes yet"
+        )
     if softmax_scale is not None:
-        raise RuntimeError("paged_decode_attention does not "
-                           "support softmax_scale yet")
+        raise RuntimeError(
+            "paged_decode_attention does not " "support softmax_scale yet"
+        )
     if block_table.dtype != torch.int32:
         block_table = block_table.to(torch.int32)
 
@@ -205,43 +248,57 @@ def paged_prefill_attention(
     batch = q_start_loc.shape[0]
     q_seq_len_list = q_seq_len.tolist()
     kv_seq_len_list = kv_seq_len.tolist()
-    scale_value = 1. / math.sqrt(query.shape[-1])
+    scale_value = 1.0 / math.sqrt(query.shape[-1])
     query = query.contiguous()
     for i in range(batch):
         start = q_start_loc[i]
         mask = attn_mask[i]
         for j in range(q_seq_len_list[i]):
-            single_q = query[start + j:start + j + 1].view(1, 1, -1)
-            single_o = attn_output[start + j:start + j + 1].view(1, 1, -1)
+            single_q = query[start + j : start + j + 1].view(1, 1, -1)
+            single_o = attn_output[start + j : start + j + 1].view(1, 1, -1)
             torch.ops.npu_ext.npu_incre_flash_attention_v4_out(
-                single_q, key_cache, value_cache, single_o, padding_mask=None,
-                atten_mask=mask[j:j + 1], actual_seq_lengths=kv_seq_len_list[i:i+1],
-                antiquant_scale=None, antiquant_offset=None, block_table=block_table,
-                dequant_scale1=None, quant_scale1=None, dequant_scale2=None,
-                quant_scale2=None, quant_offset2=None,
-                num_heads=num_q_heads, scale_value=scale_value, input_layout="BSH",
-                num_key_value_heads=num_kv_heads, block_size=block_size, inner_precise=1)
+                single_q,
+                key_cache,
+                value_cache,
+                single_o,
+                padding_mask=None,
+                atten_mask=mask[j : j + 1],
+                actual_seq_lengths=kv_seq_len_list[i : i + 1],
+                antiquant_scale=None,
+                antiquant_offset=None,
+                block_table=block_table,
+                dequant_scale1=None,
+                quant_scale1=None,
+                dequant_scale2=None,
+                quant_scale2=None,
+                quant_offset2=None,
+                num_heads=num_q_heads,
+                scale_value=scale_value,
+                input_layout="BSH",
+                num_key_value_heads=num_kv_heads,
+                block_size=block_size,
+                inner_precise=1,
+            )
     return attn_output
 
+
 @register_ops(vendor_ops_registry)
-def rms_norm(
-    hidden_states: Tensor,
-    weight: Tensor,
-    epsilon: float
-) -> Tensor:
+def rms_norm(hidden_states: Tensor, weight: Tensor, epsilon: float) -> Tensor:
     hidden_states = hidden_states.contiguous()
     return torch.ops.npu.npu_rms_norm(hidden_states, weight, epsilon)[0]
 
+
 @register_ops(vendor_ops_registry)
-def moe_gating_topk_softmax(
-    router_logits: Tensor,
-    topk: int
-) -> Tuple[Tensor, Tensor]:
+def moe_gating_topk_softmax(router_logits: Tensor, topk: int) -> Tuple[Tensor, Tensor]:
     routing_weights = router_logits.new_empty((*router_logits.shape[:-1], topk))
-    selected_experts = router_logits.new_empty((*router_logits.shape[:-1], topk), dtype=torch.int32)
+    selected_experts = router_logits.new_empty(
+        (*router_logits.shape[:-1], topk), dtype=torch.int32
+    )
     selected_idx = torch.empty_like(selected_experts)
-    return torch.ops.npu_ext.npu_moe_gating_topk_softmax(router_logits, None, topk, routing_weights,
-                                                         selected_experts, selected_idx)
+    return torch.ops.npu_ext.npu_moe_gating_topk_softmax(
+        router_logits, None, topk, routing_weights, selected_experts, selected_idx
+    )
+
 
 # TODO only for internlm on transformers lib.
 # see issue #9 for details
@@ -266,11 +323,17 @@ def fused_attention(
                 query_states,
                 key_states,
                 value_states,
-                torch.tensor([kv_seq_len-q_seq_len], dtype=torch.int64, device=query_states.device),
-                torch.tensor([kv_seq_len], dtype=torch.int64, device=query_states.device),
+                torch.tensor(
+                    [kv_seq_len - q_seq_len],
+                    dtype=torch.int64,
+                    device=query_states.device,
+                ),
+                torch.tensor(
+                    [kv_seq_len], dtype=torch.int64, device=query_states.device
+                ),
                 num_q_heads,
                 num_kv_heads,
-                mask[i:i + 1],
+                mask[i : i + 1],
                 None,
                 None,
                 attn_output,
@@ -282,7 +345,9 @@ def fused_attention(
                 value_states,
                 None,
                 0,
-                torch.tensor([kv_seq_len], dtype=torch.int64, device=query_states.device),
+                torch.tensor(
+                    [kv_seq_len], dtype=torch.int64, device=query_states.device
+                ),
                 num_q_heads,
                 num_kv_heads,
                 None,
@@ -290,4 +355,3 @@ def fused_attention(
                 attn_output,
             )
     return attn_output
-

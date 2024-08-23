@@ -1,7 +1,6 @@
 #include "op_api_common.hpp"
 
-void *GetOpApiFuncAddrFromFeatureLib(const char *api_name)
-{
+void* GetOpApiFuncAddrFromFeatureLib(const char* api_name) {
     GET_OP_API_FUNC_FROM_FEATURE_LIB(ops_infer_handler, "libaclnn_ops_infer.so");
     GET_OP_API_FUNC_FROM_FEATURE_LIB(ops_train_handler, "libaclnn_ops_train.so");
     GET_OP_API_FUNC_FROM_FEATURE_LIB(adv_infer_handler, "libaclnn_adv_infer.so");
