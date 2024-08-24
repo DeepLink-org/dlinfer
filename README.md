@@ -11,7 +11,9 @@ dlinfer提供了一套将国产硬件接入大模型推理框架的解决方案�
 
 
 # 架构介绍
+<div align=center>
 <img src="assets/dlinfer_arch.png" width="50%">
+</div>
 ## 组件介绍
 - op interface
 大模型推理算子接口，对齐了主流推理框架以及各个厂商的融合算子粒度。
