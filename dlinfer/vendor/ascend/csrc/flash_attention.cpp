@@ -1,3 +1,4 @@
+// Copyright (c) 2024, DeepLink. All rights reserved.
 #include "ascend_ops.hpp"
 #include "op_api_common.hpp"
 #include <ATen/core/ATen_fwd.h>

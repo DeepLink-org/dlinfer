@@ -1,3 +1,4 @@
+# Copyright (c) 2024, DeepLink. All rights reserved.
 import torch
 
 from .device_proxy import GetDeviceProxy, GetDeviceStaticProxy

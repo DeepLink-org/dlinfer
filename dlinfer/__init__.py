@@ -1,3 +1,4 @@
+# Copyright (c) 2024, DeepLink. All rights reserved.
 import dlinfer.pytorch_patch as pytorch_patch
 import dlinfer.vendor as vendor
 

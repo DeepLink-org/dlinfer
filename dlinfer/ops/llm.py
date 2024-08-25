@@ -1,3 +1,4 @@
+# Copyright (c) 2024, DeepLink. All rights reserved.
 from dlinfer.vendor import vendor_ops_registry
 from dlinfer.utils.type_annotation import Tensor, Optional, Sequence, Tuple
 from dlinfer.utils.graph.custom_op import \

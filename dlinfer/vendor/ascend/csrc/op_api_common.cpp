@@ -1,3 +1,4 @@
+// Copyright (c) 2024, DeepLink. All rights reserved.
 #include "op_api_common.hpp"
 
 void *GetOpApiFuncAddrFromFeatureLib(const char *api_name)

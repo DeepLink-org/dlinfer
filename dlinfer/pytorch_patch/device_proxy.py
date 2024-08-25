@@ -1,3 +1,4 @@
+# Copyright (c) 2024, DeepLink. All rights reserved.
 from functools import partial
 import torch
 from dlinfer.vendor import get_device_str
