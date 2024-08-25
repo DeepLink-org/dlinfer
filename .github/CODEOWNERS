@@ -1,0 +1,14 @@
+# IMPORTANT:
+# This file is ONLY used to merge PRs. Approvals from people in this file are required for merging.
+#
+# WARNING: The last matching pattern takes the most precedence and OVERWRITES previous rules.
+#          Please be very careful when adding new patterns.
+
+# ---------- base ----------
+*        @jinminxi104
+
+# ---------- ci ----------
+/cmake/  @jinminxi104 @CyCle1024
+
+# ---------- ci ----------
+/tests/  @jinminxi104 @wugeshui
