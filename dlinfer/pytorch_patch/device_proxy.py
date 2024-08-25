@@ -1,6 +1,6 @@
 from functools import partial
 import torch
-from infer_ext.vendor import get_device_str
+from dlinfer.vendor import get_device_str
 
 
 class _MetaDeviceType(type):

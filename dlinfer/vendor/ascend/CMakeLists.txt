@@ -41,5 +41,5 @@ target_link_libraries(
 
 install(
     TARGETS ${PROJECT_NAME}
-    DESTINATION ./infer_ext/vendor/ascend
+    DESTINATION ./dlinfer/vendor/ascend
 )

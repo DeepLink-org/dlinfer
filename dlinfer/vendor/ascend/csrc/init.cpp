@@ -23,9 +23,9 @@ TORCH_LIBRARY(npu_ext, m) {
 namespace {
 
 TORCH_LIBRARY_IMPL(npu_ext, PrivateUse1, m) {
-    m.impl("npu_prompt_flash_attention_out", TORCH_FN(infer_ext::ascend::npu_prompt_flash_attention_out));
-    m.impl("npu_incre_flash_attention_v4_out", TORCH_FN(infer_ext::ascend::npu_incre_flash_attention_v4_out));
-    m.impl("npu_moe_gating_topk_softmax", TORCH_FN(infer_ext::ascend::npu_moe_gating_topk_softmax));
+    m.impl("npu_prompt_flash_attention_out", TORCH_FN(dlinfer::ascend::npu_prompt_flash_attention_out));
+    m.impl("npu_incre_flash_attention_v4_out", TORCH_FN(dlinfer::ascend::npu_incre_flash_attention_v4_out));
+    m.impl("npu_moe_gating_topk_softmax", TORCH_FN(dlinfer::ascend::npu_moe_gating_topk_softmax));
 }
 
 } // namespace

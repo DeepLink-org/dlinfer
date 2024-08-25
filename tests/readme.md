@@ -5,12 +5,12 @@
 
 # How to run test locally
 1. 修改config.yml中对应的模型路径和log_path
-2. `export INFEREXT_TEST_DIR=/path/to/InferExt/tests`
+2. `export DLINFER_TEST_DIR=/path/to/dlinfer/tests`
 3. 运行
    ```
    cd /path/to/tests/e2e
    #run tp=1 model
    pytest ./ -s -x --alluredir=allure-results --clean-alluredir
    #run tp=2 model
-   python ./test_model_tp2.py
+   python ./test_model_tp2.py --model_type=chat --device_type=ascend
    ```

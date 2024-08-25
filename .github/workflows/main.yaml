@@ -1,4 +1,4 @@
-name: InferExt ci
+name: dlinfer ci
 on:
   workflow_dispatch:
   push:
@@ -11,6 +11,7 @@ on:
 env:
   CI_PATH: '/data2/wugeshui/GitHub/${{ github.repository }}/${GITHUB_RUN_NUMBER}'
   LMDEPLOY_PATH: '/data2/wugeshui/GitHub/lmdeploy'
+  LMDEPLOY_COMMIT_OR_BRANCH: 'b03e086fc804205ac8aede97f83d50d882755836'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -40,12 +41,13 @@ jobs:
         run: |
           set -ex
           mv $GITHUB_WORKSPACE/* ${{ env.CI_PATH }}/
+          mv $GITHUB_WORKSPACE/.github ${{ env.CI_PATH }}/
 
-      - name: Build and install InferExt
+      - name: Build and install dlinfer
         run: |
           set -ex
           cd ${{ env.CI_PATH }}
-          echo "y" | pip uninstall infer_ext
+          echo "y" | pip uninstall dlinfer
           pip install -r requirements.txt --index-url https://download.pytorch.org/whl/cpu
           DEVICE=ascend python3 setup.py develop --user
       
@@ -61,8 +63,9 @@ jobs:
       - name: Clone lmdeploy
         run: |
           set -ex
-          git clone https://github.com/DeepLink-org/lmdeploy.git -b infer_ext ${{ env.LMDEPLOY_PATH }}
-          cd ${{ env.LMDEPLOY_PATH }} && git apply /data2/wugeshui/GitHub/patchs/fix-exit-multi-npu.patch
+          git clone https://github.com/DeepLink-org/lmdeploy.git ${{ env.LMDEPLOY_PATH }}
+          cd ${{ env.LMDEPLOY_PATH }} && git checkout ${{ env.LMDEPLOY_COMMIT_OR_BRANCH }}
+          git apply ${{env.CI_PATH }}/.github/ci/fix-exit-multi-npu.patch
 
   Tests:
     runs-on: pjlab_ascend_910B
@@ -76,10 +79,11 @@ jobs:
           source /usr/local/Ascend/ascend-toolkit/set_env.sh
           export PYTHONPATH=${{env.LMDEPLOY_PATH }}:$PYTHONPATH
           cd ${{env.CI_PATH }}/tests/e2e
-          export INFEREXT_TEST_DIR=${{env.CI_PATH }}/tests 
+          export DLINFER_TEST_DIR=${{env.CI_PATH }}/tests 
           echo $PYTHONPATH && pwd
           pytest ./ -s -x --alluredir=allure-results --clean-alluredir
-          python ./test_model_tp2.py
+          python ./test_model_tp2.py --model_type=chat --device_type=ascend
+          python ./test_model_tp2.py --model_type=vl --device_type=ascend
 
       - name: Generate reports
         if: always()

@@ -36,15 +36,15 @@ xxx
 ```
 pip3 install requirements.txt --index-url https://download.pytorch.org/whl/cpu
 ```
+
 2. 完成上述准备工作后，使用如下命令即可安装dlinfer。
 ```
-cd $WORKDIR/InferExt
+cd $WORKDIR/dlinfer
 DEVICE=ascend python3 setup.py develop
 ```
 
 ## 支持模型框架列表
 ### LMDeploy
-
 
 |  | 华为910B | 沐曦C500（待开源） | 寒武纪590（开发中） |
 | --- | --- | --- | --- |

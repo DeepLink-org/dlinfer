@@ -3,8 +3,13 @@ log_path: /data2/wugeshui/GitHub/ci_log/logs
 
 tp_config:
     Mixtral-8x7B-Instruct-v0.1: 2
+    InternVL-Chat-V1-5: 2
 
 pytorch_chat_model:
-    - internlm_model_data/internlm2-chat-7b
     - llama_model_data/llama-2-7b-chat-hf
+    - internlm_model_data/internlm2-chat-7b
     - mixtral_model_data/Mixtral-8x7B-Instruct-v0.1
+    - qwen_model_data/Qwen2-7B-Instruct
+
+pytorch_vl_model:
+    - internvl_model_data/InternVL-Chat-V1-5
