@@ -64,24 +64,5 @@ def test_add_rms_norm0():
     else:
         print("test_add_rms_norm0: not close")
 
-def test_add_rms_norm1():
-    N, H, C = 64, 64, 4096
-    eps = 1e-6
-    input = torch.randn(N, H, C, device="mlu", dtype=torch.half)
-    residual = torch.randn(N, H, C, device="mlu", dtype=torch.half)
-    weight = Parameter(torch.randn(C, device="mlu", dtype=torch.half))
-
-    print("test_add_rms_norm1: N={}, H={}, C={}, testing...".format(N, H, C))
-    ref_normed_out, ref_added_out = vendor_ops_registry["add_rms_norm"](input.clone(), residual, weight, eps)
-    rms_norm = FuseRMSNorm(weight, eps=eps)
-    normed_out, added_out = rms_norm(input, residual)
-
-    if compare_tensor(normed_out, ref_normed_out, 0.003) and \
-        compare_tensor(added_out, ref_added_out, 0.003):
-        print("test_add_rms_norm1: pass")
-    else:
-        print("test_add_rms_norm1: not close")
-
 if __name__ == "__main__":
     test_add_rms_norm0()
-    test_add_rms_norm1()

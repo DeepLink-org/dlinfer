@@ -25,14 +25,11 @@ def rms_norm(
     weight: Tensor,
     epsilon: float
 ) -> Tensor:
-    assert 1 < hidden_states.ndim < 4, "only support hidden_states: [total_seq_len, head_size], [batch_size, seq_lens, head_size]"
+    assert hidden_states.ndim == 2, "only support hidden_states: [total_seq_len, head_size]"
     
     hidden_states = hidden_states.contiguous()
-    shape = hidden_states.shape
-    hidden_states = hidden_states.view(-1, shape[-1])
     store_output_before_norm = False
     normed_hidden_states = bt_ops.fused_rms_norm(hidden_states, None, weight, None, None, epsilon, store_output_before_norm)[0]
-    normed_hidden_states = normed_hidden_states.view(shape)
     return normed_hidden_states
 
 @register_ops(vendor_ops_registry)
@@ -42,18 +39,12 @@ def add_rms_norm(
     weight: Tensor,
     epsilon: float,
 ) -> Tuple[Tensor, Tensor]:
-    assert 1 < hidden_states.ndim < 4, "only support hidden_states: [total_seq_len, head_size], [batch_size, seq_lens, head_size]"
-    
-    shape = hidden_states.shape
-    hidden_states = hidden_states.reshape(-1, shape[-1])
-    residual = residual.reshape(-1, shape[-1])
+    assert hidden_states.ndim == 2, "only support hidden_states: [total_seq_len, head_size]"
     
     store_output_before_norm = True
     normed_hidden_states, added_hidden_states = \
         bt_ops.fused_rms_norm(hidden_states, residual, weight, None, None, epsilon, store_output_before_norm)
     
-    normed_hidden_states = normed_hidden_states.reshape(shape)
-    added_hidden_states = added_hidden_states.reshape(shape)
     return normed_hidden_states, added_hidden_states
 
 @register_ops(vendor_ops_registry)
