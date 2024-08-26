@@ -45,6 +45,7 @@ class _DIPUDevice(metaclass=_MetaDeviceType):
 # always patch: device class is immutable, cannot directly patch __new__ method on python layer.
 torch.device = _DIPUDevice
 
+
 def GetDeviceProxy(rawfunc, pos=0, name="device", caller="obj"):
     def _replaceDevice(args, kwargs):
         # pos device
@@ -101,5 +102,6 @@ def GetDeviceProxy(rawfunc, pos=0, name="device", caller="obj"):
         return _proxyFuncStaticStr
     else:
         return _proxyFuncInst
+
 
 GetDeviceStaticProxy = partial(GetDeviceProxy, pos=-1, name="device", caller="static")

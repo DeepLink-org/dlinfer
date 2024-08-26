@@ -31,5 +31,6 @@ def _wrap_init_process_groups(
         backend, init_method, timeout, world_size, rank, store, group_name, pg_options
     )
 
+
 def apply_dist_patch():
     dist.init_process_group = _wrap_init_process_groups

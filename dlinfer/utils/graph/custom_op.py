@@ -13,9 +13,9 @@ library_impl_dict: Dict[str, Library] = dict()
 
 def register_custom_op(
     qualname: str,
-    shape_param_keys: Optional[Sequence[str]]=None,
-    impl_abstract_func: Optional[Callable]=None,
-    disable=True, # disable graph custom op registration for now
+    shape_param_keys: Optional[Sequence[str]] = None,
+    impl_abstract_func: Optional[Callable] = None,
+    disable=True,  # disable graph custom op registration for now
 ) -> Callable:
     def inner_func(func: Callable):
         if disable:
@@ -30,8 +30,8 @@ def register_custom_op(
         impl(library_impl_dict[lib_name], func_name, dispatch_key)(func)
         if impl_abstract_func is None:
             assert shape_param_keys is not None
-            params_name_list = [name for name
-                                in inspect.signature(func).parameters]
+            params_name_list = [name for name in inspect.signature(func).parameters]
+
             def _impl_abstract_func(*args, **kwargs):
                 assert len(args) + len(kwargs) == len(params_name_list)
                 result = []
@@ -45,6 +45,7 @@ def register_custom_op(
                 if len(result) == 1:
                     return result[0]
                 return tuple(result)
+
             impl_abstract_func = _impl_abstract_func
         torch._custom_ops.impl_abstract(qualname)(impl_abstract_func)
         torch_ops_namespace = getattr(torch.ops, lib_name)
@@ -52,6 +53,7 @@ def register_custom_op(
         assert torch_ops_func is not None
         wrapped_func = wraps(func)(torch_ops_func)
         return wrapped_func
+
     return inner_func
 
 
@@ -61,5 +63,7 @@ def register_custom_op_default_value(kwargs_default_dict: Dict):
         def inner_func(*args, **kwargs):
             kwargs_default_dict.update(kwargs)
             return func(*args, **kwargs_default_dict)
+
         return inner_func
+
     return update_func_kwargs_value
