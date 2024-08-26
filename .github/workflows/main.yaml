@@ -1,4 +1,5 @@
-name: dlinfer ci
+name: dlinfer main test ci
+
 on:
   workflow_dispatch:
   push:
@@ -35,6 +36,7 @@ jobs:
           set -ex
           if [ -d "${{ env.CI_PATH }}" ]; then
             rm -rf ${{ env.CI_PATH }}/*
+            rm -rf ${{ env.CI_PATH }}/.github
           fi
 
       - name: Move code to custom directory
