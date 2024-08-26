@@ -3,8 +3,8 @@ import pytest
 
 import dlinfer
 
-from ..utils.config_utils import get_torch_model_list
-from ..utils.pipeline_chat import (
+from tests.lmdeploy.utils.config_utils import get_torch_model_list
+from tests.lmdeploy.utils.pipeline_chat import (
     assert_pipeline_chat_log,
     run_pipeline_chat_test,
     assert_pipeline_vl_chat_log,
