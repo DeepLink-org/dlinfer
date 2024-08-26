@@ -82,6 +82,27 @@ def apply_rotary_pos_emb(
     return embeded_query,embeded_key
 
 @register_ops(vendor_ops_registry)
+def fill_kv_cache(
+    key: Tensor,
+    value: Tensor,     
+    key_cache: Tensor,
+    value_cache: Tensor,
+    kv_indices: Tensor,
+) -> Tuple[Tensor, Tensor]:
+    assert key.ndim == 3 and value.ndim == 3, \
+        "only support key, value: [total_seq_len, head_num, head_size]"
+    assert key_cache.ndim == 4 and value_cache.ndim == 4, \
+        "only support key_cache, value_cache: [block_num, head_num, block_size, head_size]"
+    assert kv_indices.ndim == 1, "only support kv_indices: [total_seq_len]"
+    
+    # only support contiguous k,v
+    key = key.contiguous()
+    value = value.contiguous()
+
+    bt_ops.reshape_paged_cache(key, value, key_cache, value_cache, kv_indices)
+    return key_cache, value_cache
+
+@register_ops(vendor_ops_registry)
 def paged_decode_attention(
     query: Tensor,
     key_cache: Tensor,
