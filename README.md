@@ -52,12 +52,16 @@ DEVICE=ascend python3 setup.py develop
 
 |  | 华为910B | 沐曦C500（待开源） | 寒武纪590（开发中） |
 | --- | --- | --- | --- |
-| InternLM2.5-8B | O | O |  |
-| InternVL2-2B | O | O  |  |
-| Llama3 | O | O  |  |
+| InternLM2.5-7B/20B | O |   |  |
+| InternLM2-7B/20B | O | O |  |
+| InternVL2-2B | O |    |  |
+| InternVL1-5 | O | O  |  |
+| Llama3-8B | O | O  |  |
 | Mixtral8x7B | O | O  |  |
-| Qwen2 | O  |  O |  |
-|  |  |  |  |
+| Qwen2-7B | O  |  O |  |
+| Qwen2-57B-A14B | O  |    |  |
+| CogVLM | O |  |  |
+| CogVLM2 |  | O |  |
 
 
 ## Usage
