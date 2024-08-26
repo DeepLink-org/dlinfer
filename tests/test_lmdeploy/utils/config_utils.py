@@ -1,3 +1,5 @@
+# Copyright (c) 2024, DeepLink. All rights reserved.
+# Copyright (c) OpenMMLab. All rights reserved.
 import os
 import yaml
 
