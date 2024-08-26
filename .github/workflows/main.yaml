@@ -84,8 +84,8 @@ jobs:
           export DLINFER_TEST_DIR=${{env.CI_PATH }}/tests
           echo $PYTHONPATH && pwd
           pytest ./ -s -x --alluredir=allure-results --clean-alluredir
-          python ./lmdeploy/test_model_tp2.py --model_type=chat --device_type=ascend
-          python ./lmdeploy/test_model_tp2.py --model_type=vl --device_type=ascend
+          python ./test_lmdeploy/test_model_tp2.py --model_type=chat --device_type=ascend
+          python ./test_lmdeploy/test_model_tp2.py --model_type=vl --device_type=ascend
 
       - name: Generate reports
         if: always()
@@ -93,7 +93,7 @@ jobs:
           export date_today="$(date +'%Y%m%d-%H%M%S')"
           export report_dir="$REPORT_DIR/$date_today"
           echo "Save report to $report_dir"
-          cd ${{env.CI_PATH }}/tests/lmdeploy/e2e
+          cd ${{env.CI_PATH }}/tests/test_lmdeploy/e2e
           mv allure-results $report_dir
 
       - name: Clear workfile
