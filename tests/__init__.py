@@ -1,1 +1,1 @@
-import .test_lmdeploy
+from .test_lmdeploy import *
