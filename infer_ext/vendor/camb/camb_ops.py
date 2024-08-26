@@ -103,6 +103,28 @@ def fill_kv_cache(
     return key_cache, value_cache
 
 @register_ops(vendor_ops_registry)
+def context_attention(
+    query: Tensor,
+    key: Tensor,
+    value: Tensor,
+    q_start_loc: Tensor,
+    seq_len: Tensor,
+    num_q_heads: int,
+    num_kv_heads: int,
+    attn_mask: Sequence[Optional[Tensor]],
+    attn_qk_scale: Optional[float],
+    alibi_slopes: Optional[Sequence[float]],
+    attn_output: Optional[Tensor],
+) -> Tensor:
+    max_seq_len = torch.max(seq_len).to(dtype=torch.int32)
+    if attn_output == None:
+        attn_output = torch.tensor(value.shape())
+    if alibi_slopes is not None:
+        alibi_slopes = torch.tensor(alibi_slopes, dtype=torch.float32)
+    bt_ops.flash_attention(query, key, value, seq_len, alibi_slopes, None, attn_output, max_seq_len, attn_qk_scale, True, -1, -1)
+    return attn_output
+
+@register_ops(vendor_ops_registry)
 def paged_decode_attention(
     query: Tensor,
     key_cache: Tensor,
