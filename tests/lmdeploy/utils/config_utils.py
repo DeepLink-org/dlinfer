@@ -16,25 +16,17 @@ def get_torch_model_list(tp_num: int = None, model_type: str = "chat_model"):
 
 
 def get_config():
-    config_path = os.path.join(TEST_DIR + "/e2e/config.yaml")
+    config_path = os.path.join(TEST_DIR + "/lmdeploy/e2e/config.yaml")
     with open(config_path) as f:
         config = yaml.load(f.read(), Loader=yaml.SafeLoader)
     return config
 
 
 def get_case_config():
-    case_path = os.path.join(TEST_DIR + "/e2e/prompt_case.yaml")
+    case_path = os.path.join(TEST_DIR + "/lmdeploy/e2e/prompt_case.yaml")
     with open(case_path) as f:
         case_config = yaml.load(f.read(), Loader=yaml.SafeLoader)
     return case_config
-
-
-def get_tp_config(config, model, need_tp):
-    tp_num = str(get_tp_num(config, model))
-    tp_info = ""
-    if need_tp and tp_num is not None:
-        tp_info = "--tp " + str(get_tp_num(config, model))
-    return tp_info
 
 
 def get_tp_num(config, model):

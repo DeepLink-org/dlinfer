@@ -75,12 +75,12 @@ jobs:
     env:
       REPORT_DIR: /data2/wugeshui/GitHub/ci_log/test_reports
     steps:
-      - name: RunTests
+      - name: RunTestsLMDeploy
         run: |
           set -ex
           source /usr/local/Ascend/ascend-toolkit/set_env.sh
           export PYTHONPATH=${{env.LMDEPLOY_PATH }}:$PYTHONPATH
-          cd ${{env.CI_PATH }}/tests/e2e
+          cd ${{env.CI_PATH }}/tests/lmdeploy/e2e
           export DLINFER_TEST_DIR=${{env.CI_PATH }}/tests 
           echo $PYTHONPATH && pwd
           pytest ./ -s -x --alluredir=allure-results --clean-alluredir
@@ -93,7 +93,7 @@ jobs:
           export date_today="$(date +'%Y%m%d-%H%M%S')"
           export report_dir="$REPORT_DIR/$date_today"
           echo "Save report to $report_dir"
-          cd ${{env.CI_PATH }}/tests/e2e
+          cd ${{env.CI_PATH }}/tests/lmdeploy/e2e
           mv allure-results $report_dir
 
       - name: Clear workfile

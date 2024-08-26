@@ -4,8 +4,8 @@ import pytest
 import yaml
 
 TEST_DIR = os.environ.get("DLINFER_TEST_DIR")
-common_prompt_case_file = TEST_DIR + "/e2e/prompt_case.yaml"
-config_file = TEST_DIR + "/e2e/config.yaml"
+common_prompt_case_file = TEST_DIR + "/lmdeploy/e2e/prompt_case.yaml"
+config_file = TEST_DIR + "/lmdeploy/e2e/config.yaml"
 
 
 @pytest.fixture(scope="session")
