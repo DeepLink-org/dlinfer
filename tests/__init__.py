@@ -1,1 +1,1 @@
-import test_lmdeploy
+import .test_lmdeploy
