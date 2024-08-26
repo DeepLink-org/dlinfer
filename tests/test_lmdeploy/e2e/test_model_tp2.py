@@ -3,8 +3,8 @@ import argparse
 
 import dlinfer
 
-from tests.utils.config_utils import get_torch_model_list, get_config, get_case_config
-from tests.utils.pipeline_chat import (
+from tests.test_lmdeploy.utils.config_utils import get_torch_model_list, get_config, get_case_config
+from tests.test_lmdeploy.utils.pipeline_chat import (
     assert_pipeline_chat_log,
     run_pipeline_chat_test,
     assert_pipeline_vl_chat_log,
