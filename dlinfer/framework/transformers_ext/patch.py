@@ -17,5 +17,5 @@ def apply_model_patches(module):
     elif module.__name__ == 'transformers_modules.cogvlm-chat.modeling_cogvlm':
         from . import cogvlm
         vit_module = importlib.import_module('transformers_modules.cogvlm-chat.visual')
-        vit_module.Attention = cogvlm.PatchedAttention
+        vit_module.Attention.forward = cogvlm.PatchedAttentionForward
 
