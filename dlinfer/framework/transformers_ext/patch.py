@@ -1,5 +1,6 @@
 import transformers
 import inspect
+import importlib
 
 def apply_model_patches(module):
     if module.__name__ == 'transformers_modules.internlm2-chat-7b.modeling_internlm2':
@@ -15,5 +16,6 @@ def apply_model_patches(module):
         vit_module.InternRMSNorm.forward = internvl.InternRMSNorm_forward
     elif module.__name__ == 'transformers_modules.cogvlm-chat.modeling_cogvlm':
         from . import cogvlm
-        module.EVA2CLIPModel = cogvlm.PatchedEVA2CLIPModel
+        vit_module = importlib.import_module('transformers_modules.cogvlm-chat.visual')
+        vit_module.Attention = cogvlm.PatchedAttention
 
