@@ -80,8 +80,8 @@ jobs:
           set -ex
           source /usr/local/Ascend/ascend-toolkit/set_env.sh
           export PYTHONPATH=${{env.LMDEPLOY_PATH }}:$PYTHONPATH
-          cd ${{env.CI_PATH }}/tests/
-          export DLINFER_TEST_DIR=${{env.CI_PATH }}/tests/test_lmdeploy
+          cd ${{env.CI_PATH }}/tests/test_lmdeploy/e2e
+          export DLINFER_TEST_DIR=${{env.CI_PATH }}/tests
           echo $PYTHONPATH && pwd
           pytest ./ -s -x --alluredir=allure-results --clean-alluredir
           python ./test_model_tp2.py --model_type=chat --device_type=ascend
