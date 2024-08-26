@@ -10,10 +10,7 @@ def PatchedAttentionForward(self, x: "tensor(B, L, D)") -> "tensor(B, L, D)":
     q, k, v = qkv[0], qkv[1], qkv[2]
 
     ext_ops.prefill_attention(
-        q, k, v,
-        None, None, L,
-        self.num_heads, self.num_heads,
-        None, attn_output=q
+        q, k, v, None, None, L, self.num_heads, self.num_heads, None, attn_output=q
     )
     output = self.dense(q.view(B, L, -1))
     return output
