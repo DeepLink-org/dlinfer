@@ -65,9 +65,7 @@ def prefill_attention(
         raise RuntimeError("paged_decode_attention does not "
                            "support alibi_slopes yet")
     # cann prompt_fa don't support batch query with different seq_len
-    seq_len_list = None
-    if q_seq_len is not None:
-        seq_len_list = q_seq_len.tolist()
+    seq_len_list = None if not q_seq_len else q_seq_len.tolist()
 
     query = query.contiguous()
     key = key.contiguous()
