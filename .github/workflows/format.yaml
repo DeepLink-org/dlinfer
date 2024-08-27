@@ -1,0 +1,59 @@
+name: dlinfer format ci
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+jobs:
+  markdownlint:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 16
+    - name: Collect changed files
+      uses: tj-actions/changed-files@v40
+      id: changed-files
+      with:
+        files: '**/*.md'
+        separator: ','
+    - name: MarkdownLint
+      if: steps.changed-files.outputs.any_changed == 'true'
+      uses: DavidAnson/markdownlint-cli2-action@v14
+      with:
+        globs: ${{ steps.changed-files.outputs.all_changed_files }}
+        separator: ','
+
+  clang-format:
+    needs: markdownlint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cpp-linter/cpp-linter-action@v2
+        id: cpp-lint
+        env:
+          GITHUB_TOKEN: ${{ secrets.CI_TOKEN}}
+        with:
+          style: file
+          tidy-checks: '-*' # disable clang tidy at this stage
+          version: 17
+      - name: Fail test
+        if: steps.cpp-lint.outputs.checks-failed > 0
+        run: echo "Some files failed the linting checks!" && exit 1
+
+  python-black:
+    needs: markdownlint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: psf/black@stable
+        env:
+          GITHUB_TOKEN: ${{ secrets.CI_TOKEN}}
+        with: # see: https://black.readthedocs.io/en/stable/getting_started.html
+          version: "~= 24.3.0"

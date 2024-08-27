@@ -1,4 +1,5 @@
-name: dlinfer ci
+name: dlinfer main test ci
+
 on:
   workflow_dispatch:
   push:
@@ -11,7 +12,7 @@ on:
 env:
   CI_PATH: '/data2/wugeshui/GitHub/${{ github.repository }}/${GITHUB_RUN_NUMBER}'
   LMDEPLOY_PATH: '/data2/wugeshui/GitHub/lmdeploy'
-  LMDEPLOY_COMMIT_OR_BRANCH: '8511b88c31d1de0e19c604b3b09b2ce1945e3ecd'
+  LMDEPLOY_COMMIT_OR_BRANCH: 'b03e086fc804205ac8aede97f83d50d882755836'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -35,6 +36,7 @@ jobs:
           set -ex
           if [ -d "${{ env.CI_PATH }}" ]; then
             rm -rf ${{ env.CI_PATH }}/*
+            rm -rf ${{ env.CI_PATH }}/.github
           fi
 
       - name: Move code to custom directory
@@ -78,12 +80,12 @@ jobs:
           set -ex
           source /usr/local/Ascend/ascend-toolkit/set_env.sh
           export PYTHONPATH=${{env.LMDEPLOY_PATH }}:$PYTHONPATH
-          cd ${{env.CI_PATH }}/tests/e2e
-          export DLINFER_TEST_DIR=${{env.CI_PATH }}/tests 
+          cd ${{env.CI_PATH }}/tests
+          export DLINFER_TEST_DIR=${{env.CI_PATH }}/tests
           echo $PYTHONPATH && pwd
-          pytest ./ -s -x --alluredir=allure-results --clean-alluredir
-          python ./test_model_tp2.py --model_type=chat --device_type=ascend
-          python ./test_model_tp2.py --model_type=vl --device_type=ascend
+          pytest ./ -m 'lmdeploy' -s -x --alluredir=allure-results --clean-alluredir
+          python ./test_lmdeploy/e2e/test_model_tp2.py --model_type=chat --device_type=ascend
+          python ./test_lmdeploy/e2e/test_model_tp2.py --model_type=vl --device_type=ascend
 
       - name: Generate reports
         if: always()
@@ -91,7 +93,7 @@ jobs:
           export date_today="$(date +'%Y%m%d-%H%M%S')"
           export report_dir="$REPORT_DIR/$date_today"
           echo "Save report to $report_dir"
-          cd ${{env.CI_PATH }}/tests/e2e
+          cd ${{env.CI_PATH }}/tests
           mv allure-results $report_dir
 
       - name: Clear workfile
