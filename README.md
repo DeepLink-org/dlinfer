@@ -14,7 +14,6 @@ dlinfer提供了一套将国产硬件接入大模型推理框架的解决方案�
 
 目前，我们正在全力支持LMDeploy适配国产芯片，包括华为，沐曦，寒武纪等。
 
-
 # 架构介绍
 
 <div align=center>
@@ -36,7 +35,7 @@ dlinfer提供了一套将国产硬件接入大模型推理框架的解决方案�
 
 ### pip安装
 
-```
+```shell
 pip install dlinfer==0.3.1+ascend
 ```
 
@@ -46,14 +45,13 @@ pip install dlinfer==0.3.1+ascend
 
 1. 在910B上依赖torch和torch_npu，运行以下命令安装torch、torch_npu及其依赖。
 
-```
+```shell
 pip3 install requirements.txt --index-url https://download.pytorch.org/whl/cpu
 ```
-
 2. 完成上述准备工作后，使用如下命令即可安装dlinfer。
 
-```
-cd $WORKDIR/dlinfer
+```shell
+cd /path_to_dlinfer
 DEVICE=ascend python3 setup.py develop
 ```
 
@@ -76,18 +74,19 @@ DEVICE=ascend python3 setup.py develop
 
 ## Usage
 
-### LMDeploy
+### 使用LMDeploy
 
 只需要指定pytorch engine后端为ascend，不需要其他任何修改即可。详细可参考lmdeploy文档。
 
 示例代码如下：
 
-```
+```python
 import lmdeploy
 from lmdeploy import PytorchEngineConfig
 if __name__ == "__main__":
     pipe = lmdeploy.pipeline("/path_to_model",
-                            backend_config = PytorchEngineConfig(tp=1, cache_max_entry_count=0.4, device_type="ascend"))
+                            backend_config = PytorchEngineConfig(tp=1,
+                            cache_max_entry_count=0.4, device_type="ascend"))
     question = ["Shanghai is", "Please introduce China", "How are you?"]
     response = pipe(question, request_output_len=256, do_preprocess=False)
     for idx, r in enumerate(response):
