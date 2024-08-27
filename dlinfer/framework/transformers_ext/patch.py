@@ -18,4 +18,4 @@ def apply_model_patches(module):
 
         # get parent module from another source code file
         vit_module = inspect.getmodule(module.EVA2CLIPModel)
-        vit_module.Attention.forward = cogvlm.PatchedAttentionForward
+        vit_module.Attention.forward = cogvlm.PatchedAttention_forward
