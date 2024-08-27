@@ -4,12 +4,12 @@ import argparse
 
 import dlinfer
 
-from tests.test_lmdeploy.utils.config_utils import (
+from test_lmdeploy.utils.config_utils import (
     get_torch_model_list,
     get_config,
     get_case_config,
 )
-from tests.test_lmdeploy.utils.pipeline_chat import (
+from test_lmdeploy.utils.pipeline_chat import (
     assert_pipeline_chat_log,
     run_pipeline_chat_test,
     assert_pipeline_vl_chat_log,
@@ -20,6 +20,7 @@ from tests.test_lmdeploy.utils.pipeline_chat import (
 @pytest.mark.skip(
     reason="There is unresolvable issue with the pytest multi process spawning"
 )
+@pytest.mark.lmdeploy
 def test_pipeline_chat_pytorch_tp2(env_config, case_config, device_type):
     model_case_list = get_torch_model_list(tp_num=2)
     failed_result = {}
@@ -49,6 +50,7 @@ def test_pipeline_chat_pytorch_tp2(env_config, case_config, device_type):
 @pytest.mark.skip(
     reason="There is unresolvable issue with the pytest multi process spawning"
 )
+@pytest.mark.lmdeploy
 def test_pipeline_vl_pytorch_tp2(env_config, device_type):
     model_case_list = get_torch_model_list(tp_num=2, model_type="vl_model")
     failed_result = {}
