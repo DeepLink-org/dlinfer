@@ -48,6 +48,7 @@ pip install dlinfer==0.3.1+ascend
 ```shell
 pip3 install requirements.txt --index-url https://download.pytorch.org/whl/cpu
 ```
+
 2. 完成上述准备工作后，使用如下命令即可安装dlinfer。
 
 ```shell
