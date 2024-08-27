@@ -33,7 +33,9 @@ dlinfer提供了一套将国产硬件接入大模型推理框架的解决方案�
 
 ## 安装方法
 ### pip安装
-xxx
+pip install dlinfer==0.3.1+ascend
+
+
 ### 源码安装
 #### 华为910B
 1. 在910B上依赖torch和torch_npu，运行以下命令安装torch、torch_npu及其依赖。
