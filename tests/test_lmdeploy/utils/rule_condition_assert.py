@@ -1,3 +1,5 @@
+# Copyright (c) 2024, DeepLink. All rights reserved.
+# Copyright (c) OpenMMLab. All rights reserved.
 def assert_result(input, rule_condition, model_name):
     input = input.replace("\n", "\\n")
     input_lower = input.lower()

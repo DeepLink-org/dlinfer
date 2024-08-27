@@ -1,11 +1,13 @@
+# Copyright (c) 2024, DeepLink. All rights reserved.
+# Copyright (c) OpenMMLab. All rights reserved.
 import os
 
 import pytest
 import yaml
 
 TEST_DIR = os.environ.get("DLINFER_TEST_DIR")
-common_prompt_case_file = TEST_DIR + "/e2e/prompt_case.yaml"
-config_file = TEST_DIR + "/e2e/config.yaml"
+common_prompt_case_file = TEST_DIR + "/test_lmdeploy/e2e/prompt_case.yaml"
+config_file = TEST_DIR + "/test_lmdeploy/e2e/config.yaml"
 
 
 @pytest.fixture(scope="session")
