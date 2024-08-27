@@ -4,7 +4,8 @@
 
 1. 将模型权重等下载到ci机器的/data2/share_data目录(如/data2/share_data/llama_model_data/llama-2-7b-chat-hf).
 2. 在config.yml中的pytorch_chat_model下添加上述模型文件夹.
-3. 如果该模型的tp>1, 需要在config.yml中的tp_config下面添加"模型名：tp_num"(如Mixtral-8x7B-Instruct-v0.1: 2).
+3. 如果该模型的 `tp` > 1，需要在 `config.yml` 中的 `tp_config` 下面添加 
+   "模型名：tp_num"（如 Mixtral-8x7B-Instruct-v0.1: 2）。
 
 ## How to run test locally
 
