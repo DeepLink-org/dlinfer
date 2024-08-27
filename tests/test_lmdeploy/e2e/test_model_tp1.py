@@ -1,10 +1,11 @@
+# Copyright (c) 2024, DeepLink. All rights reserved.
 from multiprocessing import Process
 import pytest
 
 import dlinfer
 
-from ..utils.config_utils import get_torch_model_list
-from ..utils.pipeline_chat import (
+from tests.test_lmdeploy.utils.config_utils import get_torch_model_list
+from tests.test_lmdeploy.utils.pipeline_chat import (
     assert_pipeline_chat_log,
     run_pipeline_chat_test,
     assert_pipeline_vl_chat_log,

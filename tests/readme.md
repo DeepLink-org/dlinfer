@@ -8,9 +8,9 @@
 2. `export DLINFER_TEST_DIR=/path/to/dlinfer/tests`
 3. 运行
    ```
-   cd /path/to/tests/e2e
+   cd /path/to/tests/test_lmdeploy
    #run tp=1 model
    pytest ./ -s -x --alluredir=allure-results --clean-alluredir
    #run tp=2 model
-   python ./test_model_tp2.py --model_type=chat --device_type=ascend
+   python ./e2e/test_model_tp2.py --model_type=chat --device_type=ascend
    ```
