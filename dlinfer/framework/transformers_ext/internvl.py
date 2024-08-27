@@ -1,3 +1,4 @@
+# Copyright (c) 2024, DeepLink. All rights reserved.
 import torch
 import dlinfer.ops as ext_ops
 

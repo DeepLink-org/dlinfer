@@ -1,3 +1,4 @@
+# Copyright (c) 2024, DeepLink. All rights reserved.
 # decorator usage
 def register_ops(registry):
 

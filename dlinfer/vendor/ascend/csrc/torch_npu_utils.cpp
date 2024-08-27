@@ -1,3 +1,4 @@
+// Copyright (c) 2024, DeepLink. All rights reserved.
 #include <ATen/ScalarOps.h>
 #include <c10/core/TensorImpl.h>
 

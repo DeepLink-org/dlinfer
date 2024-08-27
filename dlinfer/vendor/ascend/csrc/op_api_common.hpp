@@ -1,3 +1,4 @@
+// Copyright (c) 2024, DeepLink. All rights reserved.
 // copy from op-plugin/op_plugin/utils/op_api_common.h
 // op-plugin commit: 1d92099b46704088c9cb18e4675057f361137b79
 #pragma once

@@ -1,3 +1,4 @@
+// Copyright (c) 2024, DeepLink. All rights reserved.
 #include <torch/library.h>
 
 #include "ascend_ops.hpp"

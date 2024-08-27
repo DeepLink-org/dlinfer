@@ -1,3 +1,4 @@
+// Copyright (c) 2024, DeepLink. All rights reserved.
 #pragma once
 
 #include <c10/core/ScalarType.h>
