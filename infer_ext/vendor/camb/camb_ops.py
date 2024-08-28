@@ -13,10 +13,10 @@ __all__ =[
     "context_attention",
     "fill_kv_cache",
     "paged_decode_attention",
-    "paged_prefill_attention",
+    # "paged_prefill_attention",
     "rms_norm",
-    "moe_gating_topk_softmax",
-    "get_cache_len",
+    # "moe_gating_topk_softmax",
+    # "get_cache_len",
 ]
 
 @register_ops(vendor_ops_registry)
