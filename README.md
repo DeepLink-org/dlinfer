@@ -16,9 +16,11 @@ dlinfer提供了一套将国产硬件接入大模型推理框架的解决方案�
 
 # 架构介绍
 
+<!-- markdownlint-disable -->
 <div align=center>
 <img [dlinfer_arch] src="assets/dlinfer_arch.png" width="50%">
 </div>
+<!-- markdownlint-restore -->
 
 ## 组件介绍
 
@@ -45,16 +47,16 @@ pip install dlinfer==0.3.1+ascend
 
 1. 在Atlas 800T A2上依赖torch和torch_npu，运行以下命令安装torch、torch_npu及其依赖。
 
-```shell
-pip3 install requirements.txt --index-url https://download.pytorch.org/whl/cpu
-```
+   ```shell
+   pip3 install requirements.txt --index-url https://download.pytorch.org/whl/cpu
+   ```
 
 2. 完成上述准备工作后，使用如下命令即可安装dlinfer。
 
-```shell
-cd /path_to_dlinfer
-DEVICE=ascend python3 setup.py develop
-```
+   ```shell
+   cd /path_to_dlinfer
+   DEVICE=ascend python3 setup.py develop
+   ```
 
 # 支持模型框架列表
 
@@ -72,8 +74,6 @@ DEVICE=ascend python3 setup.py develop
 | Qwen2-57B-A14B | √ |   |  |
 | CogVLM | √ |  |  |
 | CogVLM2 |  | √ |  |
-
-
 
 ### 使用LMDeploy
 
