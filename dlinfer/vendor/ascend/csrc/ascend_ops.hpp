@@ -23,8 +23,8 @@ at::Tensor npu_incre_flash_attention_v4_out(const at::Tensor& query, const at::T
                                             double scale_value, c10::string_view input_layout, int64_t num_key_value_heads, int64_t block_size,
                                             int64_t inner_precise);
 
-::std::tuple<at::Tensor, at::Tensor> npu_moe_gating_topk_softmax(const at::Tensor& x, const at::Tensor& finishedOptional, int64_t topk, const at::Tensor y_out,
-                                                                 const at::Tensor expert_idx_out, const at::Tensor row_idx_out);
+::std::tuple<at::Tensor, at::Tensor> npu_moe_gating_topk_softmax(const at::Tensor& x, const c10::optional<at::Tensor>& finished_opt, int64_t topk,
+                                                                 at::Tensor& y_out, at::Tensor& expert_idx_out, at::Tensor& row_idx_out);
 
 }  // namespace ascend
 

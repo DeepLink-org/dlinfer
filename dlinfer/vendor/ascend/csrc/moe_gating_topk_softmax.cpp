@@ -10,9 +10,9 @@ namespace dlinfer {
 
 namespace ascend {
 
-::std::tuple<at::Tensor, at::Tensor> npu_moe_gating_topk_softmax(const at::Tensor& x, const at::Tensor& finishedOptional, int64_t topk, const at::Tensor y_out,
-                                                                 const at::Tensor expert_idx_out, const at::Tensor row_idx_out) {
-    EXEC_NPU_NO_FORMAT_CHECK_CMD(aclnnMoeGatingTopKSoftmax, x, finishedOptional, topk, y_out, expert_idx_out, row_idx_out);
+::std::tuple<at::Tensor, at::Tensor> npu_moe_gating_topk_softmax(const at::Tensor& x, const c10::optional<at::Tensor>& finished_opt, int64_t topk,
+                                                                 at::Tensor& y_out, at::Tensor& expert_idx_out, at::Tensor& row_idx_out) {
+    EXEC_NPU_NO_FORMAT_CHECK_CMD(aclnnMoeGatingTopKSoftmax, x, finished_opt, topk, y_out, expert_idx_out, row_idx_out);
     return std::tie(y_out, expert_idx_out);
 }
 
