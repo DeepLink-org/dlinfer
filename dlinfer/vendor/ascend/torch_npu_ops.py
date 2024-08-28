@@ -103,8 +103,6 @@ def prefill_attention(
                 input_layout="BSH",
                 num_key_value_heads=num_kv_heads,
             )
-            # TODO remvoe sync
-            torch.cuda.synchronize()
     else:
         # For now, the value of attn_mask is None only in vit
         scale_value = 1.0 / math.sqrt(query.shape[-1] // num_q_heads)
@@ -211,8 +209,6 @@ def paged_decode_attention(
         block_size=block_size,
         inner_precise=1,
     )
-    # TODO remvoe sync
-    torch.cuda.synchronize()
     return attn_output
 
 
