@@ -1,6 +1,28 @@
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.18)
 project(ascend_extension)
 
+execute_process(
+    COMMAND python -c "from torch.utils import cmake_prefix_path; \
+    print(cmake_prefix_path + '/Torch', end='')"
+    OUTPUT_VARIABLE Torch_DIR
+)
+
+execute_process(
+    COMMAND python -c "import warnings; \
+    warnings.filterwarnings('ignore', category=UserWarning, module='torch_npu'); \
+    import torch_npu; \
+    from pathlib import Path; \
+    print(str(Path(torch_npu.__file__).parent), end='')"
+    OUTPUT_VARIABLE Torch_npu_ROOT
+)
+
+execute_process(
+    COMMAND python -c "import torch; \
+    print('1' if torch.compiled_with_cxx11_abi() else '0', end='')"
+    OUTPUT_VARIABLE _GLIBCXX_USE_CXX11_ABI
+)
+
+find_package(Torch REQUIRED)
 find_package(Torch_npu REQUIRED)
 find_package(Hccl REQUIRED)
 
@@ -22,6 +44,11 @@ add_library(
 set_target_properties(
     ${PROJECT_NAME} PROPERTIES
     PREFIX ""
+)
+
+target_compile_definitions(
+    ${PROJECT_NAME} PUBLIC
+    GLIBCXX_USE_CXX11_ABI=${_GLIBCXX_USE_CXX11_ABI}
 )
 
 target_include_directories(

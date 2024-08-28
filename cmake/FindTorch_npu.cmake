@@ -16,4 +16,5 @@ set(TORCH_NPU_LIBRARIES ${TORCH_NPU_LIBRARY})
 find_package(Python COMPONENTS Interpreter Development)
 
 #TODO (chenchiyu): construct modern cmake target for Torch_npu
+message(STATUS "Found Torch_npu: TORCH_NPU_LIBRARY: ${TORCH_NPU_LIBRARY}, TORCH_NPU_INCLUDE_DIRS: ${TORCH_NPU_INCLUDE_DIRS}")
 find_package_handle_standard_args(Torch_npu DEFAULT_MSG TORCH_NPU_LIBRARY TORCH_NPU_INCLUDE_DIRS)

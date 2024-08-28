@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.18)
 project(dlinfer LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -13,7 +13,6 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE "Release")
 endif()
 
-set(_GLIBCXX_USE_CXX11_ABI "0" CACHE STRING "")
 set(DEVICE "" CACHE STRING "device string, default empty string")
 string(TOLOWER "${DEVICE}" DEVICE)
 
@@ -24,7 +23,5 @@ if(NOT DEVICE)
 elseif(NOT DEVICE IN_LIST SUPPORTED_DEVICE)
   message(FATAL_ERROR "Device ${DEVICE} is not supported! Supported devices: ${SUPPORTED_DEVICE}")
 endif()
-
-find_package(Torch REQUIRED)
 
 add_subdirectory(dlinfer/vendor/${DEVICE})

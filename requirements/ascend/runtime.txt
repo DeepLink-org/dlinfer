@@ -1,0 +1,3 @@
+transformers
+-r torch.txt
+-r cann.txt
