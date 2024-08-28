@@ -19,8 +19,8 @@ TORCH_LIBRARY(npu_ext, m) {
         "Tensor? quant_offset2=None, Tensor? kv_padding_size=None, int num_heads=1, float scale_value=1.0, "
         "str input_layout=\"BSH\", int num_key_value_heads=0, int block_size=0, int inner_precise=1) -> Tensor(a!)");
     m.def(
-        "npu_moe_gating_topk_softmax(Tensor x, Tensor finishedOptional, int topk, Tensor y_out,"
-        "Tensor expert_idx_out, Tensor row_idx_out) -> (Tensor, Tensor)");
+        "npu_moe_gating_topk_softmax(Tensor x, Tensor? finished_opt, int topk, Tensor(a!) y_out,"
+        "Tensor(b!) expert_idx_out, Tensor row_idx_out) -> (Tensor(a!), Tensor(b!))");
 }
 
 }  // namespace
