@@ -41,9 +41,9 @@ pip install dlinfer==0.3.1+ascend
 
 ### 源码安装
 
-#### 华为910B
+#### 华为Atlas 800T A2
 
-1. 在910B上依赖torch和torch_npu，运行以下命令安装torch、torch_npu及其依赖。
+1. 在华为Atlas 800T A2上依赖torch和torch_npu，运行以下命令安装torch、torch_npu及其依赖。
 
 ```shell
 pip3 install requirements.txt --index-url https://download.pytorch.org/whl/cpu
@@ -60,7 +60,7 @@ DEVICE=ascend python3 setup.py develop
 
 ### LMDeploy
 
-|  | 华为910B | 沐曦C500（待开源） | 寒武纪590（开发中） |
+|  | 华为Atlas 800T A2 | 沐曦C500（待开源） | 寒武纪590（开发中） |
 | --- | --- | --- | --- |
 | InternLM2.5-7B/20B | O |   |  |
 | InternLM2-7B/20B | O | O |  |
