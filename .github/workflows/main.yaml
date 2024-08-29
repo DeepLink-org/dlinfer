@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   CloneAndBuild:
-    runs-on: pjlab_ascend_Atlas_800T_A2
+    runs-on: Atlas_800T_A2
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -70,7 +70,7 @@ jobs:
           git apply ${{env.CI_PATH }}/.github/ci/fix-exit-multi-npu.patch
 
   Tests:
-    runs-on: pjlab_ascend_Atlas_800T_A2
+    runs-on: Atlas_800T_A2
     needs: [CloneAndBuild]
     env:
       REPORT_DIR: /data2/wugeshui/GitHub/ci_log/test_reports
