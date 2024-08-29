@@ -2,6 +2,7 @@
 import transformers
 import inspect
 
+
 def apply_model_patches(module):
     if module.__name__.endswith(".modeling_internlm2"):
         from . import internlm2
