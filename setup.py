@@ -33,7 +33,6 @@ def get_cmake_args():
     cmake_args = list()
     cmake_device = get_device()
     cmake_args.append("-DCMAKE_BUILD_TYPE=Release")
-    # cmake_args.append(f"-DTorch_DIR={get_torch_cmake_prefix_path()}/Torch")
     cmake_args.append(f"-DDEVICE={cmake_device}")
     return cmake_args
 
@@ -73,8 +72,8 @@ def get_requirements(file_name):
 
 def main():
     setup(
-        name="dlinfer",
-        version=VERSION + f"+{get_device()}",
+        name=f"dlinfer-{get_device()}",
+        version=VERSION,
         description="DeepLink Inference Extension",
         long_description=get_readme(),
         long_description_content_type="text/markdown",

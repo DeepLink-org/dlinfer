@@ -50,7 +50,7 @@ jobs:
           set -ex
           source /usr/local/Ascend/ascend-toolkit/set_env.sh
           cd ${{ env.CI_PATH }}
-          echo "y" | pip uninstall dlinfer
+          pip uninstall -y dlinfer-ascend
           pip install -r requirements/ascend/full.txt
           DEVICE=ascend python3 setup.py develop --user
       
@@ -96,6 +96,15 @@ jobs:
           echo "Save report to $report_dir"
           cd ${{env.CI_PATH }}/tests
           mv allure-results $report_dir
+
+  Cleanup:
+    runs-on: Atlas_800T_A2
+    needs: [CloneAndBuild, Tests]
+    if: always()
+    steps:  
+      - name: Uninstall dlinfer
+        run: |
+          pip uninstall -y dlinfer-ascend
 
       - name: Clear workfile
         if: always()

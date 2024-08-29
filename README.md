@@ -38,7 +38,7 @@ dlinfer提供了一套将国产硬件接入大模型推理框架的解决方案�
 ## pip安装
 
 ```shell
-pip install dlinfer==0.3.1+ascend
+pip install dlinfer-ascend==0.3.1
 ```
 
 ## 源码安装
