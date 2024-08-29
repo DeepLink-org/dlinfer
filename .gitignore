@@ -23,6 +23,7 @@ env/
 build/
 _skbuild
 build*
+!/requirements/*/build.txt
 develop-eggs/
 dist/
 downloads/
@@ -123,8 +124,8 @@ cmake-build-*/
 #.core file
 core.*
 
-# CI temp directory
-mmlab_pack
-
 # generated config
 /dlinfer/vendor/vendor.yaml
+
+# scripts
+!/scripts/*

@@ -12,4 +12,5 @@ find_library(HCCL_LIBRARY NAMES hccl PATHS ${ASCEND_TOOLKIT_HOME}/lib64)
 set(HCCL_LIBRARIES ${HCCL_LIBRARY})
 
 #TODO (chenchiyu): construct modern cmake target for Hccl
+message(STATUS "Found Hccl: HCCL_LIBRARIES: ${HCCL_LIBRARIES}, HCCL_INCLUDE_DIRS: ${HCCL_INCLUDE_DIRS}")
 find_package_handle_standard_args(Hccl DEFAULT_MSG HCCL_LIBRARIES HCCL_INCLUDE_DIRS)

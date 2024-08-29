@@ -48,9 +48,10 @@ jobs:
       - name: Build and install dlinfer
         run: |
           set -ex
+          source /usr/local/Ascend/ascend-toolkit/set_env.sh
           cd ${{ env.CI_PATH }}
           echo "y" | pip uninstall dlinfer
-          pip install -r requirements.txt --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements/ascend/full.txt
           DEVICE=ascend python3 setup.py develop --user
       
       - name: Make and clean directory for lmdeploy

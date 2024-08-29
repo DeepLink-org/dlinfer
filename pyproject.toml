@@ -1,0 +1,6 @@
+[build-system]
+requires = [
+    "pyyaml",
+    "scikit-build",
+]
+build-backend = "setuptools.build_meta"

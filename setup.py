@@ -1,20 +1,14 @@
 import os
-import importlib
 from pathlib import Path
 from setuptools import find_packages
 import yaml
-import torch
 from skbuild import setup
 
 
-VERSION = "0.0.1"
+VERSION = "0.3.1"
 
 vendor_dispatch_key_map = {
     "ascend": "PrivateUse1",
-}
-
-vendor_torch_map = {
-    "ascend": "torch_npu",
 }
 
 
@@ -29,35 +23,18 @@ def gen_vendor_yaml(device):
     return str(file_path.name)
 
 
-def get_vendor_torch_root(device):
-    assert device in vendor_torch_map
-    vendor_torch_str = vendor_torch_map[device]
-    vendor_torch = importlib.import_module(vendor_torch_str)
-    vendor_torch_root = str(Path(vendor_torch.__file__).parent)
-    return vendor_torch_str, vendor_torch_root
-
-
-def get_torch_cxx11_abi():
-    return "1" if torch.compiled_with_cxx11_abi() else "0"
-
-
-def get_torch_cmake_prefix_path():
-    return torch.utils.cmake_prefix_path
-
-
 def get_device():
-    return os.getenv("DEVICE", "").lower()
+    device = os.getenv("DEVICE", "").lower()
+    assert device in vendor_dispatch_key_map
+    return device
 
 
 def get_cmake_args():
     cmake_args = list()
     cmake_device = get_device()
     cmake_args.append("-DCMAKE_BUILD_TYPE=Release")
-    cmake_args.append(f"-DTorch_DIR={get_torch_cmake_prefix_path()}/Torch")
-    cmake_args.append(f"-D_GLIBCXX_USE_CXX11_ABI={get_torch_cxx11_abi()}")
+    # cmake_args.append(f"-DTorch_DIR={get_torch_cmake_prefix_path()}/Torch")
     cmake_args.append(f"-DDEVICE={cmake_device}")
-    vendor_torch_str, vendor_torch_root = get_vendor_torch_root(cmake_device)
-    cmake_args.append(f"-D{vendor_torch_str.capitalize()}_ROOT={vendor_torch_root}")
     return cmake_args
 
 
@@ -72,11 +49,35 @@ def get_package_data():
     }
 
 
+def get_readme():
+    with open(str(Path(__file__).parent / "README.md"), "r", encoding="utf-8") as f:
+        content = f.read()
+    return content
+
+
+def get_requirements(file_name):
+    requirements = []
+    device_req_root = Path(__file__).parent / "requirements" / get_device()
+    with open(str(device_req_root / file_name), "r") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith("-r"):
+                other_file = line.split()[1]
+                requirements.extend(get_requirements(other_file))
+            else:
+                requirements.append(line)
+    return requirements
+
+
 def main():
     setup(
         name="dlinfer",
-        version=VERSION,
+        version=VERSION + f"+{get_device()}",
         description="DeepLink Inference Extension",
+        long_description=get_readme(),
+        long_description_content_type="text/markdown",
         url="https://github.com/DeepLink-org/dlinfer",
         packages=find_packages(),
         package_data=get_package_data(),
@@ -87,12 +88,12 @@ def main():
             "Programming Language :: Python :: 3.8",
             "Programming Language :: Python :: 3.9",
             "Programming Language :: Python :: 3.10",
+            "Intended Audience :: Developers",
             "Operating System :: POSIX :: Linux",
         ],
-        python_requires=">=3.8",
-        install_requires=[
-            "torch >= 2.0.0",
-        ],
+        python_requires=">=3.8, <3.11",
+        setup_requires=get_requirements("build.txt"),
+        install_requires=get_requirements("runtime.txt"),
     )
 
 

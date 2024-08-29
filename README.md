@@ -48,7 +48,7 @@ pip install dlinfer==0.3.1+ascend
 1. 在Atlas 800T A2上依赖torch和torch_npu，运行以下命令安装torch、torch_npu及其依赖。
 
    ```shell
-   pip3 install requirements.txt --index-url https://download.pytorch.org/whl/cpu
+   pip3 install -r requirements/ascend/full.txt
    ```
 
 2. 完成上述准备工作后，使用如下命令即可安装dlinfer。
