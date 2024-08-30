@@ -95,7 +95,7 @@ def test_ref_paged_attn_0():
     dtype=torch.half
     batch_size = 32
     num_blocks = 4
-    block_size= 16
+    block_size= 32
     head_num = 16
     num_kv_heads = 16
     max_seqlen = 64
