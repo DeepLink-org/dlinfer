@@ -7,7 +7,7 @@ from dlinfer.utils.type_annotation import Tensor, Optional, Sequence, Tuple
 
 from .maca_extension import ops as maca_ext_ops
 
-__all__ =[
+__all__ = [
     "add_rms_norm",
     "apply_rotary_pos_emb",
     "context_attention",
@@ -17,6 +17,7 @@ __all__ =[
     "rms_norm",
     # "moe_gating_topk_softmax",
 ]
+
 
 @register_ops(vendor_ops_registry)
 def add_rms_norm(
@@ -28,6 +29,7 @@ def add_rms_norm(
     maca_ext_ops.fused_add_rms_norm(hidden_states, residual, weight, epsilon)
     return hidden_states, residual
 
+
 @register_ops(vendor_ops_registry)
 def apply_rotary_pos_emb(
     query: Tensor,
@@ -37,10 +39,11 @@ def apply_rotary_pos_emb(
     position_ids: Optional[Tensor],
     cos_sin_cache: Optional[Tensor],
 ) -> Tuple[Tensor, Tensor]:
-    maca_ext_ops.rotary_embedding(position_ids, query, key,
-                                  cos_sin_cache.size(-1),
-                                  cos_sin_cache, True)
+    maca_ext_ops.rotary_embedding(
+        position_ids, query, key, cos_sin_cache.size(-1), cos_sin_cache, True
+    )
     return query, key
+
 
 @register_ops(vendor_ops_registry)
 def context_attention(
@@ -58,8 +61,9 @@ def context_attention(
     attn_output: Optional[Tensor],
 ) -> Tensor:
     if alibi_slopes is not None:
-        raise RuntimeError("paged_decode_attention does not "
-                           "support alibi_slopes yet")
+        raise RuntimeError(
+            "paged_decode_attention does not " "support alibi_slopes yet"
+        )
     if attn_output is None:
         attn_output = torch.empty_like(query)
     if softmax_scale is None:
@@ -89,6 +93,7 @@ def context_attention(
     )
     return attn_output
 
+
 @register_ops(vendor_ops_registry)
 def fill_kv_cache(
     key: Tensor,
@@ -97,9 +102,11 @@ def fill_kv_cache(
     value_cache: Tensor,
     kv_indices: Tensor,
 ) -> Tuple[Tensor, Tensor]:
-    maca_ext_ops.reshape_and_cache_new(key, value, key_cache, value_cache,
-                                       kv_indices, "auto")
+    maca_ext_ops.reshape_and_cache_new(
+        key, value, key_cache, value_cache, kv_indices, "auto"
+    )
     return key_cache, value_cache
+
 
 @register_ops(vendor_ops_registry)
 def paged_decode_attention(
@@ -117,8 +124,9 @@ def paged_decode_attention(
     attn_output: Optional[Tensor],
 ) -> Tensor:
     if alibi_slopes is not None:
-        raise RuntimeError("paged_decode_attention does not "
-                           "support alibi_slopes yet")
+        raise RuntimeError(
+            "paged_decode_attention does not " "support alibi_slopes yet"
+        )
     if attn_output is None:
         attn_output = torch.empty_like(query)
     if softmax_scale is None:
@@ -136,9 +144,10 @@ def paged_decode_attention(
         block_size,
         max_kv_seq_len,
         None,
-        'auto',
+        "auto",
     )
     return attn_output
+
 
 @register_ops(vendor_ops_registry)
 def paged_prefill_attention(
@@ -158,6 +167,7 @@ def paged_prefill_attention(
     attn_output: Optional[Tensor],
 ) -> Tensor:
     raise NotImplementedError("maca paged_prefill_attention")
+
 
 @register_ops(vendor_ops_registry)
 def rms_norm(

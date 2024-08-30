@@ -22,6 +22,7 @@ def register_custom_op(
         nonlocal impl_abstract_func
         lib_name, func_name = qualname.split("::")
         import torch._custom_ops
+
         torch._custom_ops.custom_op(qualname)(func)
         # using low level torch.library APIs in case of the registration
         # of fallback kernels which raises error in torch._custom_ops.impl
