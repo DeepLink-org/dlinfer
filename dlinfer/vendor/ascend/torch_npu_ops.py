@@ -70,42 +70,31 @@ def prefill_attention(
         raise RuntimeError(
             "paged_decode_attention does not " "support alibi_slopes yet"
         )
-    # cann prompt_fa don't support batch query with different seq_len
-    seq_len_list = None if q_seq_len is None else q_seq_len.tolist()
 
     query = query.contiguous()
     key = key.contiguous()
     value = value.contiguous()
 
-    if attn_mask:
-        batch = q_start_loc.shape[0]
-        scale_value = 1.0 / math.sqrt(query.shape[-1])
-        for i in range(batch):
-            start = q_start_loc[i]
-            end = start + seq_len_list[i]
-            single_seqlen = int(seq_len_list[i])
-            single_q = query[start:end].view(1, single_seqlen, -1)
-            single_k = key[start:end].reshape(1, single_seqlen, -1)
-            single_v = value[start:end].reshape(1, single_seqlen, -1)
-            single_o = attn_output[start:end].view(1, single_seqlen, -1)
-            actual_seq_lengths = seq_len_list[i : i + 1]
-            torch.ops.npu_ext.npu_prompt_flash_attention_out(
-                single_q,
-                single_k,
-                single_v,
-                single_o,
-                padding_mask=None,
-                atten_mask=attn_mask[i],
-                actual_seq_lengths=actual_seq_lengths,
-                num_heads=num_q_heads,
-                scale_value=scale_value,
-                pre_tokens=2147473647,
-                next_tokens=0,
-                input_layout="BSH",
-                num_key_value_heads=num_kv_heads,
-            )
+    if attn_mask is not None:
+        seq_qlen_list = None if q_seq_len is None else q_seq_len.cumsum(0).tolist()
+        seq_kvlen_list = seq_qlen_list
+        scale_value = (
+            softmax_scale if softmax_scale else 1.0 / math.sqrt(query.shape[-1])
+        )
+        attn_output[:] = torch.ops.npu.npu_fusion_attention(
+            query,
+            key,
+            value,
+            num_q_heads,
+            "TND",
+            scale=scale_value,
+            atten_mask=attn_mask,
+            actual_seq_qlen=seq_qlen_list,
+            actual_seq_kvlen=seq_kvlen_list,
+        )[0]
     else:
         # For now, the value of attn_mask is None only in vit
+        seq_len_list = None if q_seq_len is None else q_seq_len.tolist()
         scale_value = 1.0 / math.sqrt(query.shape[-1] // num_q_heads)
         attn_output[:] = torch.ops.npu.npu_prompt_flash_attention(
             query,
