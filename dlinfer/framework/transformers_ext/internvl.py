@@ -25,9 +25,7 @@ def InternAttention_naive_attn(self, x):
         N,
         self.num_heads,
         self.num_heads,
-        attn_mask=attention_mask,
-        softmax_scale=None,
-        alibi_slopes=None,
+        attention_mask,
         attn_output=x,
     )
 
