@@ -8,7 +8,11 @@ execute_process(
 )
 
 execute_process(
-    COMMAND bash -c "pip show torch-npu | awk '/^Location:/{ORS=\"\"; print \$2\"/torch_npu\"}'"
+    COMMAND python -c "import warnings; \
+    warnings.filterwarnings('ignore', category=UserWarning, module='torch_npu'); \
+    import torch_npu; \
+    from pathlib import Path; \
+    print(str(Path(torch_npu.__file__).parent), end='')"
     OUTPUT_VARIABLE Torch_npu_ROOT
 )
 
