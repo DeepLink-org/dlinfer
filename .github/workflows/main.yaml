@@ -12,7 +12,7 @@ on:
 env:
   CI_PATH: '/data2/wugeshui/GitHub/${{ github.repository }}/${GITHUB_RUN_NUMBER}'
   LMDEPLOY_PATH: '/data2/wugeshui/GitHub/lmdeploy'
-  LMDEPLOY_COMMIT_OR_BRANCH: 'b03e086fc804205ac8aede97f83d50d882755836'
+  LMDEPLOY_COMMIT_OR_BRANCH: 'main'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -68,7 +68,7 @@ jobs:
           set -ex
           git clone https://github.com/DeepLink-org/lmdeploy.git ${{ env.LMDEPLOY_PATH }}
           cd ${{ env.LMDEPLOY_PATH }} && git checkout ${{ env.LMDEPLOY_COMMIT_OR_BRANCH }}
-          git apply ${{env.CI_PATH }}/.github/ci/fix-exit-multi-npu.patch
+          # git apply ${{env.CI_PATH }}/.github/ci/fix-exit-multi-npu.patch
 
   Tests:
     runs-on: Atlas_800T_A2
