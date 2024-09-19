@@ -286,6 +286,11 @@ def rms_norm(hidden_states: Tensor, weight: Tensor, epsilon: float) -> Tensor:
 
 
 @register_ops(vendor_ops_registry)
+def silu_and_mul(input_tensor: Tensor, dim: int) -> Tensor:
+    return torch.ops.npu.npu_swiglu(input_tensor, dim)
+
+
+@register_ops(vendor_ops_registry)
 def moe_gating_topk_softmax(router_logits: Tensor, topk: int) -> Tuple[Tensor, Tensor]:
     routing_weights = router_logits.new_empty((*router_logits.shape[:-1], topk))
     selected_experts = router_logits.new_empty(
