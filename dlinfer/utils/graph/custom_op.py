@@ -21,11 +21,11 @@ def register_custom_op(
             return func
         nonlocal impl_abstract_func
         lib_name, func_name = qualname.split("::")
-        import torch._custom_ops
+        import torch._maca_ops
 
-        torch._custom_ops.custom_op(qualname)(func)
+        torch._maca_ops.custom_op(qualname)(func)
         # using low level torch.library APIs in case of the registration
-        # of fallback kernels which raises error in torch._custom_ops.impl
+        # of fallback kernels which raises error in torch._maca_ops.impl
         if lib_name not in library_impl_dict:
             library_impl_dict[lib_name] = Library(lib_name, "IMPL")
         impl(library_impl_dict[lib_name], func_name, dispatch_key)(func)
@@ -48,7 +48,7 @@ def register_custom_op(
                 return tuple(result)
 
             impl_abstract_func = _impl_abstract_func
-        torch._custom_ops.impl_abstract(qualname)(impl_abstract_func)
+        torch._maca_ops.impl_abstract(qualname)(impl_abstract_func)
         torch_ops_namespace = getattr(torch.ops, lib_name)
         torch_ops_func = getattr(torch_ops_namespace, func_name)
         assert torch_ops_func is not None
