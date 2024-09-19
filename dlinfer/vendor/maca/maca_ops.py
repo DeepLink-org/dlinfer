@@ -15,7 +15,8 @@ __all__ = [
     "paged_decode_attention",
     "paged_prefill_attention",
     "rms_norm",
-    # "moe_gating_topk_softmax",
+    "moe_gating_topk_softmax",
+    "silu_and_mul",
 ]
 
 
@@ -204,3 +205,44 @@ def rms_norm(
     output = torch.empty_like(hidden_states)
     maca_ext_ops.rms_norm(output, hidden_states, weight, epsilon)
     return output
+
+
+@register_ops(vendor_ops_registry)
+def moe_gating_topk_softmax(
+    router_logits: Tensor, topk: int, renormalize: bool = False
+) -> Tuple[Tensor, Tensor]:
+    # import pdb; pdb.set_trace()
+
+    N = router_logits.size(0)
+
+    topk_weights = torch.empty(
+        N, topk, dtype=torch.float32, device=router_logits.device
+    )
+    topk_ids = torch.empty(N, topk, dtype=torch.int32, device=router_logits.device)
+
+    token_expert_indicies = torch.empty_like(topk_ids)
+
+    maca_ext_ops.topk_softmax(
+        topk_weights,
+        topk_ids,
+        token_expert_indicies,
+        router_logits.float(),
+    )
+
+    del token_expert_indicies  # Not used. Will be used in the future.
+
+    if renormalize:
+        topk_weights = topk_weights / topk_weights.sum(dim=-1, keepdim=True)
+    topk_weights = topk_weights.view(-1)
+    topk_ids = topk_ids.view(-1)
+
+    return topk_weights, topk_ids
+
+
+@register_ops(vendor_ops_registry)
+def silu_and_mul(x: Tensor) -> Tensor:
+    d = x.shape[-1] // 2
+    output_shape = x.shape[:-1] + (d,)
+    out = torch.empty(output_shape, dtype=x.dtype, device=x.device)
+    maca_ext_ops.silu_and_mul(out, x)
+    return out
