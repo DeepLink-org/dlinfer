@@ -2,6 +2,7 @@
 import math
 import torch
 import torch_npu
+import json
 
 from dlinfer.vendor import vendor_ops_registry
 from dlinfer.utils.registry import register_ops
@@ -17,6 +18,7 @@ __all__ = [
     "rms_norm",
     "moe_gating_topk_softmax",
     "get_cache_len",
+    "weight_quant_matmul",
 ]
 
 
@@ -341,3 +343,20 @@ def fused_attention(
                 attn_output,
             )
     return attn_output
+
+
+@register_ops(vendor_ops_registry)
+def weight_quant_matmul(
+    x: Tensor,
+    qweight: Tensor,
+    scale: Tensor,
+    offset: Optional[Tensor] = None,
+    bias: Optional[Tensor] = None,
+    group_size: Optional[int] = 0,
+):
+    offset = None if (offset is None or offset.numel() == 0) else offset
+    matmul_output = x.new_zeros((x.shape[0], scale.shape[1]))
+    torch.ops.npu_ext.npu_weight_quant_batchmatmul_out(
+        x, qweight, scale, offset, None, None, bias, group_size, matmul_output
+    )
+    return matmul_output
