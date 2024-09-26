@@ -23,11 +23,6 @@ at::Tensor npu_incre_flash_attention_v4_out(const at::Tensor& query, const at::T
                                             double scale_value, c10::string_view input_layout, int64_t num_key_value_heads, int64_t block_size,
                                             int64_t inner_precise);
 
-at::Tensor npu_weight_quant_batchmatmul_out(const at::Tensor& x, const at::Tensor& weight, const at::Tensor& antiquant_scale,
-                                            const at::optional<at::Tensor>& antiquant_offset, const at::optional<at::Tensor>& quant_scale,
-                                            const at::optional<at::Tensor>& quant_offset, const at::optional<at::Tensor>& bias, int64_t group_size,
-                                            at::Tensor matmul_output);
-
 ::std::tuple<at::Tensor, at::Tensor> npu_moe_gating_topk_softmax(const at::Tensor& x, const c10::optional<at::Tensor>& finished_opt, int64_t topk,
                                                                  at::Tensor& y_out, at::Tensor& expert_idx_out, at::Tensor& row_idx_out);
 

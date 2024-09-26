@@ -21,10 +21,6 @@ TORCH_LIBRARY(npu_ext, m) {
     m.def(
         "npu_moe_gating_topk_softmax(Tensor x, Tensor? finished_opt, int topk, Tensor(a!) y_out,"
         "Tensor(b!) expert_idx_out, Tensor row_idx_out) -> (Tensor(a!), Tensor(b!))");
-    m.def(
-        "npu_weight_quant_batchmatmul_out(Tensor x, Tensor weight, Tensor antiquant_scale, "
-        "Tensor? antiquant_offset, Tensor? quant_scale, Tensor? quant_offset, Tensor? bias, "
-        "int group_size, Tensor matmul_output) -> Tensor(a!)");
 }
 
 }  // namespace
@@ -35,7 +31,6 @@ TORCH_LIBRARY_IMPL(npu_ext, PrivateUse1, m) {
     m.impl("npu_prompt_flash_attention_out", TORCH_FN(dlinfer::ascend::npu_prompt_flash_attention_out));
     m.impl("npu_incre_flash_attention_v4_out", TORCH_FN(dlinfer::ascend::npu_incre_flash_attention_v4_out));
     m.impl("npu_moe_gating_topk_softmax", TORCH_FN(dlinfer::ascend::npu_moe_gating_topk_softmax));
-    m.impl("npu_weight_quant_batchmatmul_out", TORCH_FN(dlinfer::ascend::npu_weight_quant_batchmatmul_out));
 }
 
 }  // namespace

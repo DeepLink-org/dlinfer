@@ -2,7 +2,6 @@
 import math
 import torch
 import torch_npu
-import json
 
 from dlinfer.vendor import vendor_ops_registry
 from dlinfer.utils.registry import register_ops
@@ -355,8 +354,6 @@ def weight_quant_matmul(
     group_size: Optional[int] = 0,
 ):
     offset = None if (offset is None or offset.numel() == 0) else offset
-    matmul_output = x.new_zeros((x.shape[0], scale.shape[1]))
-    torch.ops.npu_ext.npu_weight_quant_batchmatmul_out(
-        x, qweight, scale, offset, None, None, bias, group_size, matmul_output
+    return torch.ops.npu.npu_weight_quant_batchmatmul(
+        x, qweight, scale, antiquant_offset=offset, antiquant_group_size=group_size
     )
-    return matmul_output
