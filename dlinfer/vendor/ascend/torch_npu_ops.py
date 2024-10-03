@@ -286,7 +286,7 @@ def moe_gating_topk_softmax(router_logits: Tensor, topk: int) -> Tuple[Tensor, T
     )
 
 
-# TODO only for internlm on transformers lib.
+# TODO only for internlm in transformers lib.
 # see issue #9 for details
 @register_ops(vendor_ops_registry)
 def fused_attention(
@@ -305,6 +305,14 @@ def fused_attention(
 
     for i in range(batch_size):
         if q_seq_len == kv_seq_len:
+            # mask must be a square
+            if not mask[i:i+1][0].shape[-1] == mask[i:i+1][0].shape[-2]:
+                min_shape = min(mask[i:i+1][0].shape[-1], mask[i:i+1][0].shape[-2])
+                square_mask = mask[i:i+1][0][...,:min_shape,:min_shape]
+                square_mask = square_mask.contiguous()
+            else:
+                square_mask = mask[i:i+1][0]
+
             prefill_attention(
                 query_states,
                 key_states,
@@ -317,9 +325,10 @@ def fused_attention(
                 torch.tensor(
                     [kv_seq_len], dtype=torch.int64, device=query_states.device
                 ),
+                q_seq_len,
                 num_q_heads,
                 num_kv_heads,
-                mask[i : i + 1],
+                [square_mask,],
                 None,
                 None,
                 attn_output,
@@ -334,6 +343,7 @@ def fused_attention(
                 torch.tensor(
                     [kv_seq_len], dtype=torch.int64, device=query_states.device
                 ),
+                kv_seq_len,
                 num_q_heads,
                 num_kv_heads,
                 None,
