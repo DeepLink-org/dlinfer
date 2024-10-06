@@ -54,8 +54,9 @@ def apply_rotary_pos_emb(
     key: Tensor,
     cos: Optional[Tensor],
     sin: Optional[Tensor],
-    position_ids: Optional[Tensor],
     cos_sin_cache: Optional[Tensor],
+    cos_sin_ids: Optional[Tensor],
+    cu_seqlens: Optional[Tensor],
 ) -> Tuple[Tensor, Tensor]:
     """
     Applies rotary position embeddings to the query and key tensors.
@@ -86,8 +87,8 @@ def apply_rotary_pos_emb(
         key,
         cos,
         sin,
-        position_ids,
-        cos_sin_cache,
+        cos_sin_ids,
+        cu_seqlens,
     )
 
 

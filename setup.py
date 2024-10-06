@@ -10,6 +10,7 @@ VERSION = "0.1.1.post2"
 vendor_dispatch_key_map = {
     "ascend": "PrivateUse1",
     "maca": "CUDA",
+    "camb":"PrivateUse1",
 }
 
 
@@ -103,7 +104,7 @@ def main():
         package_data=get_package_data(),
         exclude_package_data={"": ["tests/*"]},
         cmake_args=get_cmake_args(),
-        cmake_install_target="install",
+        cmake_install_target="all",
         classifiers=[
             "Programming Language :: Python :: 3.8",
             "Programming Language :: Python :: 3.9",
