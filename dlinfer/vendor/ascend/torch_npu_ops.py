@@ -306,12 +306,14 @@ def fused_attention(
     for i in range(batch_size):
         if q_seq_len == kv_seq_len:
             # mask must be a square
-            if not mask[i:i+1][0].shape[-1] == mask[i:i+1][0].shape[-2]:
-                min_shape = min(mask[i:i+1][0].shape[-1], mask[i:i+1][0].shape[-2])
-                square_mask = mask[i:i+1][0][...,:min_shape,:min_shape]
+            if not mask[i : i + 1][0].shape[-1] == mask[i : i + 1][0].shape[-2]:
+                min_shape = min(
+                    mask[i : i + 1][0].shape[-1], mask[i : i + 1][0].shape[-2]
+                )
+                square_mask = mask[i : i + 1][0][..., :min_shape, :min_shape]
                 square_mask = square_mask.contiguous()
             else:
-                square_mask = mask[i:i+1][0]
+                square_mask = mask[i : i + 1][0]
 
             prefill_attention(
                 query_states,
@@ -328,7 +330,9 @@ def fused_attention(
                 q_seq_len,
                 num_q_heads,
                 num_kv_heads,
-                [square_mask,],
+                [
+                    square_mask,
+                ],
                 None,
                 None,
                 attn_output,
