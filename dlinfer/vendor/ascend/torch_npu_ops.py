@@ -171,9 +171,9 @@ def paged_decode_attention(
     bs, _, dim = query.shape
     query = query.contiguous()
     query = query.view(bs, 1, num_q_heads * dim)
-    kv_cache_len = key_cache.shape[0]
-    key_cache = key_cache.view(1, kv_cache_len, -1)
-    value_cache = value_cache.view(1, kv_cache_len, -1)
+    # kv_cache_len = key_cache.shape[0]
+    # key_cache = key_cache.view(1, kv_cache_len, -1)
+    # value_cache = value_cache.view(1, kv_cache_len, -1)
     scale_value = 1.0 / math.sqrt(dim)
 
     torch.ops.npu_ext.npu_incre_flash_attention_v4_out(
