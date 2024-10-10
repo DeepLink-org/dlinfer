@@ -19,6 +19,7 @@ __all__ = [
     "fused_attention",
     "fill_contiguous_kvcache",
     "get_cache_len",
+    "weight_quant_matmul",
 ]
 
 
@@ -399,3 +400,23 @@ def get_cache_len(cache: Tensor) -> int:
         int: the required length
     """
     return vendor_ops_registry["get_cache_len"](cache)
+
+
+@register_custom_op_default_value(
+    {
+        "offset": None,
+        "bias": None,
+        "group_size": 0,
+    }
+)
+def weight_quant_matmul(
+    x1: Tensor,
+    x2: Tensor,
+    scale: Tensor,
+    offset: Optional[Tensor],
+    bias: Optional[Tensor],
+    group_size: Optional[int],
+):
+    return vendor_ops_registry["weight_quant_matmul"](
+        x1, x2, scale, offset, bias, group_size
+    )
