@@ -17,6 +17,7 @@ __all__ = [
     "rms_norm",
     "moe_gating_topk_softmax",
     "get_cache_len",
+    "weight_quant_matmul",
 ]
 
 
@@ -355,3 +356,19 @@ def fused_attention(
                 attn_output,
             )
     return attn_output
+
+
+# Quantification of W4A16 is currently supported and tested.
+@register_ops(vendor_ops_registry)
+def weight_quant_matmul(
+    x: Tensor,
+    qweight: Tensor,
+    scale: Tensor,
+    offset: Optional[Tensor] = None,
+    bias: Optional[Tensor] = None,
+    group_size: Optional[int] = 0,
+):
+    offset = None if (offset is None or offset.numel() == 0) else offset
+    return torch.ops.npu.npu_weight_quant_batchmatmul(
+        x, qweight, scale, antiquant_offset=offset, antiquant_group_size=group_size
+    )
