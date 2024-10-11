@@ -416,7 +416,21 @@ def weight_quant_matmul(
     offset: Optional[Tensor],
     bias: Optional[Tensor],
     group_size: Optional[int],
-):
+) -> Tensor:
+    """
+    Complete a matrix multiplication computation with quantized scenarios as inputs.
+
+    Args:
+        x1 (Tensor): The input tensor.
+        x2 (Tensor): The quantized weight tensor.
+        scale (Tensor): The antiquant scale tensor of quantized weight.
+        offset (Optional[Tensor]): An optional antiquant offset tensor of quantized weight.
+        bias (Optional[Tensor]): An optional bias tensor of matrix multiplication.
+        group_size (Optional[int]): An optional group_size of the quantized weight in the per_group algorithm mode.
+
+    Returns:
+        Tensor: The output tensor of the matrix product in the quantisation scenario.
+    """
     return vendor_ops_registry["weight_quant_matmul"](
         x1, x2, scale, offset, bias, group_size
     )

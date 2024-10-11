@@ -344,6 +344,7 @@ def fused_attention(
     return attn_output
 
 
+# Quantification of W4A16 is currently supported and tested.
 @register_ops(vendor_ops_registry)
 def weight_quant_matmul(
     x: Tensor,
