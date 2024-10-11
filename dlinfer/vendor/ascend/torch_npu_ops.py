@@ -44,7 +44,7 @@ def apply_rotary_pos_emb(
 ) -> Tuple[Tensor, Tensor]:
     # rotary pos emb helpers:
     def rotate_half_(x):
-        x1, x2 = x[..., :x.shape[-1] // 2], x[..., x.shape[-1] // 2:]
+        x1, x2 = x[..., : x.shape[-1] // 2], x[..., x.shape[-1] // 2 :]
         return torch.cat((-x2, x1), dim=x1.ndim - 1)
 
     def apply_rotary_pos_emb_(q, k, cos, sin):
