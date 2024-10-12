@@ -1,6 +1,9 @@
 import math
 import torch
 
+from flash_attn import flash_attn_varlen_func
+from flash_attn import flash_attn_with_kvcache
+
 from dlinfer.vendor import vendor_ops_registry
 from dlinfer.utils.registry import register_ops
 from dlinfer.utils.type_annotation import Tensor, Optional, Sequence, Tuple
@@ -18,6 +21,29 @@ __all__ = [
     "moe_gating_topk_softmax",
     "silu_and_mul",
 ]
+
+
+def scaled_dot_product_attention(
+    query, key, value, attn_mask=None, dropout_p=0.0, is_causal=False, scale=None
+) -> torch.Tensor:
+    L, S = query.size(-2), key.size(-2)
+    scale_factor = 1 / math.sqrt(query.size(-1)) if scale is None else scale
+    attn_bias = torch.zeros(L, S, dtype=query.dtype)
+    if is_causal:
+        assert attn_mask is None
+        temp_mask = torch.ones(L, S, dtype=torch.bool).tril(diagonal=0)
+        attn_bias.masked_fill_(temp_mask.logical_not(), float("-inf"))
+        attn_bias.to(query.dtype)
+    if attn_mask is not None:
+        if attn_mask.dtype == torch.bool:
+            attn_bias.masked_fill_(attn_mask.logical_not(), float("-inf"))
+        else:
+            attn_bias += attn_mask
+    attn_weight = query @ key.transpose(-2, -1) * scale_factor
+    attn_weight += attn_bias.to(query.device)
+    attn_weight = torch.softmax(attn_weight, dim=-1)
+    attn_weight = torch.dropout(attn_weight, dropout_p, train=True)
+    return attn_weight @ value
 
 
 @register_ops(vendor_ops_registry)
@@ -63,7 +89,9 @@ def prefill_attention(
     value: Tensor,
     q_start_loc: Tensor,
     q_seq_len: Tensor,
+    kv_seqlen: Tensor,
     max_q_seq_len: int,
+    max_kv_seq_len: int,
     num_q_heads: int,
     num_kv_heads: int,
     attn_mask: Sequence[Optional[Tensor]],
@@ -71,45 +99,49 @@ def prefill_attention(
     alibi_slopes: Optional[Sequence[float]],
     attn_output: Optional[Tensor],
 ) -> Tensor:
-    if alibi_slopes is not None:
-        raise RuntimeError(
-            "paged_decode_attention does not " "support alibi_slopes yet"
-        )
-    if attn_output is None:
-        attn_output = torch.empty_like(query)
     if softmax_scale is None:
         softmax_scale = float(1 / math.sqrt(key.size(-1)))
 
+    # if softmax_scale is not None:
+    #     causal = False
+    # else:
+    causal = True
+
     def make_cu_seqlens(seqlens):
+        if isinstance(seqlens, int):
+            cu_seqlens = torch.tensor([0, seqlens], dtype=torch.int32)
+            return cu_seqlens
         cu_seqlens = seqlens.cumsum(0)
         cu_zero = cu_seqlens.new_zeros(1)
         cu_seqlens = torch.cat([cu_zero, cu_seqlens])
         return cu_seqlens
 
-    cu_seqlens = make_cu_seqlens(q_seq_len).int().to(query.device)
-
-    attn_output = maca_ext_ops.flash_attn_varlen_fwd(
+    cu_seqlens_q = make_cu_seqlens(q_seq_len).int().to(query.device)
+    cu_seqlens_k = make_cu_seqlens(kv_seqlen).int().to(query.device)
+    # causal = False
+    # for cogvlm vl part
+    if query.size(-2) != num_q_heads:
+        causal = False
+        head_dim = query.size(-1) // num_q_heads
+        query = query.view(-1, num_q_heads, head_dim)
+        key = key.view(-1, num_kv_heads, head_dim)
+        value = value.view(-1, num_kv_heads, head_dim)
+    # import pdb; pdb.set_trace()
+    # print(causal, flush=True)
+    output = flash_attn_varlen_func(
         query,
         key,
         value,
-        attn_output,
-        cu_seqlens,
-        cu_seqlens,
-        None,
-        alibi_slopes,
-        max_q_seq_len,
-        max_q_seq_len,
-        0.0,
-        softmax_scale,
-        False,
-        True,
-        -1,
-        -1,
-        False,
-        None,
+        cu_seqlens_q=cu_seqlens_q,
+        cu_seqlens_k=cu_seqlens_k,
+        max_seqlen_q=max_q_seq_len,
+        max_seqlen_k=max_kv_seq_len,
+        softmax_scale=softmax_scale,
+        causal=causal,
+        window_size=(-1, -1),
     )
 
-    return attn_output[0]
+    return output
 
 
 @register_ops(vendor_ops_registry)
@@ -145,35 +177,27 @@ def paged_decode_attention(
     attn_output: Optional[Tensor],
 ) -> Tensor:
     if alibi_slopes is not None:
-        raise RuntimeError(
-            "paged_decode_attention does not " "support alibi_slopes yet"
-        )
-    if attn_output is None:
-        attn_output = torch.empty_like(query)
+        raise RuntimeError("paged_decode_attention does not support alibi_slopes yet")
+
+    batch_size = block_table.size(0)
+    _, head, dim = query.shape
+
+    key_cache_t = key_cache.transpose(1, 2)
+    value_cache_t = value_cache.transpose(1, 2)
+
     if softmax_scale is None:
         softmax_scale = float(1 / math.sqrt(query.size(-1)))
 
-    block_table = block_table.int()
-    kv_seq_len = kv_seq_len.int().to(query.device)
-
-    # import pdb; pdb.set_trace()
-    maca_ext_ops.paged_attention_v1(
-        attn_output,
-        query,
-        key_cache,
-        value_cache,
-        num_kv_heads,
-        softmax_scale,
-        block_table,
-        kv_seq_len,
-        block_size,
-        max_kv_seq_len,
-        None,
-        "auto",
+    output = flash_attn_with_kvcache(
+        query.view(batch_size, -1, head, dim),
+        key_cache_t,
+        value_cache_t,
+        cache_seqlens=kv_seq_len.to(torch.int32).to(query.device),
+        block_table=block_table.to(torch.int32),
+        softmax_scale=softmax_scale,
+        causal=True,
     )
-    # import pdb; pdb.set_trace()
-
-    return attn_output
+    return output
 
 
 @register_ops(vendor_ops_registry)
@@ -193,7 +217,26 @@ def paged_prefill_attention(
     alibi_slopes: Optional[Sequence[float]],
     attn_output: Optional[Tensor],
 ) -> Tensor:
-    raise NotImplementedError("maca paged_prefill_attention")
+    batch_size = block_table.size(0)
+    _, head, dim = query.shape
+
+    key_cache_t = key_cache.transpose(1, 2)
+    value_cache_t = value_cache.transpose(1, 2)
+
+    if softmax_scale is None:
+        softmax_scale = float(1 / math.sqrt(query.size(-1)))
+
+    output = flash_attn_with_kvcache(
+        query.view(batch_size, -1, head, dim),
+        key_cache_t,
+        value_cache_t,
+        cache_seqlens=kv_seq_len.to(torch.int32).to(query.device),
+        block_table=block_table.to(torch.int32),
+        softmax_scale=softmax_scale,
+        causal=True,
+    )
+
+    return output
 
 
 @register_ops(vendor_ops_registry)
@@ -211,7 +254,6 @@ def rms_norm(
 def moe_gating_topk_softmax(
     router_logits: Tensor, topk: int, renormalize: bool = False
 ) -> Tuple[Tensor, Tensor]:
-    # import pdb; pdb.set_trace()
 
     N = router_logits.size(0)
 
