@@ -363,7 +363,7 @@ def weight_quant_matmul(
     bias: Optional[Tensor] = None,
     all_reduce: Optional[bool] = False,
     group_size: Optional[int] = 0,
-):
+) -> Tensor:
     offset = None if (offset is None or offset.numel() == 0) else offset
     return torch.ops.npu.npu_weight_quant_batchmatmul(
         x, qweight, scale, antiquant_offset=offset, antiquant_group_size=group_size
@@ -402,3 +402,22 @@ def fused_moe(
             moe_output[i] += weight * down_proj
 
     return moe_output
+
+
+@register_ops(vendor_ops_registry)
+def linear(
+    x: Tensor,
+    weight: Tensor,
+    bias: Optional[Tensor],
+    all_reduce: Optional[bool],
+) -> Tensor:
+    if all_reduce:
+        hcomm_info = torch.distributed.distributed_c10d._world.default_pg._get_backend(
+            x.device
+        ).get_hccl_comm_name(x.device.index)
+        out = torch_npu.npu_mm_all_reduce_base(
+            x, weight.transpose(0, 1), hcomm_info, reduce_op="sum", bias=bias
+        )
+    else:
+        out = torch.nn.functional.linear(x, weight, bias)
+    return out
