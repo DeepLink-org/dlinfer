@@ -19,12 +19,12 @@ def apply_model_patches(module):
         transformers.cache_utils.DynamicCache.update = (
             internlm2.transformers_cache_utils_dynamiccache_update
         )
-    elif module.__name__.endswith(".modeling_internvl_chat"):
-        from . import internvl
-
-        vit_module = inspect.getmodule(module.InternVisionModel)
-        vit_module.InternAttention._naive_attn = internvl.InternAttention_naive_attn
-        vit_module.InternRMSNorm.forward = internvl.InternRMSNorm_forward
+    # elif module.__name__.endswith(".modeling_internvl_chat"):
+    #     from . import internvl
+    #     import pdb; pdb.set_trace()
+    #     vit_module = inspect.getmodule(module.InternVisionModel)
+    #     vit_module.InternAttention._naive_attn = internvl.InternAttention_naive_attn
+    #     vit_module.InternRMSNorm.forward = internvl.InternRMSNorm_forward
     elif module.__name__.endswith(".modeling_cogvlm"):
         from . import cogvlm
 

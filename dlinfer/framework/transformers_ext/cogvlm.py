@@ -9,8 +9,21 @@ def PatchedAttention_forward(self, x: "tensor(B, L, D)") -> "tensor(B, L, D)":
     qkv = qkv.reshape(B, L, 3, H).permute(2, 0, 1, 3)  # 3, B, L, H
     q, k, v = qkv[0], qkv[1], qkv[2]
 
-    ext_ops.prefill_attention(
-        q, k, v, None, None, L, self.num_heads, self.num_heads, None, attn_output=q
+    out = ext_ops.prefill_attention(
+        q,
+        k,
+        v,
+        None,
+        L,
+        L,
+        L,
+        L,
+        self.num_heads,
+        self.num_heads,
+        None,
+        softmax_scale=self.scale,
+        attn_output=None,
     )
-    output = self.dense(q.view(B, L, -1))
+    output = self.dense(out.view(B, L, -1))
+    output = self.output_dropout(output)
     return output
