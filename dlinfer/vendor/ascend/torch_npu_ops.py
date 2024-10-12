@@ -57,7 +57,7 @@ def apply_rotary_pos_emb(
     query = query.contiguous()
     key = key.contiguous()
 
-    # ascend ops currently not support dim 64
+    # ascend ops currently only support dim 128
     if query.shape[-1] != 128 and key.shape[-1] != 128:
         return apply_rotary_pos_emb_(query, key, cos, sin)
     return torch.ops.npu.npu_apply_rotary_pos_emb(query, key, cos, sin, "BSND")
