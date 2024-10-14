@@ -45,7 +45,7 @@ def apply_rotary_pos_emb(
     # rotary pos emb helpers:
     def rotate_half_(x):
         x1, x2 = x[..., : x.shape[-1] // 2], x[..., x.shape[-1] // 2 :]
-        return torch.cat((-x2, x1), dim=x1.ndim - 1)
+        return torch.cat((-x2, x1), dim=-1)
 
     def apply_rotary_pos_emb_(q, k, cos, sin):
         return (q * cos) + (rotate_half_(q) * sin), (k * cos) + (rotate_half_(k) * sin)
