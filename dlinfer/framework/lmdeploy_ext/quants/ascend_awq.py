@@ -1,3 +1,4 @@
+# Copyright (c) 2024, OpenMMLab and DeepLink. All rights reserved.
 import torch
 from torch import nn
 
@@ -19,8 +20,7 @@ def AscendWeightOnlyQLinear__init__(
 ) -> None:
     super(WeightOnlyQLinear, self).__init__()
 
-    if w_bit not in [2, 4, 8]:
-        raise NotImplementedError("Only 2,4,8 bit are supported for now.")
+    assert w_bit == 4, "Only 4 bit are supported for ascend now."
 
     self.in_features = in_features
     self.out_features = out_features
@@ -54,7 +54,7 @@ def AscendWeightOnlyQLinear__init__(
         self.qzeros = None
 
 
-def WeightOnlyQLinear_from_linear(
+def AscendWeightOnlyQLinear_from_linear(
     cls: Type["WeightOnlyQLinear"],
     linear: nn.Linear,
     quantizer: TypeVar("Quantizer"),
@@ -235,7 +235,7 @@ def AscendAwqLinear_create_weights(
 
 
 WeightOnlyQLinear.__init__ = AscendWeightOnlyQLinear__init__
-WeightOnlyQLinear.from_linear = classmethod(WeightOnlyQLinear_from_linear)
+WeightOnlyQLinear.from_linear = classmethod(AscendWeightOnlyQLinear_from_linear)
 MergedAwqLinear.__init__ = AscendMergedAwqLinear__init__
 MergedAwqLinear.weight_loader = AscendMergedAwqLinear_weight_loader
 AwqLinear.create_weights = AscendAwqLinear_create_weights
