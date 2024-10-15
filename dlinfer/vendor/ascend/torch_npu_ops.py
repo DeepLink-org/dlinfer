@@ -43,12 +43,24 @@ def apply_rotary_pos_emb(
     position_ids: Optional[Tensor],
     cos_sin_cache: Optional[Tensor],
 ) -> Tuple[Tensor, Tensor]:
+    # rotary pos emb helpers:
+    def rotate_half_(x):
+        x1, x2 = x[..., : x.shape[-1] // 2], x[..., x.shape[-1] // 2 :]
+        return torch.cat((-x2, x1), dim=-1)
+
+    def apply_rotary_pos_emb_(q, k, cos, sin):
+        return (q * cos) + (rotate_half_(q) * sin), (k * cos) + (rotate_half_(k) * sin)
+
     if len(cos.shape) < 4:
         cos = cos.unsqueeze(2)
     if len(sin.shape) < 4:
         sin = sin.unsqueeze(2)
     query = query.contiguous()
     key = key.contiguous()
+
+    # ascend ops currently only support dim 128
+    if query.shape[-1] != 128 or key.shape[-1] != 128:
+        return apply_rotary_pos_emb_(query, key, cos, sin)
     return torch.ops.npu.npu_apply_rotary_pos_emb(query, key, cos, sin, "BSND")
 
 
@@ -172,9 +184,6 @@ def paged_decode_attention(
     bs, _, dim = query.shape
     query = query.contiguous()
     query = query.view(bs, 1, num_q_heads * dim)
-    kv_cache_len = key_cache.shape[0]
-    key_cache = key_cache.view(1, kv_cache_len, -1)
-    value_cache = value_cache.view(1, kv_cache_len, -1)
     scale_value = 1.0 / math.sqrt(dim)
 
     torch.ops.npu_ext.npu_incre_flash_attention_v4_out(
