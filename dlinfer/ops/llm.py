@@ -435,6 +435,8 @@ def weight_quant_matmul(
     return vendor_ops_registry["weight_quant_matmul"](
         x1, x2, scale, offset, bias, group_size
     )
+
+
 def silu_and_mul(x: Tensor) -> Tensor:
     """An activation function for SwiGLU.
 
