@@ -78,7 +78,6 @@ def apply_rotary_pos_emb(
     maca_ext_ops.rotary_embedding(
         position_ids_1d, query, key, cos_sin_cache.size(-1), cos_sin_cache, True
     )
-
     return query, key
 
 
@@ -89,9 +88,7 @@ def prefill_attention(
     value: Tensor,
     q_start_loc: Tensor,
     q_seq_len: Tensor,
-    kv_seqlen: Tensor,
     max_q_seq_len: int,
-    max_kv_seq_len: int,
     num_q_heads: int,
     num_kv_heads: int,
     attn_mask: Sequence[Optional[Tensor]],
@@ -99,13 +96,58 @@ def prefill_attention(
     alibi_slopes: Optional[Sequence[float]],
     attn_output: Optional[Tensor],
 ) -> Tensor:
+    if q_seq_len is None:
+        q_seq_len = max_q_seq_len
+    kv_seq_len = q_seq_len
+    max_kv_seq_len = max_q_seq_len
+
+    causal = True
     if softmax_scale is None:
         softmax_scale = float(1 / math.sqrt(key.size(-1)))
 
-    # if softmax_scale is not None:
-    #     causal = False
-    # else:
-    causal = True
+    # for deepseek v2 lite.
+    if query.shape[-1] == 576:
+        batch_size = kv_seq_len.dim()
+        head_dim = query.shape[-1]
+        nope_size = value.shape[-1]
+        groups = num_q_heads // num_q_heads
+
+        input_type = query.dtype
+        query = query.to(torch.float32)
+        key = key.to(torch.float32)
+        value = value.to(torch.float32)
+
+        # (bs, seq_len, num_head, head_dim)
+        query = query.view(batch_size, -1, num_q_heads, head_dim)
+        key = key.view(batch_size, -1, num_kv_heads, head_dim)
+        value = value.view(batch_size, -1, num_kv_heads, nope_size)
+        key = key.repeat(1, 1, groups, 1)
+        value = value.repeat(1, 1, groups, 1)
+
+        # (bs, num_head, seq_len, head_dim)
+        query = query.transpose(1, 2).contiguous()
+        key = key.transpose(1, 2).contiguous()
+        value = value.transpose(1, 2).contiguous()
+
+        # (bs, num_head, seq_len, head_dim)
+        attn_output = scaled_dot_product_attention(
+            query, key, value, is_causal=True, scale=softmax_scale
+        )
+
+        # (seq_len, num_head, head_dim)
+        attn_output = attn_output.transpose(1, 2).flatten(0, 1)
+        attn_output = attn_output[..., :nope_size].contiguous()
+        attn_output = attn_output.to(input_type)
+        return attn_output[..., :512].contiguous()
+
+    # for cogvlm vl part.
+    if query.size(-2) != num_q_heads:
+        causal = False
+        head_dim = query.size(-1) // num_q_heads
+        query = query.view(-1, num_q_heads, head_dim)
+        key = key.view(-1, num_kv_heads, head_dim)
+        value = value.view(-1, num_kv_heads, head_dim)
+        softmax_scale = float(1 / math.sqrt(head_dim))
 
     def make_cu_seqlens(seqlens):
         if isinstance(seqlens, int):
@@ -117,17 +159,8 @@ def prefill_attention(
         return cu_seqlens
 
     cu_seqlens_q = make_cu_seqlens(q_seq_len).int().to(query.device)
-    cu_seqlens_k = make_cu_seqlens(kv_seqlen).int().to(query.device)
-    # causal = False
-    # for cogvlm vl part
-    if query.size(-2) != num_q_heads:
-        causal = False
-        head_dim = query.size(-1) // num_q_heads
-        query = query.view(-1, num_q_heads, head_dim)
-        key = key.view(-1, num_kv_heads, head_dim)
-        value = value.view(-1, num_kv_heads, head_dim)
-    # import pdb; pdb.set_trace()
-    # print(causal, flush=True)
+    cu_seqlens_k = make_cu_seqlens(kv_seq_len).int().to(query.device)
+
     output = flash_attn_varlen_func(
         query,
         key,
@@ -140,7 +173,6 @@ def prefill_attention(
         causal=causal,
         window_size=(-1, -1),
     )
-
     return output
 
 
@@ -153,11 +185,9 @@ def fill_kv_cache(
     kv_indices: Tensor,
 ) -> Tuple[Tensor, Tensor]:
     kv_indices = kv_indices.squeeze(-1)
-
     maca_ext_ops.reshape_and_cache_new(
         key, value, key_cache, value_cache, kv_indices, "auto"
     )
-
     return key_cache, value_cache
 
 
@@ -188,12 +218,35 @@ def paged_decode_attention(
     if softmax_scale is None:
         softmax_scale = float(1 / math.sqrt(query.size(-1)))
 
+    block_table = block_table.to(torch.int32)
+    kv_seq_len = kv_seq_len.to(torch.int32).to(query.device)
+
+    # for deepseek v2 lite.
+    if value_cache.shape[-1] == 576:
+        attn_output = torch.empty_like(query)
+        _, head, block_size, dim = value_cache.size()
+        maca_ext_ops.paged_attention_v1(
+            attn_output,
+            query,
+            key_cache,
+            value_cache,
+            head,
+            softmax_scale,
+            block_table,
+            kv_seq_len,
+            block_size,
+            max_kv_seq_len,
+            None,
+            "auto",
+        )
+        return attn_output[..., :512].contiguous()
+
     output = flash_attn_with_kvcache(
         query.view(batch_size, -1, head, dim),
         key_cache_t,
         value_cache_t,
-        cache_seqlens=kv_seq_len.to(torch.int32).to(query.device),
-        block_table=block_table.to(torch.int32),
+        cache_seqlens=kv_seq_len,
+        block_table=block_table,
         softmax_scale=softmax_scale,
         causal=True,
     )
@@ -235,7 +288,6 @@ def paged_prefill_attention(
         softmax_scale=softmax_scale,
         causal=True,
     )
-
     return output
 
 
