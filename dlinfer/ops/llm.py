@@ -406,6 +406,7 @@ def get_cache_len(cache: Tensor) -> int:
     {
         "offset": None,
         "bias": None,
+        "all_reduce": bool,
         "group_size": 0,
     }
 )
@@ -415,6 +416,7 @@ def weight_quant_matmul(
     scale: Tensor,
     offset: Optional[Tensor],
     bias: Optional[Tensor],
+    all_reduce: Optional[bool],
     group_size: Optional[int],
 ) -> Tensor:
     """
@@ -426,11 +428,12 @@ def weight_quant_matmul(
         scale (Tensor): The antiquant scale tensor of quantized weight.
         offset (Optional[Tensor]): An optional antiquant offset tensor of quantized weight.
         bias (Optional[Tensor]): An optional bias tensor of matrix multiplication.
+        all_reduce (Optional[bool]): An optional bool describes whether or not all_reduce is required.
         group_size (Optional[int]): An optional group_size of the quantized weight in the per_group algorithm mode.
 
     Returns:
         Tensor: The output tensor of the matrix product in the quantisation scenario.
     """
     return vendor_ops_registry["weight_quant_matmul"](
-        x1, x2, scale, offset, bias, group_size
+        x1, x2, scale, offset, bias, all_reduce, group_size
     )
