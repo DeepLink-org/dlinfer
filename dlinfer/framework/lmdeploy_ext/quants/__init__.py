@@ -13,8 +13,8 @@ def import_vendor_module(vendor_name_str):
         importlib.import_module(f".{vendor_name_str}_awq", __package__)
 
 
-def vendor_torch_init():
+def vendor_quant_init():
     import_vendor_module(vendor_name)
 
 
-vendor_torch_init()
+vendor_quant_init()
