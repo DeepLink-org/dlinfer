@@ -2,26 +2,30 @@
 import inspect
 from functools import wraps
 
-import torch._custom_ops
 from torch.library import Library, impl
 
 from dlinfer.utils.type_annotation import Callable, Optional, Sequence, Dict
-from dlinfer.vendor import dispatch_key
+from dlinfer.vendor import dispatch_key, vendor_name
 
 library_impl_dict: Dict[str, Library] = dict()
+
+graph_enabled_backends = ["ascend"]
 
 
 def register_custom_op(
     qualname: str,
     shape_param_keys: Optional[Sequence[str]] = None,
     impl_abstract_func: Optional[Callable] = None,
-    disable=True,  # disable graph custom op registration for now
 ) -> Callable:
+    disable = vendor_name not in graph_enabled_backends
+
     def inner_func(func: Callable):
         if disable:
             return func
         nonlocal impl_abstract_func
         lib_name, func_name = qualname.split("::")
+        import torch._custom_ops
+
         torch._custom_ops.custom_op(qualname)(func)
         # using low level torch.library APIs in case of the registration
         # of fallback kernels which raises error in torch._custom_ops.impl
