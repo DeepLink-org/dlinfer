@@ -20,7 +20,6 @@ __all__ = [
     "fill_contiguous_kvcache",
     "get_cache_len",
     "weight_quant_matmul",
-    "silu_and_mul",
 ]
 
 
@@ -435,15 +434,3 @@ def weight_quant_matmul(
     return vendor_ops_registry["weight_quant_matmul"](
         x1, x2, scale, offset, bias, group_size
     )
-
-
-def silu_and_mul(x: Tensor) -> Tensor:
-    """An activation function for SwiGLU.
-
-    The function computes x -> silu(x[:d]) * x[d:] where d = x.shape[-1] // 2.
-
-    Shapes:
-        x: (num_tokens, 2 * d) or (batch_size, seq_len, 2 * d)
-        return: (num_tokens, d) or (batch_size, seq_len, d)
-    """
-    return vendor_ops_registry["silu_and_mul"](x)
