@@ -185,9 +185,17 @@ def fill_kv_cache(
     kv_indices: Tensor,
 ) -> Tuple[Tensor, Tensor]:
     kv_indices = kv_indices.squeeze(-1)
-    maca_ext_ops.reshape_and_cache_new(
-        key, value, key_cache, value_cache, kv_indices, "auto"
-    )
+    _, kv_head, head_dim = key.shape
+    _, block_Size, _ = key_cache.shape
+    # for deepseek v2 lite.
+    if head_dim == 576:
+        # from maca kernel para.
+        x = 16
+        key_cache_t =  key_cache.view(-1, kv_head, head_dim // x, block_Size, x)
+    else:
+        key_cache_t =  key_cache.view(-1, kv_head, block_Size, head_dim)
+    value_cache_t = value_cache.view(-1, kv_head, block_Size, head_dim)
+    maca_ext_ops.reshape_and_cache_new(key, value, key_cache_t, value_cache_t, kv_indices, "auto")
     return key_cache, value_cache
 
 
@@ -209,11 +217,12 @@ def paged_decode_attention(
     if alibi_slopes is not None:
         raise RuntimeError("paged_decode_attention does not support alibi_slopes yet")
 
+    dim = query.size(-1)
+    block_size = key_cache.size(1)
     batch_size = block_table.size(0)
-    _, head, dim = query.shape
 
-    key_cache_t = key_cache.transpose(1, 2)
-    value_cache_t = value_cache.transpose(1, 2)
+    key_cache_t = key_cache.view(-1, num_kv_heads, block_size, dim).transpose(1, 2)
+    value_cache_t = value_cache.view(-1, num_kv_heads, block_size, dim).transpose(1, 2)
 
     if softmax_scale is None:
         softmax_scale = float(1 / math.sqrt(query.size(-1)))
@@ -222,15 +231,16 @@ def paged_decode_attention(
     kv_seq_len = kv_seq_len.to(torch.int32).to(query.device)
 
     # for deepseek v2 lite.
-    if value_cache.shape[-1] == 576:
+    if query.shape[-1] == 576:
         attn_output = torch.empty_like(query)
-        _, head, block_size, dim = value_cache.size()
+        x = 16
+        key_cache_t = key_cache.view(-1, num_kv_heads, dim // x, block_size, x).transpose(1, 2)
         maca_ext_ops.paged_attention_v1(
             attn_output,
             query,
             key_cache,
             value_cache,
-            head,
+            num_kv_heads,
             softmax_scale,
             block_table,
             kv_seq_len,
@@ -242,7 +252,7 @@ def paged_decode_attention(
         return attn_output[..., :512].contiguous()
 
     output = flash_attn_with_kvcache(
-        query.view(batch_size, -1, head, dim),
+        query.view(batch_size, -1, num_q_heads, dim),
         key_cache_t,
         value_cache_t,
         cache_seqlens=kv_seq_len,
@@ -270,17 +280,18 @@ def paged_prefill_attention(
     alibi_slopes: Optional[Sequence[float]],
     attn_output: Optional[Tensor],
 ) -> Tensor:
+    dim = query.size(-1)
+    block_size = key_cache.size(1)
     batch_size = block_table.size(0)
-    _, head, dim = query.shape
 
-    key_cache_t = key_cache.transpose(1, 2)
-    value_cache_t = value_cache.transpose(1, 2)
+    key_cache_t = key_cache.view(-1, num_kv_heads, block_size, dim).transpose(1, 2)
+    value_cache_t = value_cache.view(-1, num_kv_heads, block_size, dim).transpose(1, 2)
 
     if softmax_scale is None:
         softmax_scale = float(1 / math.sqrt(query.size(-1)))
 
     output = flash_attn_with_kvcache(
-        query.view(batch_size, -1, head, dim),
+        query.view(batch_size, -1, num_q_heads, dim),
         key_cache_t,
         value_cache_t,
         cache_seqlens=kv_seq_len.to(torch.int32).to(query.device),
