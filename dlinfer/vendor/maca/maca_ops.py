@@ -14,12 +14,12 @@ __all__ = [
     "add_rms_norm",
     "apply_rotary_pos_emb",
     "prefill_attention",
+    "fused_moe",
     "fill_kv_cache",
     "paged_decode_attention",
     "paged_prefill_attention",
     "rms_norm",
     "moe_gating_topk_softmax",
-    "silu_and_mul",
 ]
 
 
@@ -191,11 +191,13 @@ def fill_kv_cache(
     if head_dim == 576:
         # from maca kernel para.
         x = 16
-        key_cache_t =  key_cache.view(-1, kv_head, head_dim // x, block_Size, x)
+        key_cache_t = key_cache.view(-1, kv_head, head_dim // x, block_Size, x)
     else:
-        key_cache_t =  key_cache.view(-1, kv_head, block_Size, head_dim)
+        key_cache_t = key_cache.view(-1, kv_head, block_Size, head_dim)
     value_cache_t = value_cache.view(-1, kv_head, block_Size, head_dim)
-    maca_ext_ops.reshape_and_cache_new(key, value, key_cache_t, value_cache_t, kv_indices, "auto")
+    maca_ext_ops.reshape_and_cache_new(
+        key, value, key_cache_t, value_cache_t, kv_indices, "auto"
+    )
     return key_cache, value_cache
 
 
@@ -234,7 +236,9 @@ def paged_decode_attention(
     if query.shape[-1] == 576:
         attn_output = torch.empty_like(query)
         x = 16
-        key_cache_t = key_cache.view(-1, num_kv_heads, dim // x, block_size, x).transpose(1, 2)
+        key_cache_t = key_cache.view(
+            -1, num_kv_heads, dim // x, block_size, x
+        ).transpose(1, 2)
         maca_ext_ops.paged_attention_v1(
             attn_output,
             query,
@@ -344,10 +348,38 @@ def moe_gating_topk_softmax(
     return topk_weights, topk_ids
 
 
-@register_ops(vendor_ops_registry)
 def silu_and_mul(x: Tensor) -> Tensor:
     d = x.shape[-1] // 2
     output_shape = x.shape[:-1] + (d,)
     out = torch.empty(output_shape, dtype=x.dtype, device=x.device)
     maca_ext_ops.silu_and_mul(out, x)
     return out
+
+
+@register_ops(vendor_ops_registry)
+def fused_moe(
+    hidden_states: torch.Tensor,
+    top_k: int,
+    topk_ids: torch.LongTensor,
+    topk_weights: torch.Tensor,
+    gate_up_weights: torch.Tensor,
+    down_weights: torch.Tensor,
+):
+    N, D = hidden_states.shape
+    hidden_states = hidden_states.view(N, -1, D).repeat(1, top_k, 1).reshape(-1, D)
+    out = torch.zeros(
+        N * top_k,
+        down_weights.shape[1],
+        dtype=hidden_states.dtype,
+        device=hidden_states.device,
+    )
+    for i in range(gate_up_weights.shape[0]):
+        mask = topk_ids == i
+        if mask.sum():
+            out[mask] = silu_and_mul(
+                hidden_states[mask] @ gate_up_weights[i].transpose(0, 1)
+            ) @ down_weights[i].transpose(0, 1)
+    return (
+        out.view(N, -1, down_weights.shape[1])
+        * topk_weights.view(N, -1, 1).to(out.dtype)
+    ).sum(dim=1)

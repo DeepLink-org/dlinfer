@@ -494,15 +494,3 @@ def fused_moe(
     return vendor_ops_registry["fused_moe"](
         hidden_states, top_k, topk_ids, topk_weights, gate_up_weights, down_weights
     )
-
-
-def silu_and_mul(x: Tensor) -> Tensor:
-    """An activation function for SwiGLU.
-
-    The function computes x -> silu(x[:d]) * x[d:] where d = x.shape[-1] // 2.
-
-    Shapes:
-        x: (num_tokens, 2 * d) or (batch_size, seq_len, 2 * d)
-        return: (num_tokens, d) or (batch_size, seq_len, d)
-    """
-    return vendor_ops_registry["silu_and_mul"](x)
