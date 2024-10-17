@@ -17,6 +17,12 @@ __all__ =[
     "rms_norm",
 ]
 
+
+@register_ops(vendor_ops_registry)
+def silu_and_mul(input_tensor: Tensor, dim: int) -> Tensor:
+    print("silu")
+    return tmo.active(input_tensor, act_mode="silu", is_gated=True)
+
 @register_ops(vendor_ops_registry)
 def rms_norm(
     hidden_states: Tensor,
