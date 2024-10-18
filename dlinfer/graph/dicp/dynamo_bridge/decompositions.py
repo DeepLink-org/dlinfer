@@ -28,7 +28,7 @@ def get_decompositions(
     packets_to_overloads = defaultdict(list)
     for opo in registry:
         packets_to_overloads[opo.overloadpacket].append(opo)
-    decompositions = target_decomposition_table if target_decomposition_table else {} 
+    decompositions = target_decomposition_table if target_decomposition_table else {}
     for op in aten_ops:
         if isinstance(op, OpOverloadPacket) and op in packets_to_overloads:
             for op_overload in packets_to_overloads[op]:

@@ -40,14 +40,14 @@ def process_sym_name(st):
 
 def preprocess_expression(expr):
     elem_str = process_sym_name(expr)
-    elem_str = elem_str.replace('+', ' + ')
-    elem_str = elem_str.replace('-', ' - ')
-    elem_str = elem_str.replace('*', ' * ')
-    elem_str = elem_str.replace('//', ' // ')
-    elem_str = elem_str.replace('(', ' ( ')
-    elem_str = elem_str.replace(')', ' ) ')
-    elems = elem_str.split(' ')
-    elems = [e for e in elems if e != '']
+    elem_str = elem_str.replace("+", " + ")
+    elem_str = elem_str.replace("-", " - ")
+    elem_str = elem_str.replace("*", " * ")
+    elem_str = elem_str.replace("//", " // ")
+    elem_str = elem_str.replace("(", " ( ")
+    elem_str = elem_str.replace(")", " ) ")
+    elems = elem_str.split(" ")
+    elems = [e for e in elems if e != ""]
     return elems
 
 
@@ -138,17 +138,21 @@ def get_cast_dtype(
 
 
 class TensorInfo:
-    def __init__(self, shape: list, dtype: torch.dtype, memory_format: torch.memory_format) -> None:
+    def __init__(
+        self, shape: list, dtype: torch.dtype, memory_format: torch.memory_format
+    ) -> None:
         self.shape = shape
         self.dtype = dtype
         self.memory_format = memory_format
 
 
 class DeviceParamToCpu(torch.fx.Transformer):
-    def call_function(self, target: Target, args: Tuple[Argument, ...], kwargs: Dict[str, Any]) -> Any:
-        if 'device' in kwargs:
+    def call_function(
+        self, target: Target, args: Tuple[Argument, ...], kwargs: Dict[str, Any]
+    ) -> Any:
+        if "device" in kwargs:
             new_kwargs = {k: v for k, v in kwargs.items()}
-            new_kwargs['device'] = torch.device("cpu")
+            new_kwargs["device"] = torch.device("cpu")
         else:
             new_kwargs = kwargs
         return super().call_function(target, args, new_kwargs)

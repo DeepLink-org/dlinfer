@@ -9,32 +9,29 @@ from torch.fx.graph import (
     magic_methods,
     inplace_methods,
     dtype_abbrs,
-    _origin_type_map
+    _origin_type_map,
 )
-from torch.fx.node import (
-    Argument,
-    Node,
-    map_arg,
-    _type_repr,
-    _get_qualified_name
-)
+from torch.fx.node import Argument, Node, map_arg, _type_repr, _get_qualified_name
 from typing import Any, Tuple, Dict, List
 import re
 
 from dlinfer.graph.dicp.dynamo_bridge.torch_version import is_torch_220_or_higher
 
+
 def python_type_bar(self):
     return type(self.value)
 
 
-def _gen_python_code_bar(self, nodes, root_module: str, namespace: _Namespace, *, verbose: bool = False) -> PythonCode:
+def _gen_python_code_bar(
+    self, nodes, root_module: str, namespace: _Namespace, *, verbose: bool = False
+) -> PythonCode:
     free_vars: List[str] = []
     body: List[str] = []
     globals_: Dict[str, Any] = {}
     wrapped_fns: Dict[str, None] = {}
 
     # Wrap string in list to pass by reference
-    maybe_return_annotation: List[str] = ['']
+    maybe_return_annotation: List[str] = [""]
 
     def add_global(name_hint: str, obj: Any):
         """Add an obj to be tracked as a global.
@@ -60,16 +57,16 @@ def _gen_python_code_bar(self, nodes, root_module: str, namespace: _Namespace, *
     def type_repr(o: Any):
         if o == ():
             # Empty tuple is used for empty tuple type annotation Tuple[()]
-            return '()'
+            return "()"
 
         typename = _type_repr(o)
 
-        if hasattr(o, '__origin__'):
+        if hasattr(o, "__origin__"):
             # This is a generic type, e.g. typing.List[torch.Tensor]
             origin_type = _origin_type_map.get(o.__origin__, o.__origin__)
             origin_typename = add_global(_type_repr(origin_type), origin_type)
 
-            if hasattr(o, '__args__'):
+            if hasattr(o, "__args__"):
                 # Assign global names for each of the inner type variables.
                 args = [type_repr(arg) for arg in o.__args__]
 
@@ -90,7 +87,7 @@ def _gen_python_code_bar(self, nodes, root_module: str, namespace: _Namespace, *
     def _format_args(args: Tuple[Argument, ...], kwargs: Dict[str, Argument]) -> str:
         def _get_repr(arg):
             # Handle NamedTuples (if it has `_fields`) via add_global.
-            if isinstance(arg, tuple) and hasattr(arg, '_fields'):
+            if isinstance(arg, tuple) and hasattr(arg, "_fields"):
                 qualified_name = _get_qualified_name(type(arg))
                 global_name = add_global(qualified_name, type(arg))
                 return f"{global_name}{repr(tuple(arg))}"
@@ -99,10 +96,11 @@ def _gen_python_code_bar(self, nodes, root_module: str, namespace: _Namespace, *
                 global_name = add_global(qualified_name, arg)
                 return f"{global_name}"
             return repr(arg)
-        args_s = ', '.join(_get_repr(a) for a in args)
-        kwargs_s = ', '.join(f'{k} = {_get_repr(v)}' for k, v in kwargs.items())
+
+        args_s = ", ".join(_get_repr(a) for a in args)
+        kwargs_s = ", ".join(f"{k} = {_get_repr(v)}" for k, v in kwargs.items())
         if args_s and kwargs_s:
-            return f'{args_s}, {kwargs_s}'
+            return f"{args_s}, {kwargs_s}"
         return args_s or kwargs_s
 
     # Run through reverse nodes and record the first instance of a use
@@ -127,17 +125,17 @@ def _gen_python_code_bar(self, nodes, root_module: str, namespace: _Namespace, *
         not used in the remainder of the code are freed and the memory usage
         of the code is optimal.
         """
-        if user.op == 'placeholder':
+        if user.op == "placeholder":
             return
-        if user.op == 'output':
-            body.append('\n')
+        if user.op == "output":
+            body.append("\n")
             return
         nodes_to_delete = user_to_last_uses.get(user, [])
         if len(nodes_to_delete):
-            to_delete_str = ' = '.join([repr(n) for n in nodes_to_delete] + ['None'])
-            body.append(f';  {to_delete_str}\n')
+            to_delete_str = " = ".join([repr(n) for n in nodes_to_delete] + ["None"])
+            body.append(f";  {to_delete_str}\n")
         else:
-            body.append('\n')
+            body.append("\n")
 
     prev_stacktrace = None
 
@@ -149,12 +147,12 @@ def _gen_python_code_bar(self, nodes, root_module: str, namespace: _Namespace, *
         nonlocal prev_stacktrace
         pattern = re.compile(r"^File \"(.+)\", line (\d+), in (.+)$")
 
-        if node.op not in {'placeholder', 'output'}:
+        if node.op not in {"placeholder", "output"}:
             if node.stack_trace:
                 if node.stack_trace != prev_stacktrace:
                     prev_stacktrace = node.stack_trace
 
-                    lines = node.stack_trace.strip().split('\n')
+                    lines = node.stack_trace.strip().split("\n")
                     # stacktrace should have innermost frame last, so we
                     # iterate backwards to find the first line that starts
                     # with 'File '
@@ -167,18 +165,20 @@ def _gen_python_code_bar(self, nodes, root_module: str, namespace: _Namespace, *
                             lineno = matches.group(2)
                             # next line should be the code
                             code = lines[idx + 1].strip()
-                            summary_str = f'File: {file}:{lineno}, code: {code}'
+                            summary_str = f"File: {file}:{lineno}, code: {code}"
                             break
-                    body.append(f'\n# {summary_str}\n')
+                    body.append(f"\n# {summary_str}\n")
             elif prev_stacktrace != "":
                 prev_stacktrace = ""
-                body.append('\n# No stacktrace found for following nodes\n')
+                body.append("\n# No stacktrace found for following nodes\n")
 
     def stringify_shape(shape: torch.Size) -> str:
         return f"[{', '.join(str(x) for x in shape)}]"
 
     def emit_node(node: Node):
-        maybe_type_annotation = '' if node.type is None else f' : {type_repr(node.type)}'
+        maybe_type_annotation = (
+            "" if node.type is None else f" : {type_repr(node.type)}"
+        )
 
         if verbose:
             # override annotation with more detailed information
@@ -186,75 +186,100 @@ def _gen_python_code_bar(self, nodes, root_module: str, namespace: _Namespace, *
             from torch.fx.experimental.proxy_tensor import py_sym_types
             from torch.fx.passes.shape_prop import TensorMetadata
 
-            meta_val = node.meta.get('val', node.meta.get('tensor_meta', None))
+            meta_val = node.meta.get("val", node.meta.get("tensor_meta", None))
 
             if isinstance(meta_val, FakeTensor):
-                maybe_type_annotation = f': {dtype_abbrs[meta_val.dtype]}{stringify_shape(meta_val.shape)}'
+                maybe_type_annotation = (
+                    f": {dtype_abbrs[meta_val.dtype]}{stringify_shape(meta_val.shape)}"
+                )
             elif isinstance(meta_val, py_sym_types):
-                maybe_type_annotation = f': Sym({meta_val})'
+                maybe_type_annotation = f": Sym({meta_val})"
             elif isinstance(meta_val, TensorMetadata):
-                maybe_type_annotation = f': {dtype_abbrs[meta_val.dtype]}{stringify_shape(meta_val.shape)}'
+                maybe_type_annotation = (
+                    f": {dtype_abbrs[meta_val.dtype]}{stringify_shape(meta_val.shape)}"
+                )
 
-        if node.op == 'placeholder':
+        if node.op == "placeholder":
             assert isinstance(node.target, str)
-            maybe_default_arg = '' if not node.args else f' = {repr(node.args[0])}'
-            free_vars.append(f'{node.target}{maybe_type_annotation}{maybe_default_arg}')
-            raw_name = node.target.replace('*', '')
+            maybe_default_arg = "" if not node.args else f" = {repr(node.args[0])}"
+            free_vars.append(f"{node.target}{maybe_type_annotation}{maybe_default_arg}")
+            raw_name = node.target.replace("*", "")
             if raw_name != repr(node):
-                body.append(f'{repr(node)} = {raw_name}\n')
+                body.append(f"{repr(node)} = {raw_name}\n")
             return
-        elif node.op == 'call_method':
+        elif node.op == "call_method":
             assert isinstance(node.target, str)
             body.append(
-                f'{repr(node)}{maybe_type_annotation} = {_format_target(repr(node.args[0]), node.target)}'
-                f'({_format_args(node.args[1:], node.kwargs)})')
+                f"{repr(node)}{maybe_type_annotation} = {_format_target(repr(node.args[0]), node.target)}"
+                f"({_format_args(node.args[1:], node.kwargs)})"
+            )
             return
-        elif node.op == 'call_function':
+        elif node.op == "call_function":
             assert callable(node.target)
             # pretty print operators
-            if getattr(node.target, "__module__", "") == '_operator' and node.target.__name__ in magic_methods:
+            if (
+                getattr(node.target, "__module__", "") == "_operator"
+                and node.target.__name__ in magic_methods
+            ):
                 assert isinstance(node.args, tuple)
-                body.append(f'{repr(node)}{maybe_type_annotation} = '
-                            f'{magic_methods[node.target.__name__].format(*(repr(a) for a in node.args))}')
+                body.append(
+                    f"{repr(node)}{maybe_type_annotation} = "
+                    f"{magic_methods[node.target.__name__].format(*(repr(a) for a in node.args))}"
+                )
                 return
 
             # pretty print inplace operators; required for jit.script to work properly
             # not currently supported in normal FX graphs, but generated by torchdynamo
-            if getattr(node.target, "__module__", "") == '_operator' and node.target.__name__ in inplace_methods:
-                body.append(f'{inplace_methods[node.target.__name__].format(*(repr(a) for a in node.args))};  '
-                            f'{repr(node)}{maybe_type_annotation} = {repr(node.args[0])}')
+            if (
+                getattr(node.target, "__module__", "") == "_operator"
+                and node.target.__name__ in inplace_methods
+            ):
+                body.append(
+                    f"{inplace_methods[node.target.__name__].format(*(repr(a) for a in node.args))};  "
+                    f"{repr(node)}{maybe_type_annotation} = {repr(node.args[0])}"
+                )
                 return
 
             qualified_name = _get_qualified_name(node.target)
             global_name = add_global(qualified_name, node.target)
             # special case for getattr: node.args could be 2-argument or 3-argument
             # 2-argument: attribute access; 3-argument: fall through to attrib function call with default value
-            if global_name == 'getattr' and \
-                    isinstance(node.args, tuple) and \
-                    isinstance(node.args[1], str) and \
-                    node.args[1].isidentifier() and \
-                    len(node.args) == 2:
-                body.append(f'{repr(node)}{maybe_type_annotation} = {_format_target(repr(node.args[0]), node.args[1])}')
+            if (
+                global_name == "getattr"
+                and isinstance(node.args, tuple)
+                and isinstance(node.args[1], str)
+                and node.args[1].isidentifier()
+                and len(node.args) == 2
+            ):
+                body.append(
+                    f"{repr(node)}{maybe_type_annotation} = {_format_target(repr(node.args[0]), node.args[1])}"
+                )
                 return
-            body.append(f'{repr(node)}{maybe_type_annotation} = {global_name}({_format_args(node.args, node.kwargs)})')
-            if node.meta.get('is_wrapped', False):
+            body.append(
+                f"{repr(node)}{maybe_type_annotation} = {global_name}({_format_args(node.args, node.kwargs)})"
+            )
+            if node.meta.get("is_wrapped", False):
                 wrapped_fns.setdefault(global_name)
             return
-        elif node.op == 'call_module':
+        elif node.op == "call_module":
             assert isinstance(node.target, str)
-            body.append(f'{repr(node)}{maybe_type_annotation} = '
-                        f'{_format_target(root_module, node.target)}({_format_args(node.args, node.kwargs)})')
+            body.append(
+                f"{repr(node)}{maybe_type_annotation} = "
+                f"{_format_target(root_module, node.target)}({_format_args(node.args, node.kwargs)})"
+            )
             return
-        elif node.op == 'get_attr':
+        elif node.op == "get_attr":
             assert isinstance(node.target, str)
-            body.append(f'{repr(node)}{maybe_type_annotation} = {_format_target(root_module, node.target)}')
+            body.append(
+                f"{repr(node)}{maybe_type_annotation} = {_format_target(root_module, node.target)}"
+            )
             return
-        elif node.op == 'output':
+        elif node.op == "output":
             if node.type is not None:
                 maybe_return_annotation[0] = f" -> {type_repr(node.type)}"
             body.append(self.generate_output(node.args[0]))
             return
-        raise NotImplementedError(f'node: {node.op} {node.target}')
+        raise NotImplementedError(f"node: {node.op} {node.target}")
 
     for node in nodes:
         # NOTE: emit_node does not emit a string with newline. It depends
@@ -268,13 +293,13 @@ def _gen_python_code_bar(self, nodes, root_module: str, namespace: _Namespace, *
         # If the Graph has no non-placeholder nodes, no lines for the body
         # have been emitted. To continue to have valid Python code, emit a
         # single pass statement
-        body.append('pass\n')
+        body.append("pass\n")
 
     if len(wrapped_fns) > 0:
-        wrap_name = add_global('wrap', torch.fx.wrap)
-        wrap_stmts = '\n'.join([f'{wrap_name}("{name}")' for name in wrapped_fns])
+        wrap_name = add_global("wrap", torch.fx.wrap)
+        wrap_stmts = "\n".join([f'{wrap_name}("{name}")' for name in wrapped_fns])
     else:
-        wrap_stmts = ''
+        wrap_stmts = ""
 
     if self._body_transformer:
         body = self._body_transformer(body)
@@ -284,10 +309,11 @@ def _gen_python_code_bar(self, nodes, root_module: str, namespace: _Namespace, *
 
     prologue = self.gen_fn_def(free_vars, maybe_return_annotation[0])
 
-    code = ''.join(body).lstrip('\n')
-    code = '\n'.join('    ' + line for line in code.split('\n'))
+    code = "".join(body).lstrip("\n")
+    code = "\n".join("    " + line for line in code.split("\n"))
     fn_code = f"{wrap_stmts}\n{prologue}\n{code}"
     return PythonCode(fn_code, globals_)
+
 
 if not is_torch_220_or_higher:
     torch._dynamo.variables.torch.TorchVariable.python_type = python_type_bar

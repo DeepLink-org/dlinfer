@@ -8,11 +8,16 @@ import torch.fx.traceback
 from torch.fx.passes.dialect.common.cse_pass import CSEPass
 
 from dlinfer.graph.dicp.dynamo_bridge.torch_version import is_torch_210_or_higher
-from dlinfer.graph.dicp.vendor.AtbGraph.conversion import AtenToAtbTransformer, ViewSymIntTransformer
+from dlinfer.graph.dicp.vendor.AtbGraph.conversion import (
+    AtenToAtbTransformer,
+    ViewSymIntTransformer,
+)
 from ...dynamo_bridge.graph import GraphTransformer
 
 if is_torch_210_or_higher:
-    from dlinfer.graph.dicp.dynamo_bridge.op_transformer import BackendPatternMatcherTransformer
+    from dlinfer.graph.dicp.dynamo_bridge.op_transformer import (
+        BackendPatternMatcherTransformer,
+    )
     from dlinfer.graph.dicp.vendor.AtbGraph.pattern_replacement import (
         atb_pattern_matcher,
         torch_patterns_cls_list_1,
@@ -34,8 +39,8 @@ def preserve_meta_val():
         proxy: torch.fx.Proxy = origin_target_method(obj, n)
         with obj._set_current_node(n):
             current_meta = torch.fx.traceback.get_current_meta()
-            if 'val' in current_meta:
-                proxy.node.meta['val'] = current_meta['val']
+            if "val" in current_meta:
+                proxy.node.meta["val"] = current_meta["val"]
         return proxy
 
     setattr(target_variable, target_method_str, new_target_method)
@@ -56,7 +61,8 @@ def atbgraph_opset_convert(
         gm = cse_pass_result.graph_module
 
     gm = BackendPatternMatcherTransformer(
-        atb_pattern_matcher, torch_patterns_cls_list_1).transform(gm)
+        atb_pattern_matcher, torch_patterns_cls_list_1
+    ).transform(gm)
 
     gm = AtenToAtbTransformer(gm).transform()
 
@@ -64,4 +70,3 @@ def atbgraph_opset_convert(
     # Avoid for dynamic shape
     GraphTransformer.infer_shape_dtype(gm)
     return gm
-

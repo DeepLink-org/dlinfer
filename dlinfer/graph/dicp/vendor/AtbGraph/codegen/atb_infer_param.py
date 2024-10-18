@@ -37,6 +37,7 @@ class ElewiseType(IntEnum):
     ELEWISE_DYNAMIC_QUANT = 19
     ELEWISE_TANH = 20
 
+
 class ActivationType(Enum):
     ACTIVATION_UNDEFINED = 0
     ACTIVATION_RELU = auto()
@@ -48,6 +49,7 @@ class ActivationType(Enum):
     ACTIVATION_SWIGLU_BACKWARD = auto()
     ACTIVATION_MAX = auto()
 
+
 class QuantType(Enum):
     QUANT_UNDEFINED = 0
     QUANT_INT4 = auto()
@@ -55,7 +57,6 @@ class QuantType(Enum):
     QUANT_INT16 = auto()
     QUANT_FLOAT8 = auto()
     QUANT_FLOAT16 = auto()
-
 
 
 @dataclass
@@ -77,10 +78,12 @@ class ElewiseParam:
     mulsParam: MulsParam = field(default_factory=MulsParam)
     outTensorType: AclDataType = AclDataType.ACL_DT_UNDEFINED
 
+
 @dataclass
 class AclNnCastParam:
-    name: str = ''
+    name: str = ""
     outTensorType: AclDataType = AclDataType.ACL_DT_UNDEFINED
+
 
 class RmsNormType(IntEnum):
     RMS_NORM_UNDEFINED = 0
@@ -88,13 +91,16 @@ class RmsNormType(IntEnum):
     RMS_NORM_PRENORM = 2
     RMS_NORM_POSTNORM = 3
 
+
 class PrecisionMode(IntEnum):
     HIGH_PRECISION_MODE = 0
     HIGH_PERFORMANCE_MODE = 1
 
+
 class ModelType(IntEnum):
     LLAMA_MODEL = 0
     GEMMA_MODEL = 1
+
 
 class QuantType(IntEnum):
     QUANT_UNDEFINED = 0
@@ -114,11 +120,13 @@ class NormParam:
     modelType: ModelType = ModelType.LLAMA_MODEL
     dynamicQuantType: DynamicQuantType = DynamicQuantType.DYNAMIC_QUANT_UNDEFINED
 
+
 @dataclass
 class PreNormParam:
     quantType: QuantType = QuantType.QUANT_UNDEFINED
     epsilon: float = 1e-5
     hasBias: bool = False
+
 
 @dataclass
 class PostNormParam:
@@ -126,12 +134,14 @@ class PostNormParam:
     epsilon: float = 1e-5
     hasBias: bool = False
 
+
 @dataclass
 class RmsNormParam:
     layerType: RmsNormType = RmsNormType.RMS_NORM_UNDEFINED
     normParam: NormParam = NormParam()
     preNormParam: PreNormParam = PreNormParam()
     postNormParam: PostNormParam = PostNormParam()
+
 
 @dataclass
 class RopeParam:
@@ -145,13 +155,16 @@ class SelfAttentionCalcType(IntEnum):
     DECODER = 2
     PA_ENCODER = 3
 
+
 class SelfAttentionKernelType(IntEnum):
     KERNELTYPE_DEFAULT = 0
     KERNELTYPE_HIGH_PRECISION = 1
 
+
 class SelfAttentionClampType(IntEnum):
     CLAMP_TYPE_UNDEFINED = 0
     CLAMP_TYPE_MIN_MAX = 1
+
 
 class SelfAttentionMaskType(IntEnum):
     MASK_TYPE_UNDEFINED = 0
@@ -161,6 +174,7 @@ class SelfAttentionMaskType(IntEnum):
     MASK_TYPE_ALIBI_COMPRESS = 4
     MASK_TYPE_ALIBI_COMPRESS_SQRT = 5
     MASK_TYPE_ALIBI_COMPRESS_LEFT_ALIGN = 6
+
 
 @dataclass
 class SelfAttentionParam:
@@ -185,7 +199,9 @@ class ReshapeAndCacheCompressType(IntEnum):
 
 @dataclass
 class ReshapeAndCacheParam:
-    compressType: ReshapeAndCacheCompressType = ReshapeAndCacheCompressType.COMPRESS_TYPE_UNDEFINED
+    compressType: ReshapeAndCacheCompressType = (
+        ReshapeAndCacheCompressType.COMPRESS_TYPE_UNDEFINED
+    )
 
 
 class PagedAttentionMaskType(IntEnum):
@@ -194,17 +210,21 @@ class PagedAttentionMaskType(IntEnum):
     MASK_TYPE_ALIBI = 2
     MASK_TYPE_SPEC = 3
 
+
 class PagedAttentionQuantType(IntEnum):
     TYPE_QUANT_UNDEFINED = 0
     TYPE_DEQUANT_FUSION = 1
+
 
 class PagedAttentionCompressType(IntEnum):
     COMPRESS_TYPE_UNDEFINED = 0
     COMPRESS_TYPE_KVHEAD = 1
 
+
 class PagedAttentionCalcType(IntEnum):
     CALC_TYPE_UNDEFINED = 0
     CALC_TYPE_SPEC = 1
+
 
 @dataclass
 class PagedAttentionParam:
@@ -215,8 +235,11 @@ class PagedAttentionParam:
     batchRunStatusEnable: bool = False
     quantType: PagedAttentionQuantType = PagedAttentionQuantType.TYPE_QUANT_UNDEFINED
     hasQuantOffset: bool = False
-    compressType: PagedAttentionCompressType = PagedAttentionCompressType.COMPRESS_TYPE_UNDEFINED
+    compressType: PagedAttentionCompressType = (
+        PagedAttentionCompressType.COMPRESS_TYPE_UNDEFINED
+    )
     calcType: PagedAttentionCalcType = PagedAttentionCalcType.CALC_TYPE_UNDEFINED
+
 
 @dataclass
 class AddRmsNormParam:
@@ -245,6 +268,7 @@ class MlpQuantParam:
     tilingK: int = 0
     isQuantOp: bool = False
 
+
 @dataclass
 class MlpCommParam:
     rank: int = 0
@@ -252,6 +276,7 @@ class MlpCommParam:
     rankRoot: int = 0
     hcclComm: Any = None
     backend: str = "hccl"
+
 
 @dataclass
 class MlpGateParamV2:
@@ -268,44 +293,53 @@ class MlpGateParamV2:
     quantGateParam: MlpQuantParam = MlpQuantParam()
     quantDownParam: MlpQuantParam = MlpQuantParam()
 
+
 class GeLUMode(IntEnum):
     TANH_MODE = 0
     NONE_MODE = 1
+
 
 @dataclass
 class ConcatParam:
     concatDim: int = 0
 
+
 @dataclass
 class AclNnConcatParam:
-    name: str = ''
+    name: str = ""
     concatDim: int = 0
     inputNum: int = 0
+
 
 @dataclass
 class ActivationParam:
     activationType: str = "ACTIVATION_UNDEFINED"
     scale: float = 1.0  # for Swish
-    dim: int = -1       # for Swiglu
+    dim: int = -1  # for Swiglu
     geluMode: GeLUMode = GeLUMode.TANH_MODE
+
 
 @dataclass
 class BatchMatMulParam:
-    name: str = ''
+    name: str = ""
     cubeMathType: int = 1
+
 
 @dataclass
 class GatherParam:
-    name: str = ''
-    axis : int = 0
+    name: str = ""
+    axis: int = 0
     batchDims: int = 0
+
 
 def custom_asdict_factory(data):
     def convert_value(obj):
         if isinstance(obj, IntEnum):
             return obj.value
         return obj
+
     return {k: convert_value(v) for k, v in data}
+
 
 def to_dict(data):
     return asdict(data, dict_factory=custom_asdict_factory)

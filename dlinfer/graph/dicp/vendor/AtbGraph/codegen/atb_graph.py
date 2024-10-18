@@ -6,11 +6,17 @@ from collections import OrderedDict
 
 from dlinfer.graph.dicp.vendor.AtbGraph.codegen import atb_infer_param as infer_param
 from dlinfer.graph.dicp.dynamo_bridge.utils import process_sym_name
-from dlinfer.graph.dicp.vendor.AtbGraph.codegen.utils import AclDataType, AclFormat, get_acl_dtype, get_torch_dtype
+from dlinfer.graph.dicp.vendor.AtbGraph.codegen.utils import (
+    AclDataType,
+    AclFormat,
+    get_acl_dtype,
+    get_torch_dtype,
+)
+
 
 def get_shape(elem):
-    if hasattr(elem, 'meta'):
-        elem = elem.meta['val']
+    if hasattr(elem, "meta"):
+        elem = elem.meta["val"]
     if isinstance(elem, torch.SymInt) or isinstance(elem, torch.SymBool):
         return [1], 1
     shape = list(elem.shape)
@@ -20,14 +26,16 @@ def get_shape(elem):
     dim_num = len(shape)
     return shape, dim_num
 
+
 def get_dtype(elem):
-    if hasattr(elem, 'meta'):
-        elem = elem.meta['val']
+    if hasattr(elem, "meta"):
+        elem = elem.meta["val"]
     if isinstance(elem, torch.SymInt):
         return AclDataType.ACL_INT32.value
     if isinstance(elem, torch.SymBool):
         return AclDataType.ACL_BOOL.value
     return get_acl_dtype(elem.dtype)
+
 
 class Operation:
     def __init__(self, op_name: str, op_type: str):
@@ -43,13 +51,15 @@ class Operation:
         self.special_constants_map = {}
         self.has_inplace_output = False
         self.inplace_outputs = []
-    
+
     def add_inplace_output(self, output_idx, input_idx):
-        self.inplace_outputs.append({"output_index": int(output_idx), "input_index": int(input_idx)})
-    
+        self.inplace_outputs.append(
+            {"output_index": int(output_idx), "input_index": int(input_idx)}
+        )
+
     def set_input(self, x):
         self.inputs = x
-    
+
     def set_output(self, x):
         self.outputs = x
 
@@ -58,7 +68,7 @@ class Operation:
 
     def add_input(self, x):
         self.inputs.append(x)
-    
+
     def add_output(self, x):
         self.outputs.append(x)
 
@@ -69,7 +79,7 @@ class Operation:
         if not isinstance(x, dict):
             x = infer_param.to_dict(x)
         self.param = x
-    
+
     def build(self):
         node = {
             "nodeType": "singleOperation",
@@ -108,11 +118,13 @@ class TupleOperation(Operation):
     def __init__(self, name: str):
         super().__init__(name, "tupleOperation")
 
+
 class ViewOperation(Operation):
     def __init__(self, name):
         super().__init__(name, "viewOperation")
         self.target_shape = []
         self.target_reshape_info = {}
+
 
 class UnsqueezeOperation(Operation):
     def __init__(self, name):
@@ -120,11 +132,13 @@ class UnsqueezeOperation(Operation):
         self.dim = []
         self.target_reshape_info = {}
 
+
 class SqueezeOperation(Operation):
     def __init__(self, name):
         super().__init__(name, "squeezeOperation")
         self.dim = []
         self.target_reshape_info = {}
+
 
 class GraphOpearation(Operation):
     def __init__(self, name: str):
@@ -140,37 +154,39 @@ class GraphOpearation(Operation):
         self.has_host_inputs = False
         self.host_inputs = []
         self.has_infer_shape = False
-        self.infer_shape = ''
+        self.infer_shape = ""
         self.has_inplace_output = False
         self.inplace_outputs = []
 
     def add_inplace_output(self, output_idx, input_idx):
-        self.inplace_outputs.append({"output_index": int(output_idx), "input_index": int(input_idx)})
-    
+        self.inplace_outputs.append(
+            {"output_index": int(output_idx), "input_index": int(input_idx)}
+        )
+
     def set_node_names(self, x):
         self.node_names = x
-    
+
     def add_node_name(self, x):
         self.node_names.append(x)
-    
+
     def set_inputs(self, x):
         self.inputs = x
-    
+
     def set_outputs(self, x):
         self.outputs = x
-    
+
     def set_internals(self, x):
         self.internals = x
-    
+
     def set_nodes(self, x):
         self.nodes = x
 
     def add_input(self, x):
         self.inputs.append(x)
-    
+
     def add_output(self, x):
         self.outputs.append(x)
-    
+
     def add_internal(self, x):
         self.internals.append(x)
 
@@ -181,18 +197,18 @@ class GraphOpearation(Operation):
         graph = {
             "nodeType": "graphOperation",
             "value": {
-            "nodes": [node.build() for _, node in self.nodes.items()],
-            "inputNames": self.inputs,
-            "outputNames": self.outputs,
-            "internalNames": self.internals,
-            "nodeSize": len(self.nodes),
-            "hasHostInputs": self.has_host_inputs,
-            "hostInputNames": self.host_inputs,
-            "hasInferShape": self.has_infer_shape,
-            "inferShape": self.infer_shape,
-            "hasInplaceOutputs": self.has_inplace_output,
-            "inplaceOutputs": self.inplace_outputs,
-            }
+                "nodes": [node.build() for _, node in self.nodes.items()],
+                "inputNames": self.inputs,
+                "outputNames": self.outputs,
+                "internalNames": self.internals,
+                "nodeSize": len(self.nodes),
+                "hasHostInputs": self.has_host_inputs,
+                "hostInputNames": self.host_inputs,
+                "hasInferShape": self.has_infer_shape,
+                "inferShape": self.infer_shape,
+                "hasInplaceOutputs": self.has_inplace_output,
+                "inplaceOutputs": self.inplace_outputs,
+            },
         }
         return graph
 
@@ -206,16 +222,16 @@ class Graph:
         self.special_constants_map: OrderedDict[str, str] = OrderedDict()
         self.nodes: OrderedDict[str, Operation] = OrderedDict()
         self.hosts = []
-    
+
     def set_hosts(self, x):
         self.hosts = x
-    
+
     def set_inputs(self, x):
         self.inputs = x
-        
+
     def set_outputs(self, x):
         self.outputs = x
-    
+
     def set_internals(self, x):
         self.internals = x
 
@@ -224,10 +240,10 @@ class Graph:
 
     def add_input(self, x):
         self.inputs.append(x)
-    
+
     def add_output(self, x):
         self.outputs.append(x)
-    
+
     def add_internals(self, x):
         self.internals.append(x)
 
@@ -242,15 +258,16 @@ class Graph:
 
     def to_json(self):
         atb_graph = {
-            'name': self.name,
-            'inputNames': self.inputs,
-            'outputNames': self.outputs,
-            'internalNames': self.internals,
-            'nodes': [node for _, node in self.nodes.items()],
-            'hostTensorNames': self.hosts,
-            'nodeSize': len(self.nodes),
+            "name": self.name,
+            "inputNames": self.inputs,
+            "outputNames": self.outputs,
+            "internalNames": self.internals,
+            "nodes": [node for _, node in self.nodes.items()],
+            "hostTensorNames": self.hosts,
+            "nodeSize": len(self.nodes),
         }
         return json.dumps(atb_graph, sort_keys=True)
+
 
 def get_input_data_node(node_list, node_name):
     for node in node_list:
@@ -258,32 +275,35 @@ def get_input_data_node(node_list, node_name):
             return node
     return None
 
-def make_output_tensor_desc(output_names,
-                            output_data_nodes,
-                            input_data_nodes,
-                            graph_outputs,
-                            inplace_tensor_dict,
-                            inplace_tensor_with_shape_dict):
-    output_tensor_descs = {'param': {}, 'create': {}}
+
+def make_output_tensor_desc(
+    output_names,
+    output_data_nodes,
+    input_data_nodes,
+    graph_outputs,
+    inplace_tensor_dict,
+    inplace_tensor_with_shape_dict,
+):
+    output_tensor_descs = {"param": {}, "create": {}}
 
     def process_node(output_name, node, input_name=None, need_reshape=False):
         dims, dim_num = get_shape(node)
-        dims_prod = ' * '.join(dims)
+        dims_prod = " * ".join(dims)
         if node.name in inplace_tensor_with_shape_dict:
             target_shape = [str(x) for x in inplace_tensor_with_shape_dict[node.name]]
-            if '-1' in target_shape:
-                other_prod = ' * '.join(x for x in target_shape if x != '-1')
-                negtive_idx = target_shape.index('-1')
-                target_shape[negtive_idx] = f'({dims_prod}) // ({other_prod})'
+            if "-1" in target_shape:
+                other_prod = " * ".join(x for x in target_shape if x != "-1")
+                negtive_idx = target_shape.index("-1")
+                target_shape[negtive_idx] = f"({dims_prod}) // ({other_prod})"
             dims = target_shape
             dim_num = len(target_shape)
             need_reshape = True
         dims_str = f'[{",".join(dims)}]'
         dtype = get_dtype(node)
-        info = f''' {{"format": {AclFormat.ACL_FORMAT_ND.value}, "dtype": {dtype}, "dimNum": {dim_num}, "dims": {dims_str} }} '''
-        
-        output_tensor_descs['param'][output_name] = info
-        output_tensor_descs['create'][output_name] = {
+        info = f""" {{"format": {AclFormat.ACL_FORMAT_ND.value}, "dtype": {dtype}, "dimNum": {dim_num}, "dims": {dims_str} }} """
+
+        output_tensor_descs["param"][output_name] = info
+        output_tensor_descs["create"][output_name] = {
             "dtype": str(get_torch_dtype(dtype)),
             "shape": dims_str,
             "input": input_name,
@@ -308,15 +328,17 @@ def make_output_tensor_desc(output_names,
             process_node(output, input_node, input_name)
 
     return output_tensor_descs
-    
 
-def parse_graph(graph: Graph,
-                input_names,
-                output_names,
-                input_data_nodes,
-                output_data_nodes,
-                py_output_names):
-    ## define new graph 
+
+def parse_graph(
+    graph: Graph,
+    input_names,
+    output_names,
+    input_data_nodes,
+    output_data_nodes,
+    py_output_names,
+):
+    ## define new graph
     # inplace replace
     inplace_replace = {}
     inplace_tensor_to_real_tensor = {}
@@ -324,13 +346,19 @@ def parse_graph(graph: Graph,
         node = graph.nodes[name]
         if node.op_type == "inplaceOperation":
             if node.input_index != -1:
-                inplace_replace[node.outputs[0]] = f'{node.inputs[0]}__{node.input_index}'
+                inplace_replace[node.outputs[0]] = (
+                    f"{node.inputs[0]}__{node.input_index}"
+                )
             else:
                 inplace_replace[node.outputs[0]] = node.inputs[0]
             if node.target_index != -1:
-                inplace_tensor_to_real_tensor[inplace_replace[node.outputs[0]]] = f'{node.target}__{node.target_index}'
+                inplace_tensor_to_real_tensor[inplace_replace[node.outputs[0]]] = (
+                    f"{node.target}__{node.target_index}"
+                )
             else:
-                inplace_tensor_to_real_tensor[inplace_replace[node.outputs[0]]] = node.target
+                inplace_tensor_to_real_tensor[inplace_replace[node.outputs[0]]] = (
+                    node.target
+                )
             del graph.nodes[name]
     for name in graph.nodes.keys():
         node = graph.nodes[name]
@@ -353,7 +381,7 @@ def parse_graph(graph: Graph,
         if node.op_type == "tupleOperation":
             op_name = node.op_name
             for idx, input in enumerate(node.inputs):
-                key_name = f'{op_name}__{idx}'
+                key_name = f"{op_name}__{idx}"
                 tuple_replace[key_name] = input
             del graph.nodes[name]
 
@@ -362,7 +390,7 @@ def parse_graph(graph: Graph,
     for name in list(graph.nodes.keys()):
         node = graph.nodes[name]
         if node.op_type == "getitemOperation":
-            real_name = f'{node.inputs[0]}__{node.index}'
+            real_name = f"{node.inputs[0]}__{node.index}"
             if real_name in tuple_replace.keys():
                 real_name = tuple_replace[real_name]
             if real_name in getitem_replace.keys():
@@ -419,7 +447,9 @@ def parse_graph(graph: Graph,
                     while target_name in unsqueeze_replace.keys():
                         input = target_name
                         target_name = unsqueeze_replace[target_name].inputs[0]
-                        reshape_info["dim"].extend(unsqueeze_replace[target_name].target_reshape_info["dim"])
+                        reshape_info["dim"].extend(
+                            unsqueeze_replace[target_name].target_reshape_info["dim"]
+                        )
                     reshape_info["dim"] = list(reversed(reshape_info["dim"]))
                     node.inputs[idx] = target_name
                     reshape_inputs[idx] = reshape_info
@@ -430,12 +460,14 @@ def parse_graph(graph: Graph,
                     while target_name in squeeze_replace.keys():
                         input = target_name
                         target_name = squeeze_replace[target_name].inputs[0]
-                        reshape_info["dim"].extend(squeeze_replace[target_name].target_reshape_info["dim"])
+                        reshape_info["dim"].extend(
+                            squeeze_replace[target_name].target_reshape_info["dim"]
+                        )
                     reshape_info["dim"] = list(reversed(reshape_info["dim"]))
                     node.inputs[idx] = target_name
                     reshape_inputs[idx] = reshape_info
                     need_reshape_input = True
-                    
+
             node.has_reshape_inputs = need_reshape_input
             node.reshape_inputs = []
             if need_reshape_input:
@@ -500,7 +532,9 @@ def parse_graph(graph: Graph,
                 for item in node.inplace_outputs:
                     output_idx = item["output_index"]
                     input_idx = item["input_index"]
-                    inplace_output_tensors[node.outputs[output_idx]] = node.inputs[input_idx]
+                    inplace_output_tensors[node.outputs[output_idx]] = node.inputs[
+                        input_idx
+                    ]
 
         graph_inputs = list(set(graph_inputs))
         graph_outputs = list(set(graph_outputs))
@@ -517,7 +551,11 @@ def parse_graph(graph: Graph,
             if v_in_input and k not in graph_node.outputs:
                 graph_node.outputs.append(k)
 
-        graph_internals = [x for x in graph_outputs if x not in graph_inputs and x not in graph_node.outputs]
+        graph_internals = [
+            x
+            for x in graph_outputs
+            if x not in graph_inputs and x not in graph_node.outputs
+        ]
 
         graph_node.set_inputs(graph_inputs)
         graph_node.set_internals(graph_internals)
@@ -533,7 +571,7 @@ def parse_graph(graph: Graph,
                 node_name = graph_node.node_names[node_id]
                 input_name = graph_node.nodes[node_name].inputs[tensor_id]
                 infer_shape.append(graph_node.inputs.index(input_name))
-            graph_node.infer_shape = {'type': 'equal', 'value': infer_shape}
+            graph_node.infer_shape = {"type": "equal", "value": infer_shape}
         if len(graph_hosts) > 0:
             graph_node.has_host_inputs = True
             graph_node.host_inputs = graph_hosts
@@ -556,7 +594,6 @@ def parse_graph(graph: Graph,
             inplace_tensor_with_reshape[target_tensor] = target_shape
         inplace_tensor_to_real_tensor[inplace_tensor] = target_tensor
 
-
     all_tensors = []
     host_tensors = []
     for name, node in graph.nodes.items():
@@ -576,11 +613,13 @@ def parse_graph(graph: Graph,
     node_inputs_count = {}
     for input in input_names:
         node_inputs_count[input] = 0
-    
+
     for name, node in graph.nodes.items():
         for ti, t_name in enumerate(node.inputs):
             if t_name in host_tensors and node.has_host_inputs:
-                node_hosts.append({"nodeId": node_count, "tensorId": ti, "tensorName": t_name})
+                node_hosts.append(
+                    {"nodeId": node_count, "tensorId": ti, "tensorName": t_name}
+                )
             # elif t_name in node_inputs_count.keys():
             #     node_inputs_count[t_name] = node_inputs_count[t_name] + 1
             if t_name in node_inputs_count.keys():
@@ -589,15 +628,18 @@ def parse_graph(graph: Graph,
     for tensor, count in node_inputs_count.items():
         if count > 0:
             node_inputs.append(tensor)
-    
+
     node_outputs = copy.deepcopy(output_names)
     node_internals = []
     for k, v in inplace_tensor_to_real_tensor.items():
         if v in node_inputs and k not in node_outputs:
             node_outputs.append(k)
     for tensor in all_tensors:
-        if tensor not in node_inputs and tensor not in node_outputs and \
-                tensor not in graph.special_constants_map:
+        if (
+            tensor not in node_inputs
+            and tensor not in node_outputs
+            and tensor not in graph.special_constants_map
+        ):
             node_internals.append(tensor)
     graph.set_inputs(node_inputs)
     graph.set_outputs(node_outputs)
@@ -606,12 +648,14 @@ def parse_graph(graph: Graph,
     for name in graph.nodes.keys():
         graph.nodes[name] = graph.nodes[name].build()
 
-    output_tensor_descs = make_output_tensor_desc(output_names,
-                                                  output_data_nodes,
-                                                  input_data_nodes,
-                                                  node_outputs,
-                                                  inplace_tensor_to_real_tensor,
-                                                  inplace_tensor_with_reshape)
+    output_tensor_descs = make_output_tensor_desc(
+        output_names,
+        output_data_nodes,
+        input_data_nodes,
+        node_outputs,
+        inplace_tensor_to_real_tensor,
+        inplace_tensor_with_reshape,
+    )
 
     for idx, tensor in enumerate(py_output_names):
         if tensor in getitem_replace.keys():
@@ -619,5 +663,3 @@ def parse_graph(graph: Graph,
     graph.extend_inputs(graph.special_constants_map.keys())
 
     return graph, output_tensor_descs, py_output_names
-
-

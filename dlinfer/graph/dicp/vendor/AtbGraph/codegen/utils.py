@@ -47,13 +47,12 @@ class AclFormat(enum.Enum):
 
 def check_ret(message, ret):
     if ret != 0:
-        raise Exception("{} failed ret={}"
-                        .format(message, ret))
+        raise Exception("{} failed ret={}".format(message, ret))
 
 
 def get_acl_format(x) -> int:
-    if hasattr(x, 'meta') and 'native_memory_format' in x.meta:
-        return AclFormat[x.meta['native_memory_format']].value
+    if hasattr(x, "meta") and "native_memory_format" in x.meta:
+        return AclFormat[x.meta["native_memory_format"]].value
     else:
         return AclFormat.ACL_FORMAT_ND.value
 
@@ -112,9 +111,9 @@ def symint_in_shape(shape):
 
 
 def get_ascend_format_num(format: str):
-    if format == 'NCHW':
+    if format == "NCHW":
         return AclFormat.ACL_FORMAT_HWCN.value
-    elif format == 'ND':
+    elif format == "ND":
         return AclFormat.ACL_FORMAT_ND.value
     else:
         raise RuntimeError(f"unknow format ({format}) in get_ascend_format_num!")

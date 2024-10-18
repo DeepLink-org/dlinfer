@@ -15,8 +15,11 @@ from importlib import import_module
 
 import torch
 
-from dlinfer.graph.dicp.dynamo_bridge import pt_patch # noqa F401
-from dlinfer.graph.dicp.dynamo_bridge.torch_version import is_torch_200, is_torch_210_or_higher
+from dlinfer.graph.dicp.dynamo_bridge import pt_patch  # noqa F401
+from dlinfer.graph.dicp.dynamo_bridge.torch_version import (
+    is_torch_200,
+    is_torch_210_or_higher,
+)
 
 
 log = logging.getLogger(__name__)
@@ -30,25 +33,26 @@ count_calls = dynamo_utils.count_calls
 def get_fake_mode_from_tensors(input_tensors):
     if is_torch_200:
         from torch._dynamo.utils import fake_mode_from_tensors
+
         return fake_mode_from_tensors(input_tensors)
     elif is_torch_210_or_higher:
         from torch._dynamo.utils import detect_fake_mode
+
         return detect_fake_mode(input_tensors)
     else:
-        raise ValueError(
-            f"unsupported dicp torch version: {torch.__version__}")
+        raise ValueError(f"unsupported dicp torch version: {torch.__version__}")
 
 
 def used_nodes_all_symint(nodes):
     for node in nodes:
-        if node.op == 'placeholder' and len(node.users) > 0:
-            if hasattr(node, 'meta'):
-                node = node.meta['val']
+        if node.op == "placeholder" and len(node.users) > 0:
+            if hasattr(node, "meta"):
+                node = node.meta["val"]
             if not isinstance(node, torch.SymInt):
                 return False
-        elif node.op == 'output':
-            if hasattr(node, 'meta') and 'val' in node.meta:
-                node = node.meta['val']
+        elif node.op == "output":
+            if hasattr(node, "meta") and "val" in node.meta:
+                node = node.meta["val"]
             if not isinstance(node, torch.SymInt):
                 return False
     return True
@@ -61,7 +65,7 @@ def compile_fx_inner(
     num_fixed=0,
     is_backward=False,
     graph_id=None,
-    backend=None
+    backend=None,
 ):
     if dynamo_utils.count_calls(gm.graph) == 0:
         return make_boxed_func(gm.forward)
@@ -98,8 +102,7 @@ def compile_fx(
     elif is_torch_210_or_higher:
         return compile_fx_210(model_, example_inputs_, backend, inner_compile)
     else:
-        raise ValueError(
-            f"unsupported dicp torch version: {torch.__version__}")
+        raise ValueError(f"unsupported dicp torch version: {torch.__version__}")
 
 
 def compile_fx_200(
@@ -141,9 +144,7 @@ def compile_fx_200(
 
     decompositions = get_decompositions(backend=backend)
     return aot_autograd(
-        fw_compiler=fw_compiler,
-        bw_compiler=bw_compiler,
-        decompositions=decompositions
+        fw_compiler=fw_compiler, bw_compiler=bw_compiler, decompositions=decompositions
     )(model_, example_inputs_)
 
 
@@ -154,9 +155,16 @@ def compile_fx_210(
     inner_compile=compile_fx_inner,
 ):
     import torch._dynamo.config as dynamo_config
-    from torch._inductor.compile_fx import flatten_graph_inputs, graph_returns_tuple, \
-        make_graph_return_tuple, pre_grad_passes, joint_graph_passes, min_cut_rematerialization_partition, \
-        _PyTreeCodeGen, handle_dynamo_export_graph
+    from torch._inductor.compile_fx import (
+        flatten_graph_inputs,
+        graph_returns_tuple,
+        make_graph_return_tuple,
+        pre_grad_passes,
+        joint_graph_passes,
+        min_cut_rematerialization_partition,
+        _PyTreeCodeGen,
+        handle_dynamo_export_graph,
+    )
 
     decompositions = get_decompositions(backend=backend)
 
@@ -276,13 +284,13 @@ def count_tangents(fx_g: torch.fx.GraphModule):
 
 def get_decompositions(backend):
     decompositions = {}
-    folder_list = os.listdir(os.path.dirname(
-        os.path.dirname(__file__)) + '/vendor')
+    folder_list = os.listdir(os.path.dirname(os.path.dirname(__file__)) + "/vendor")
     found_decomp = False
     for folder in folder_list:
         if backend.lower() == folder.lower():
             config = importlib.import_module(
-                "dlinfer.graph.dicp.vendor." + folder + ".config")
+                "dlinfer.graph.dicp.vendor." + folder + ".config"
+            )
             decompositions = config.decomp
             found_decomp = True
     assert found_decomp, "Not found decomp table!"

@@ -68,7 +68,7 @@ def get_op_const_arg_kwarg(
     """
     new_args = const_arg[0]
     len_args = len(new_args)
-    assert (len_args >= 2 and len_args <= 4)
+    assert len_args >= 2 and len_args <= 4
     arg0, dtype = new_args[0], new_args[1]
     shape = new_args[2] if len(new_args) >= 3 else None
     ascend_format = new_args[3] if len(new_args) == 4 else None

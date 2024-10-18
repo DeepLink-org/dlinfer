@@ -27,10 +27,12 @@ class SingleOpTransformer(torch.fx.Transformer):
         self.sym_to_inputs = {}
         self.sym_in_args = {}
 
-    def placeholder(self, target: 'Target', args: Tuple[Argument, ...], kwargs: Dict[str, Any]) -> Proxy:
+    def placeholder(
+        self, target: "Target", args: Tuple[Argument, ...], kwargs: Dict[str, Any]
+    ) -> Proxy:
         proxy = super().placeholder(target, args, kwargs)
         proxy.node.meta = fx_traceback.get_current_meta()
-        fake_tensor = proxy.node.meta['val']
+        fake_tensor = proxy.node.meta["val"]
         if isinstance(fake_tensor, torch.SymInt):
             self.sym_to_inputs[fake_tensor.node.str()] = proxy
         elif symint_in_shape(fake_tensor.shape):
@@ -43,15 +45,20 @@ class SingleOpTransformer(torch.fx.Transformer):
                         self.sym_in_args[st] = (proxy, idx)
         return proxy
 
-    def get_proxy(self, target, args: Tuple[Argument, ...], kwargs: Dict[str, Any] = {}):
+    def get_proxy(
+        self, target, args: Tuple[Argument, ...], kwargs: Dict[str, Any] = {}
+    ):
         proxy = self.tracer.create_proxy(
-            'call_function', target.get_singleton(), args, kwargs)
+            "call_function", target.get_singleton(), args, kwargs
+        )
         return proxy
 
     def get_proxy_from_node(self, node):
         return self.tracer.proxy(node)
 
-    def call_function(self, target: Target, args: Tuple[Argument, ...], kwargs: Dict[str, Any]) -> Any:
+    def call_function(
+        self, target: Target, args: Tuple[Argument, ...], kwargs: Dict[str, Any]
+    ) -> Any:
         if target in self._conversions:
             converted_target = self._conversions[target]
             if isinstance(converted_target, tuple):
@@ -64,21 +71,26 @@ class SingleOpTransformer(torch.fx.Transformer):
                 out.node.meta = fx_traceback.get_current_meta()
                 return out
             try:
-                proxy = self.tracer.create_proxy(
-                    'call_function', out, args, kwargs)
+                proxy = self.tracer.create_proxy("call_function", out, args, kwargs)
             except Exception as e:
-                import pdb;pdb.set_trace()
+                import pdb
+
+                pdb.set_trace()
                 pass
             proxy.node.meta = fx_traceback.get_current_meta()
             return proxy
         return super().call_function(target, args, kwargs)
 
-    def get_attr(self, target: 'Target', args: Tuple[Argument, ...], kwargs: Dict[str, Any]) -> Proxy:
-        import pdb;pdb.set_trace()
+    def get_attr(
+        self, target: "Target", args: Tuple[Argument, ...], kwargs: Dict[str, Any]
+    ) -> Proxy:
+        import pdb
+
+        pdb.set_trace()
         proxy = super().get_attr(target, args, kwargs)
         proxy.node.meta = fx_traceback.get_current_meta()
-        if 'val' not in proxy.node.meta:
-            proxy.node.meta['val'] = self.fetch_attr(target)
+        if "val" not in proxy.node.meta:
+            proxy.node.meta["val"] = self.fetch_attr(target)
         return proxy
 
 
@@ -123,11 +135,14 @@ if is_torch_210_or_higher:
                 argnames = [*inspect.signature(cls.pattern).parameters.keys()]
                 args = list(
                     torch.fx.map_arg(
-                        [match.kwargs[name] for name in argnames], lambda n: n.meta["val"]
+                        [match.kwargs[name] for name in argnames],
+                        lambda n: n.meta["val"],
                     )
                 )
                 with torch._dynamo.utils.detect_fake_mode(args):
-                    match.replacement_graph = cls.trace_fn(cls.replacement, cls.gen_args())
+                    match.replacement_graph = cls.trace_fn(
+                        cls.replacement, cls.gen_args()
+                    )
             return True
 
         @classmethod
@@ -142,15 +157,21 @@ if is_torch_210_or_higher:
                 extra_check=cls.check_fn,
             )
             pattern_entries = backend_patterns[pattern_expr.fns[0]]
-            registered_pattern_entry = [entry for entry in pattern_entries if entry.pattern == pattern_expr][0]
+            registered_pattern_entry = [
+                entry for entry in pattern_entries if entry.pattern == pattern_expr
+            ][0]
             registered_pattern_entry.extra_check = cls.check_fn
 
-    def register_backend_patterns(patterns_cls_list: List[BackendPatternBase], Pattern: BackendPatternBase):
+    def register_backend_patterns(
+        patterns_cls_list: List[BackendPatternBase], Pattern: BackendPatternBase
+    ):
         patterns_cls_list.append(Pattern)
         return Pattern
 
     @functools.lru_cache(None)
-    def lazy_register_backend_patterns(patterns: PatternMatcherPass, patterns_cls_list: Tuple[BackendPatternBase]):
+    def lazy_register_backend_patterns(
+        patterns: PatternMatcherPass, patterns_cls_list: Tuple[BackendPatternBase]
+    ):
         with torch._guards.tracing(
             None
         ), maybe_disable_fake_tensor_mode(), FakeTensorMode():
@@ -158,10 +179,13 @@ if is_torch_210_or_higher:
                 pattern.register(patterns)
 
     class BackendPatternMatcherTransformer:
-        def __init__(self, patterns: PatternMatcherPass, patterns_cls_list: List[BackendPatternBase]):
+        def __init__(
+            self,
+            patterns: PatternMatcherPass,
+            patterns_cls_list: List[BackendPatternBase],
+        ):
             self._patterns = patterns
-            lazy_register_backend_patterns(
-                self._patterns, tuple(patterns_cls_list))
+            lazy_register_backend_patterns(self._patterns, tuple(patterns_cls_list))
 
         def transform(self, module: torch.fx.GraphModule):
             match_count = self._patterns.apply(module)

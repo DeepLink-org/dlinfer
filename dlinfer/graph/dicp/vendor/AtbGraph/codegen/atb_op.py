@@ -5,7 +5,16 @@ from torch.fx.node import Node
 from torch.utils._pytree import tree_map_only
 from torch._inductor.utils import IndentedBuffer
 from dlinfer.graph.dicp.vendor.AtbGraph.codegen import atb_infer_param as infer_param
-from dlinfer.graph.dicp.vendor.AtbGraph.codegen.atb_graph import Operation, SqueezeOperation, GetItemOperation, GraphOpearation, UnsqueezeOperation, InplaceOperation, ViewOperation, TupleOperation
+from dlinfer.graph.dicp.vendor.AtbGraph.codegen.atb_graph import (
+    Operation,
+    SqueezeOperation,
+    GetItemOperation,
+    GraphOpearation,
+    UnsqueezeOperation,
+    InplaceOperation,
+    ViewOperation,
+    TupleOperation,
+)
 from dlinfer.graph.dicp.vendor.AtbGraph.codegen.utils import get_acl_dtype
 
 
@@ -58,18 +67,18 @@ class AtbOverrides:
         return op
 
     def Graph(name, *args, **kwargs):
-        outputs = kwargs['output']
+        outputs = kwargs["output"]
         if not isinstance(outputs, list):
             outputs = [outputs]
 
         infer_shape = None
-        if 'infer_shape' in kwargs.keys():
-            infer_shape = kwargs['infer_shape']
+        if "infer_shape" in kwargs.keys():
+            infer_shape = kwargs["infer_shape"]
 
         graph_output_names = []
         for x in outputs:
-            if isinstance(x, torch.fx.node.Node) and isinstance(x.meta['val'], list):
-                meta_val = x.meta['val']
+            if isinstance(x, torch.fx.node.Node) and isinstance(x.meta["val"], list):
+                meta_val = x.meta["val"]
                 if len(meta_val) != 1:
                     node_name = str(x)
                     for i in range(len(meta_val)):
@@ -112,7 +121,9 @@ class AtbOverrides:
         if seqlen is None:
             # special hack for non-input param seqlen
             seqlen = "rope_seqlen_default"
-            op.add_special_constants(seqlen, 'torch.ones([1], device="npu", dtype=torch.int32)')
+            op.add_special_constants(
+                seqlen, 'torch.ones([1], device="npu", dtype=torch.int32)'
+            )
         op.set_input([query, key, cos, sin, seqlen])
         op.set_param(param)
         op.set_output([f"{name}__0", f"{name}__1"])
@@ -127,7 +138,9 @@ class AtbOverrides:
         op.set_output([name])
         return op
 
-    def SelfAttentionPAEncoder(name, query, key, value, seqlen, mask, q_head_num, kv_head_num):
+    def SelfAttentionPAEncoder(
+        name, query, key, value, seqlen, mask, q_head_num, kv_head_num
+    ):
         op = Operation(name, "SelfAttentionOperation")
         param = infer_param.SelfAttentionParam()
         param.calcType = infer_param.SelfAttentionCalcType.PA_ENCODER
@@ -136,7 +149,7 @@ class AtbOverrides:
         param.clampType = infer_param.SelfAttentionClampType.CLAMP_TYPE_UNDEFINED
         param.headNum = q_head_num
         param.kvHeadNum = kv_head_num
-        param.qkScale = 1. / math.sqrt(128)
+        param.qkScale = 1.0 / math.sqrt(128)
         param.isTriuMask = 1
 
         if mask is not None:
@@ -164,7 +177,18 @@ class AtbOverrides:
         op.add_inplace_output(1, 3)
         return op
 
-    def PagedAttention(name, query, key_cache, value_cache, block_table, context_len, mask, q_head_num, kv_head_num, scale):
+    def PagedAttention(
+        name,
+        query,
+        key_cache,
+        value_cache,
+        block_table,
+        context_len,
+        mask,
+        q_head_num,
+        kv_head_num,
+        scale,
+    ):
         op = Operation(name, "PagedAttentionOperation")
         param = infer_param.PagedAttentionParam()
         param.headNum = q_head_num
@@ -173,7 +197,9 @@ class AtbOverrides:
 
         if mask is not None:
             param.maskType = infer_param.PagedAttentionMaskType.MASK_TYPE_NORM
-            op.set_input([query, key_cache, value_cache, block_table, context_len, mask])
+            op.set_input(
+                [query, key_cache, value_cache, block_table, context_len, mask]
+            )
         else:
             param.maskType = infer_param.PagedAttentionMaskType.UNDEFINED
             op.set_input([query, key_cache, value_cache, block_table, context_len])
@@ -213,7 +239,7 @@ class AtbOverrides:
             "dims": size,
         }
         return op
-    
+
     def Tuple(name, *args, **kwargs):
         op = TupleOperation(name)
         op.set_input(list(args))
@@ -221,7 +247,7 @@ class AtbOverrides:
         return op
 
     def SplitSharing(name, x, size, dim):
-        op = Operation(name, "SplitOperation") 
+        op = Operation(name, "SplitOperation")
         param = infer_param.SplitParam()
         param.splitDim = dim
         param.splitNum = len(size)

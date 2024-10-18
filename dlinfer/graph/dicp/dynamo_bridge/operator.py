@@ -9,7 +9,10 @@ from torch.fx.experimental.symbolic_shapes import ShapeEnv
 from contextlib import nullcontext
 from torch._subclasses import FakeTensor, FakeTensorMode
 from dlinfer.graph.dicp.dynamo_bridge.utils import TensorInfo
-from dlinfer.graph.dicp.dynamo_bridge.torch_version import is_torch_200, is_torch_210_or_higher
+from dlinfer.graph.dicp.dynamo_bridge.torch_version import (
+    is_torch_200,
+    is_torch_210_or_higher,
+)
 
 
 class Operator(ABC):

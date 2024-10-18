@@ -74,8 +74,8 @@ def get_entry_points():
     device = get_device()
     if device == "ascend":
         return {
-            'torch_dynamo_backends': [
-                'atbgraph = dlinfer.graph.dicp.vendor.AtbGraph:atbgraph',
+            "torch_dynamo_backends": [
+                "atbgraph = dlinfer.graph.dicp.vendor.AtbGraph:atbgraph",
             ]
         }
     else:

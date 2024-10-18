@@ -2,7 +2,7 @@ from abc import ABCMeta, abstractmethod
 from torch._inductor.codecache import AsyncCompile
 
 
-class DeviceCompileJob():
+class DeviceCompileJob:
     __metaclass__ = ABCMeta
 
     def __init__(self):

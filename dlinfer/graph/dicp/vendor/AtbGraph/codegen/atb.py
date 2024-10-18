@@ -19,11 +19,11 @@ def get_graph_id():
 
 def process_name(name, target):
     if hasattr(target, "name"):
-        real_op = target.name().split('::')[-1]
-        if real_op.find('.') != -1:
-            real_op = real_op.split('.')[0]
+        real_op = target.name().split("::")[-1]
+        if real_op.find(".") != -1:
+            real_op = real_op.split(".")[0]
     else:
-        real_op = name.rsplit('_', 1)[0] if name[-1].isdigit() else name
+        real_op = name.rsplit("_", 1)[0] if name[-1].isdigit() else name
     return real_op
 
 
@@ -56,7 +56,7 @@ class AtbCodegen(torch.fx.Interpreter):
         self.args_dict[name] = name
         self.input_args.append(self.cur_node)
 
-        fake_tensor = self.cur_node.meta['val']
+        fake_tensor = self.cur_node.meta["val"]
         if isinstance(fake_tensor, torch.SymInt):
             self.sym_to_inputs[fake_tensor.node.str()] = name
         elif symint_in_shape(fake_tensor.shape):
@@ -73,8 +73,7 @@ class AtbCodegen(torch.fx.Interpreter):
         if name not in self.args_dict.keys():
             self.args_dict[name] = name
 
-        _, args_list = AtbOverrides.gen_args(
-            self.args_dict[name], self.args_dict, args)
+        _, args_list = AtbOverrides.gen_args(self.args_dict[name], self.args_dict, args)
         real_op = process_name(name, target)
         op = getattr(self.override, real_op)(*args_list, **kwargs)
         self.atb_graph.add_node(op)
@@ -140,12 +139,13 @@ class AtbCodegen(torch.fx.Interpreter):
                     if not torch.allclose(a, b, atol=atol, rtol=rtol, equal_nan=True):
                         import pdb;pdb.set_trace()
                         pass
-            """, strip=True
+            """,
+            strip=True,
         )
         return self.import_code.getvalue()
 
     def operator_in_str(self, st):
-        for op in ['+', '-', '*', '/']:
+        for op in ["+", "-", "*", "/"]:
             if op in st:
                 return True
         return False
@@ -163,38 +163,44 @@ class AtbCodegen(torch.fx.Interpreter):
         if len(self.sym_in_args) > 0:
             for key in self.sym_in_args.keys():
                 if not key.isdigit() and not self.operator_in_str(key):
-                    call_body.writeline(f"{key} = {self.sym_in_args[key][0]}.shape[{self.sym_in_args[key][1]}]")
+                    call_body.writeline(
+                        f"{key} = {self.sym_in_args[key][0]}.shape[{self.sym_in_args[key][1]}]"
+                    )
         if len(self.sym_to_inputs) > 0:
             for key in self.sym_to_inputs.keys():
                 if not key.isdigit() and not self.operator_in_str(key):
                     call_body.writeline(f"{key} = {self.sym_to_inputs[key]}")
-            
+
         # gen fixed output shape
         graph_input_names = self.atb_graph.inputs
         graph_output_names = self.atb_graph.outputs
 
         for output in graph_output_names:
-            if output not in self.output_tensor_descs['param'].keys():
-                import pdb;pdb.set_trace()
-                pass
-            param = self.output_tensor_descs['param'][output]
-            create_info = self.output_tensor_descs['create'][output]
-            # call_body.writeline(f'''output_tensor_descs["outputTensorDescs"].append({param})''')
-            if create_info['input'] is None:
-                device = 'npu'
-                dtype = create_info['dtype']
-                shape = create_info['shape']
-                call_body.writeline(f'''{output} = torch.empty({shape}, dtype={dtype}, device='{device}')''')
-            elif create_info['need_reshape']:
-                shape = create_info['shape']
-                input = create_info['input']
-                call_body.writeline(f'''{output} = {input}.view({shape})''')
-            else:
-                input = create_info['input']
-                call_body.writeline(f'''{output} = {input}''')
+            if output not in self.output_tensor_descs["param"].keys():
+                import pdb
 
-        call_body.writeline('''param_dict = {"hostTensors": []}''')
-        call_body.writeline(f'''host_tensor_dict = {{}}''')
+                pdb.set_trace()
+                pass
+            param = self.output_tensor_descs["param"][output]
+            create_info = self.output_tensor_descs["create"][output]
+            # call_body.writeline(f'''output_tensor_descs["outputTensorDescs"].append({param})''')
+            if create_info["input"] is None:
+                device = "npu"
+                dtype = create_info["dtype"]
+                shape = create_info["shape"]
+                call_body.writeline(
+                    f"""{output} = torch.empty({shape}, dtype={dtype}, device='{device}')"""
+                )
+            elif create_info["need_reshape"]:
+                shape = create_info["shape"]
+                input = create_info["input"]
+                call_body.writeline(f"""{output} = {input}.view({shape})""")
+            else:
+                input = create_info["input"]
+                call_body.writeline(f"""{output} = {input}""")
+
+        call_body.writeline("""param_dict = {"hostTensors": []}""")
+        call_body.writeline(f"""host_tensor_dict = {{}}""")
         host_tensors = []
         for tensor in self.atb_graph.hosts:
             node_id = tensor["nodeId"]
@@ -202,17 +208,21 @@ class AtbCodegen(torch.fx.Interpreter):
             tensor_name = tensor["tensorName"]
             assert tensor_name in self.args
             if tensor_name not in host_tensors:
-                call_body.writeline(f'''host_tensor_dict["{tensor_name}"] = {tensor_name}.cpu().tolist()''')
+                call_body.writeline(
+                    f"""host_tensor_dict["{tensor_name}"] = {tensor_name}.cpu().tolist()"""
+                )
                 host_tensors.append(tensor_name)
-            call_body.writeline(f'''param_dict["hostTensors"].append({{"nodeId": {node_id}, "tensorId": {tensor_id}, "value": host_tensor_dict["{tensor_name}"] }})''')
+            call_body.writeline(
+                f"""param_dict["hostTensors"].append({{"nodeId": {node_id}, "tensorId": {tensor_id}, "value": host_tensor_dict["{tensor_name}"] }})"""
+            )
 
-        call_body.writeline('''param = json.dumps(param_dict)''')
-        call_body.writeline(f'''inputs = [{','.join(graph_input_names)}]''')
-        
-        call_body.writeline(f'''outputs = [{','.join(graph_output_names)}]''')
-        call_body.writeline('kernel_cpp_0(inputs, outputs, param)')
+        call_body.writeline("""param = json.dumps(param_dict)""")
+        call_body.writeline(f"""inputs = [{','.join(graph_input_names)}]""")
 
-        del_args = [f'del {x}' for x in self.args if x not in self.py_output_names]
+        call_body.writeline(f"""outputs = [{','.join(graph_output_names)}]""")
+        call_body.writeline("kernel_cpp_0(inputs, outputs, param)")
+
+        del_args = [f"del {x}" for x in self.args if x not in self.py_output_names]
         call_body.writelines(del_args)
         call_body.writeline("args.clear()")
         call_body.writeline(f"return ({', '.join(self.py_output_names)})")
@@ -230,26 +240,28 @@ class AtbCodegen(torch.fx.Interpreter):
             """
                 from torch._dynamo.testing import rand_strided
                 from torch._inductor.utils import print_performance
-            """, strip=True
+            """,
+            strip=True,
         )
 
         py_rand_inputs = []
         for i in range(len(self.input_args)):
             node = self.input_args[i]
             name = self.args[i]
-            val = node.meta['val']
+            val = node.meta["val"]
             if isinstance(val, torch.SymInt):
-                code_str = f'''{name} = random.randint(0, 4)'''
+                code_str = f"""{name} = random.randint(0, 4)"""
             else:
                 shape = str(tuple(val.size()))
                 stride = str(tuple(val.stride()))
                 device = val.device.type
                 dtype = str(val.dtype)
-                code_str = f'''{name} = rand_strided({shape}, {stride}, device='{device}', dtype={dtype})'''
+                code_str = f"""{name} = rand_strided({shape}, {stride}, device='{device}', dtype={dtype})"""
             py_rand_inputs.append(code_str)
         main_body.writelines(py_rand_inputs)
         main_body.writeline(
-            f"print_performance(lambda: call([{', '.join(self.args)}]))")
+            f"print_performance(lambda: call([{', '.join(self.args)}]))"
+        )
 
         main_func = IndentedBuffer()
         main_func.writeline("""if __name__ == "__main__":""")
@@ -268,20 +280,32 @@ class AtbCodegen(torch.fx.Interpreter):
                 atb_compile_job = AtbCompileJob('''{graph_json}''')
                 async_compile = AsyncCompileKernel()
                 kernel_cpp_0 = async_compile.compile_kernel(atb_compile_job)
-            """, strip=True
+            """,
+            strip=True,
         )
-        compile_graph_code.writeline('async_compile.wait(globals())')
-        compile_graph_code.writeline('del async_compile')
+        compile_graph_code.writeline("async_compile.wait(globals())")
+        compile_graph_code.writeline("del async_compile")
 
         # special constant tensor for compiled graph
         if "rope_seqlen_default" in graph_json:
-            compile_graph_code.writeline('\n')
+            compile_graph_code.writeline("\n")
             for name, expr in self.atb_graph.special_constants_map.items():
-                compile_graph_code.writeline(f'{name} = {expr}')
+                compile_graph_code.writeline(f"{name} = {expr}")
         return compile_graph_code.getvalue()
 
     def generate_code(self):
         self.parse_outputs()
         self.atb_graph, self.output_tensor_descs, self.py_output_names = parse_graph(
-            self.atb_graph, self.graph_input_names, self.graph_output_names, self.input_args, self.output_args, self.py_output_names)
-        return (self.gen_import_code() + self.gen_compile_graph_code() + self.gen_call_func() + self.gen_main_func())
+            self.atb_graph,
+            self.graph_input_names,
+            self.graph_output_names,
+            self.input_args,
+            self.output_args,
+            self.py_output_names,
+        )
+        return (
+            self.gen_import_code()
+            + self.gen_compile_graph_code()
+            + self.gen_call_func()
+            + self.gen_main_func()
+        )
