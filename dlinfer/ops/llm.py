@@ -433,7 +433,7 @@ def get_cache_len(cache: Tensor) -> int:
     {
         "offset": None,
         "bias": None,
-        "all_reduce": bool,
+        "all_reduce": False,
         "group_size": 0,
     }
 )
