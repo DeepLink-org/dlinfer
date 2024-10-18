@@ -20,6 +20,7 @@ __all__ = [
     "fill_contiguous_kvcache",
     "get_cache_len",
     "weight_quant_matmul",
+    "fused_moe",
 ]
 
 
@@ -436,4 +437,32 @@ def weight_quant_matmul(
     """
     return vendor_ops_registry["weight_quant_matmul"](
         x1, x2, scale, offset, bias, all_reduce, group_size
+    )
+
+
+def fused_moe(
+    hidden_states: Tensor,
+    top_k: int,
+    topk_ids: Tensor,
+    topk_weights: Tensor,
+    gate_up_weights: Tensor,
+    down_weights: Tensor,
+) -> Tensor:
+    """
+    Implement the Fused Mixture of Experts (MoE) model.
+
+    Args:
+        hidden_states (Tensor): The hidden_states tensor.
+        top_k (int): The number of top K experts selected among multiple experts.
+        topk_ids (Tensor): The IDs of the top K selected experts.
+        topk_weights (Tensor): The topk_weights tensor corresponds to the weight of experts in topk_ids.
+        gate_up_weights (Tensor): The gate_up_weights tensor used to upsample.
+        down_weights (Tensor): The down_weights tensor used to downsample.
+
+    Returns:
+        Tensor: The output tensor of the Fused Mixture of Experts (MoE) model.
+
+    """
+    return vendor_ops_registry["fused_moe"](
+        hidden_states, top_k, topk_ids, topk_weights, gate_up_weights, down_weights
     )
