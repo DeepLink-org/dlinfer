@@ -122,7 +122,7 @@ cmake-build-*/
 .vscode
 
 #.core file
-core.*
+/core.*
 
 # generated config
 /dlinfer/vendor/vendor.yaml
