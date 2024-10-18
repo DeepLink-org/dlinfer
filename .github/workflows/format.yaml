@@ -41,6 +41,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.CI_TOKEN}}
         with:
           style: file
+          ignore: 'dlinfer/graph/dicp/vendor/AtbGraph/codegen/runtime/third_party/*'
           tidy-checks: '-*' # disable clang tidy at this stage
           version: 17
       - name: Fail test
