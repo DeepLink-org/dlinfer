@@ -70,6 +70,18 @@ def get_requirements(file_name):
     return requirements
 
 
+def get_entry_points():
+    device = get_device()
+    if device == "ascend":
+        return {
+            'torch_dynamo_backends': [
+                'atbgraph = dlinfer.graph.dicp.vendor.AtbGraph:atbgraph',
+            ]
+        }
+    else:
+        return dict()
+
+
 def main():
     setup(
         name=f"dlinfer-{get_device()}",
@@ -93,6 +105,7 @@ def main():
         python_requires=">=3.8, <3.11",
         setup_requires=get_requirements("build.txt"),
         install_requires=get_requirements("runtime.txt"),
+        entry_points=get_entry_points(),
     )
 
 
