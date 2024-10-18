@@ -241,41 +241,32 @@ def paged_prefill_attention(
     if block_table.dtype != torch.int32:
         block_table = block_table.to(torch.int32)
 
-    # cann incre_fa don't support paged_attn when q_seq_len > 1
-    batch = q_start_loc.shape[0]
-    q_seq_len_list = q_seq_len.tolist()
     kv_seq_len_list = kv_seq_len.tolist()
     scale_value = 1.0 / math.sqrt(query.shape[-1])
-    query = query.contiguous()
-    for i in range(batch):
-        start = q_start_loc[i]
-        mask = attn_mask[i]
-        for j in range(q_seq_len_list[i]):
-            single_q = query[start + j : start + j + 1].view(1, 1, -1)
-            single_o = attn_output[start + j : start + j + 1].view(1, 1, -1)
-            torch.ops.npu_ext.npu_incre_flash_attention_v4_out(
-                single_q,
-                key_cache,
-                value_cache,
-                single_o,
-                padding_mask=None,
-                atten_mask=mask[j : j + 1],
-                actual_seq_lengths=kv_seq_len_list[i : i + 1],
-                antiquant_scale=None,
-                antiquant_offset=None,
-                block_table=block_table,
-                dequant_scale1=None,
-                quant_scale1=None,
-                dequant_scale2=None,
-                quant_scale2=None,
-                quant_offset2=None,
-                num_heads=num_q_heads,
-                scale_value=scale_value,
-                input_layout="BSH",
-                num_key_value_heads=num_kv_heads,
-                block_size=block_size,
-                inner_precise=1,
-            )
+    query = query.contiguous().view(query.shape[0], 1, -1)
+    torch.ops.npu_ext.npu_incre_flash_attention_v4_out(
+        query,
+        key_cache,
+        value_cache,
+        attn_output,
+        padding_mask=None,
+        atten_mask=attn_mask[0],
+        actual_seq_lengths=kv_seq_len_list,
+        antiquant_scale=None,
+        antiquant_offset=None,
+        block_table=block_table,
+        dequant_scale1=None,
+        quant_scale1=None,
+        dequant_scale2=None,
+        quant_scale2=None,
+        quant_offset2=None,
+        num_heads=num_q_heads,
+        scale_value=scale_value,
+        input_layout="BSH",
+        num_key_value_heads=num_kv_heads,
+        block_size=block_size,
+        inner_precise=1,
+    )
     return attn_output
 
 
