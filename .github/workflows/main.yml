@@ -19,8 +19,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  CloneAndBuild:
-    runs-on: Atlas_800T_A2
+  EndtoEndTests:
+    runs - on: Atlas_800T_A2
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -43,16 +44,16 @@ jobs:
         run: |
           set -ex
           mv $GITHUB_WORKSPACE/* ${{ env.CI_PATH }}/
-          mv $GITHUB_WORKSPACE/.github ${{ env.CI_PATH }}/
+          mv $GITHUB_WORKSPACE/.github ${{ env.CI_PATH }}/    
 
       - name: Build and install dlinfer
         run: |
           set -ex
-          source /usr/local/Ascend/ascend-toolkit/set_env.sh
+          source /usr/local/Ascend/ascend - toolkit/set_env.sh
           cd ${{ env.CI_PATH }}
-          pip uninstall -y dlinfer-ascend
+          pip uninstall -y dlinfer - ascend
           pip install -r requirements/ascend/full.txt
-          DEVICE=ascend python3 setup.py develop --user
+          DEVICE = ascend python3 setup.py develop --user
       
       - name: Make and clean directory for lmdeploy
         run: |
@@ -66,27 +67,21 @@ jobs:
       - name: Clone lmdeploy
         run: |
           set -ex
-          git clone https://github.com/DeepLink-org/lmdeploy.git ${{ env.LMDEPLOY_PATH }}
+          git clone https://github.com/DeepLink - org/lmdeploy.git ${{ env.LMDEPLOY_PATH }}
           cd ${{ env.LMDEPLOY_PATH }} && git checkout ${{ env.LMDEPLOY_COMMIT_OR_BRANCH }}
-          # git apply ${{env.CI_PATH }}/.github/ci/fix-exit-multi-npu.patch
+          # git apply ${{env.CI_PATH }}/.github/ci/fix - exit - multi - npu.patch
 
-  Tests:
-    runs-on: Atlas_800T_A2
-    needs: [CloneAndBuild]
-    env:
-      REPORT_DIR: /data2/wugeshui/GitHub/ci_log/test_reports
-    steps:
       - name: RunTests
         run: |
           set -ex
-          source /usr/local/Ascend/ascend-toolkit/set_env.sh
+          source /usr/local/Ascend/ascend - toolkit/set_env.sh
           export PYTHONPATH=${{env.LMDEPLOY_PATH }}:$PYTHONPATH
           cd ${{env.CI_PATH }}/tests
           export DLINFER_TEST_DIR=${{env.CI_PATH }}/tests
           echo $PYTHONPATH && pwd
-          pytest ./ -m 'lmdeploy' -s -x --alluredir=allure-results --clean-alluredir
-          python ./test_lmdeploy/e2e/test_model_tp2.py --model_type=chat --device_type=ascend
-          python ./test_lmdeploy/e2e/test_model_tp2.py --model_type=vl --device_type=ascend
+          pytest./ -m 'lmdeploy' -s -x --alluredir = allure - results --clean - alluredir
+          python./test_lmdeploy/e2e/test_model_tp2.py --model_type = chat --device_type = ascend
+          python./test_lmdeploy/e2e/test_model_tp2.py --model_type = vl --device_type = ascend
 
       - name: Generate reports
         if: always()
@@ -95,24 +90,20 @@ jobs:
           export report_dir="$REPORT_DIR/$date_today"
           echo "Save report to $report_dir"
           cd ${{env.CI_PATH }}/tests
-          mv allure-results $report_dir
+          mv allure - results $report_dir
 
-  Cleanup:
-    runs-on: Atlas_800T_A2
-    needs: [CloneAndBuild, Tests]
-    if: always()
-    steps:  
       - name: Uninstall dlinfer
+        if: always()
         run: |
-          pip uninstall -y dlinfer-ascend
+          pip uninstall -y dlinfer - ascend
 
       - name: Clear workfile
         if: always()
         run: |
           export workdir=$(pwd)
-          cd ..
+          cd..
           rm -rf $workdir
           mkdir $workdir
-          chmod -R 777 $workdir    
+          chmod -R 777 $workdir
 
   
