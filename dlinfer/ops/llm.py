@@ -497,17 +497,11 @@ def fused_moe(
     )
 
 
-@register_custom_op_default_value(
-    {
-        "bias": None,
-        "all_reduce": False,
-    }
-)
 def linear(
     x,
     weight: Tensor,
-    bias: Optional[Tensor],
-    all_reduce: Optional[bool],
+    bias: Optional[Tensor] = None,
+    all_reduce: Optional[bool] = False,
 ) -> Tensor:
     """
     Complete a linear computation.
