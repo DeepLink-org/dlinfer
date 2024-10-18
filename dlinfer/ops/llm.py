@@ -15,6 +15,7 @@ __all__ = [
     "paged_decode_attention",
     "paged_prefill_attention",
     "rms_norm",
+    "silu_and_mul",
     "moe_gating_topk_softmax",
     "fused_attention",
     "fill_contiguous_kvcache",
@@ -323,6 +324,30 @@ def rms_norm(
         Tensor: The normalized output tensor.
     """
     return vendor_ops_registry["rms_norm"](hidden_states, weight, epsilon)
+
+
+def silu_and_mul_impl_abstract_func(
+    input_tensor: Tensor,
+    dim_opt: int = -1,
+) -> Tensor:
+    gate, up = input_tensor.chunk(2, dim_opt)
+    assert gate.shape == up.shape
+    return gate
+
+
+@register_custom_op_default_value(
+    {
+        "dim": -1,
+    }
+)
+@register_custom_op(
+    "dlinfer::silu_and_mul", impl_abstract_func=silu_and_mul_impl_abstract_func
+)
+def silu_and_mul(
+    input_tensor: Tensor,
+    dim: int,
+) -> Tensor:
+    return vendor_ops_registry["silu_and_mul"](input_tensor, dim)
 
 
 def moe_gating_topk_softmax(router_logits: Tensor, topk: int) -> Tuple[Tensor, Tensor]:
