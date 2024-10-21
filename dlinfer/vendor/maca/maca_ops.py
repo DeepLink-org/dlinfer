@@ -150,24 +150,12 @@ def prefill_attention(
         value = value.view(-1, num_kv_heads, head_dim)
         softmax_scale = float(1 / math.sqrt(head_dim))
 
-    def make_cu_seqlens(seqlens):
-        if isinstance(seqlens, int):
-            cu_seqlens = torch.tensor([0, seqlens], dtype=torch.int32)
-            return cu_seqlens
-        cu_seqlens = seqlens.cumsum(0)
-        cu_zero = cu_seqlens.new_zeros(1)
-        cu_seqlens = torch.cat([cu_zero, cu_seqlens])
-        return cu_seqlens
-
-    cu_seqlens_q = make_cu_seqlens(q_seq_len).int().to(query.device)
-    cu_seqlens_k = make_cu_seqlens(kv_seq_len).int().to(query.device)
-
     output = flash_attn_varlen_func(
         query,
         key,
         value,
-        cu_seqlens_q=cu_seqlens_q,
-        cu_seqlens_k=cu_seqlens_k,
+        cu_seqlens_q=q_start_loc,
+        cu_seqlens_k=q_start_loc,
         max_seqlen_q=max_q_seq_len,
         max_seqlen_k=max_kv_seq_len,
         softmax_scale=softmax_scale,
