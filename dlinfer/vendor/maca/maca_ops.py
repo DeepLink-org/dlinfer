@@ -19,6 +19,7 @@ __all__ = [
     "paged_decode_attention",
     "paged_prefill_attention",
     "rms_norm",
+    "silu_and_mul",
     "moe_gating_topk_softmax",
 ]
 
@@ -186,7 +187,7 @@ def fill_kv_cache(
 ) -> Tuple[Tensor, Tensor]:
     kv_indices = kv_indices.squeeze(-1)
     maca_ext_ops.reshape_and_cache_new(
-        key, value, key_cache, value_cache, kv_indices, "auto"
+        key, value, key_cache, value_cache, kv_indices, "auto", 1.0, 1.0
     )
     return key_cache, value_cache
 
@@ -333,6 +334,7 @@ def moe_gating_topk_softmax(
     return topk_weights, topk_ids
 
 
+@register_ops(vendor_ops_registry)
 def silu_and_mul(x: Tensor) -> Tensor:
     d = x.shape[-1] // 2
     output_shape = x.shape[:-1] + (d,)

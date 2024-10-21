@@ -21,7 +21,7 @@ set(MACA_SUB_MODULE_BYPRODUCTS "${MACA_SUB_MODULE_BINRAY_DIR}/${MACA_SUB_MODULE}
 
 
 ExternalProject_Add(${MACA_SUB_MODULE}
-                    SOURCE_DIR "${PROJECT_SOURCE_DIR}/dlinfer_maca_ops"
+                    SOURCE_DIR "${PROJECT_SOURCE_DIR}/dlinfer/vendor/maca/csrc"
                     BINARY_DIR "${MACA_SUB_MODULE_BINRAY_DIR}"
                     CMAKE_COMMAND "cmake_maca"
                     BUILD_BYPRODUCTS "${MACA_SUB_MODULE_BYPRODUCTS}"
