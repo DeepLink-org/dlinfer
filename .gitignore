@@ -129,6 +129,3 @@ cmake-build-*/
 
 # scripts
 !/scripts/*
-
-# external repo
-/dlinfer_maca_ops
