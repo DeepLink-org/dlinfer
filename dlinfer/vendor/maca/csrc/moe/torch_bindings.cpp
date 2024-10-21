@@ -1,14 +1,12 @@
-#include <torch/extension.h>
-
+#include "core/registration.h"
 #include "moe_ops.h"
 
-PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
-    // vLLM topk softmax ops
-    pybind11::module ops = m.def_submodule("ops", "vLLM topk softmax operators");
-
+TORCH_LIBRARY_EXPAND(TORCH_EXTENSION_NAME, m) {
     // Apply topk softmax to the gating outputs.
-    ops.def("topk_softmax",
-            &topk_softmax,
-            "topk_softmax(Tensor! topk_weights, Tensor! topk_indices, Tensor! "
-            "token_expert_indices, Tensor gating_output) -> ()");
+    m.def(
+        "topk_softmax(Tensor! topk_weights, Tensor! topk_indices, Tensor! "
+        "token_expert_indices, Tensor gating_output) -> ()");
+    m.impl("topk_softmax", torch::kCUDA, &topk_softmax);
 }
+
+REGISTER_EXTENSION(TORCH_EXTENSION_NAME)

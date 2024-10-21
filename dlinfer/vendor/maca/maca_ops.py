@@ -148,6 +148,9 @@ def prefill_attention(
         query = query.view(-1, num_q_heads, head_dim)
         key = key.view(-1, num_kv_heads, head_dim)
         value = value.view(-1, num_kv_heads, head_dim)
+        q_start_loc = torch.tensor(
+            [0, q_seq_len], dtype=torch.int32, device=query.device
+        )
         softmax_scale = float(1 / math.sqrt(head_dim))
 
     output = flash_attn_varlen_func(

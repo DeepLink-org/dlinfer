@@ -1,9 +1,11 @@
 // 2024 - Modified by MetaX Integrated Circuits (Shanghai) Co., Ltd. All Rights Reserved.
 #pragma once
 
-#include <torch/extension.h>
+#include <torch/library.h>
 
 #include <optional>
+
+#include "core/scalar_type.hpp"
 
 void paged_attention_v1(torch::Tensor& out, torch::Tensor& query, torch::Tensor& key_cache, torch::Tensor& value_cache, int64_t num_kv_heads, double scale,
                         torch::Tensor& block_tables, torch::Tensor& seq_lens, int64_t block_size, int64_t max_seq_len,
@@ -112,3 +114,17 @@ void dynamic_scaled_fp8_quant(torch::Tensor& out, torch::Tensor const& input, to
 
 void moe_align_block_size(torch::Tensor topk_ids, int64_t num_experts, int64_t block_size, torch::Tensor sorted_token_ids, torch::Tensor experts_ids,
                           torch::Tensor num_tokens_post_pad);
+
+#ifndef USE_ROCM
+using fptr_t = int64_t;
+fptr_t init_custom_ar(torch::Tensor& meta, torch::Tensor& rank_data, const std::vector<std::string>& handles, const std::vector<int64_t>& offsets, int64_t rank,
+                      bool full_nvlink);
+bool should_custom_ar(torch::Tensor& inp, int64_t max_size, int64_t world_size, bool full_nvlink);
+void all_reduce_reg(fptr_t _fa, torch::Tensor& inp, torch::Tensor& out);
+void all_reduce_unreg(fptr_t _fa, torch::Tensor& inp, torch::Tensor& reg_buffer, torch::Tensor& out);
+void dispose(fptr_t _fa);
+int64_t meta_size();
+void register_buffer(fptr_t _fa, torch::Tensor& t, const std::vector<std::string>& handles, const std::vector<int64_t>& offsets);
+std::tuple<torch::Tensor, std::vector<int64_t>> get_graph_buffer_ipc_meta(fptr_t _fa);
+void register_graph_buffers(fptr_t _fa, const std::vector<std::string>& handles, const std::vector<std::vector<int64_t>>& offsets);
+#endif

@@ -16,18 +16,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#include <torch/all.h>
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/cuda/CUDAGuard.h>
-#include <torch/all.h>
-
 #include "../cuda_compat.h"
 
 #ifndef USE_ROCM
-#include <cub/cub.cuh>
-#include <cub/util_type.cuh>
+    #include <cub/util_type.cuh>
+    #include <cub/cub.cuh>
 #else
-#include <hipcub/hipcub.hpp>
-#include <hipcub/util_type.hpp>
+    #include <hipcub/util_type.hpp>
+    #include <hipcub/hipcub.hpp>
 #endif
 
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
@@ -37,11 +36,13 @@ namespace vllm {
 namespace moe {
 
 /// Aligned array type
-template <typename T,
-          /// Number of elements in the array
-          int N,
-          /// Alignment requirement in bytes
-          int Alignment = sizeof(T) * N>
+template <
+    typename T,
+    /// Number of elements in the array
+    int N,
+    /// Alignment requirement in bytes
+    int Alignment = sizeof(T) * N
+>
 class alignas(Alignment) AlignedArray {
     float data[N];
 };
@@ -50,7 +51,9 @@ class alignas(Alignment) AlignedArray {
 // We have our own implementation of softmax here so we can support transposing the output
 // in the softmax kernel when we extend this module to support expert-choice routing.
 template <int TPB>
-__launch_bounds__(TPB) __global__ void moeSoftmax(const float* input, const bool* finished, float* output, const int num_cols) {
+__launch_bounds__(TPB) __global__
+    void moeSoftmax(const float* input, const bool* finished, float* output, const int num_cols)
+{
     using BlockReduce = cub::BlockReduce<float, TPB>;
     __shared__ typename BlockReduce::TempStorage tmpStorage;
 
@@ -63,36 +66,42 @@ __launch_bounds__(TPB) __global__ void moeSoftmax(const float* input, const bool
     float threadData(-FLT_MAX);
 
     // Don't touch finished rows.
-    if ((finished != nullptr) && finished[blockIdx.x]) {
+    if ((finished != nullptr) && finished[blockIdx.x])
+    {
         return;
     }
 
-    for (int ii = threadIdx.x; ii < num_cols; ii += TPB) {
+    for (int ii = threadIdx.x; ii < num_cols; ii += TPB)
+    {
         const int idx = thread_row_offset + ii;
         threadData = max(static_cast<float>(input[idx]), threadData);
     }
 
     const float maxElem = BlockReduce(tmpStorage).Reduce(threadData, cub::Max());
-    if (threadIdx.x == 0) {
+    if (threadIdx.x == 0)
+    {
         float_max = maxElem;
     }
     __syncthreads();
 
     threadData = 0;
 
-    for (int ii = threadIdx.x; ii < num_cols; ii += TPB) {
+    for (int ii = threadIdx.x; ii < num_cols; ii += TPB)
+    {
         const int idx = thread_row_offset + ii;
         threadData += exp((static_cast<float>(input[idx]) - float_max));
     }
 
     const auto Z = BlockReduce(tmpStorage).Reduce(threadData, sum);
 
-    if (threadIdx.x == 0) {
+    if (threadIdx.x == 0)
+    {
         normalizing_factor = 1.f / Z;
     }
     __syncthreads();
 
-    for (int ii = threadIdx.x; ii < num_cols; ii += TPB) {
+    for (int ii = threadIdx.x; ii < num_cols; ii += TPB)
+    {
         const int idx = thread_row_offset + ii;
         const float val = exp((static_cast<float>(input[idx]) - float_max)) * normalizing_factor;
         output[idx] = val;
@@ -100,8 +109,10 @@ __launch_bounds__(TPB) __global__ void moeSoftmax(const float* input, const bool
 }
 
 template <int TPB>
-__launch_bounds__(TPB) __global__ void moeTopK(const float* inputs_after_softmax, const bool* finished, float* output, int* indices, int* source_rows,
-                                               const int num_experts, const int k, const int start_expert, const int end_expert) {
+__launch_bounds__(TPB) __global__ void moeTopK(const float* inputs_after_softmax, const bool* finished, float* output,
+    int* indices, int* source_rows, const int num_experts, const int k, const int start_expert, const int end_expert)
+{
+
     using cub_kvp = cub::KeyValuePair<int, float>;
     using BlockReduce = cub::BlockReduce<cub_kvp, TPB>;
     __shared__ typename BlockReduce::TempStorage tmpStorage;
@@ -114,20 +125,24 @@ __launch_bounds__(TPB) __global__ void moeTopK(const float* inputs_after_softmax
 
     const bool row_is_active = finished ? !finished[block_row] : true;
     const int thread_read_offset = blockIdx.x * num_experts;
-    for (int k_idx = 0; k_idx < k; ++k_idx) {
+    for (int k_idx = 0; k_idx < k; ++k_idx)
+    {
         thread_kvp.key = 0;
-        thread_kvp.value = -1.f;  // This is OK because inputs are probabilities
+        thread_kvp.value = -1.f; // This is OK because inputs are probabilities
 
         cub_kvp inp_kvp;
-        for (int expert = threadIdx.x; expert < num_experts; expert += TPB) {
+        for (int expert = threadIdx.x; expert < num_experts; expert += TPB)
+        {
             const int idx = thread_read_offset + expert;
             inp_kvp.key = expert;
             inp_kvp.value = inputs_after_softmax[idx];
 
-            for (int prior_k = 0; prior_k < k_idx; ++prior_k) {
+            for (int prior_k = 0; prior_k < k_idx; ++prior_k)
+            {
                 const int prior_winning_expert = indices[k * block_row + prior_k];
 
-                if (prior_winning_expert == expert) {
+                if (prior_winning_expert == expert)
+                {
                     inp_kvp = thread_kvp;
                 }
             }
@@ -136,7 +151,8 @@ __launch_bounds__(TPB) __global__ void moeTopK(const float* inputs_after_softmax
         }
 
         const cub_kvp result_kvp = BlockReduce(tmpStorage).Reduce(thread_kvp, arg_max);
-        if (threadIdx.x == 0) {
+        if (threadIdx.x == 0)
+        {
             // Ignore experts the node isn't responsible for with expert parallelism
             const int expert = result_kvp.key;
             const bool node_uses_expert = expert >= start_expert && expert < end_expert;
@@ -168,8 +184,9 @@ __launch_bounds__(TPB) __global__ void moeTopK(const float* inputs_after_softmax
 
 template <int VPT, int NUM_EXPERTS, int WARPS_PER_CTA, int BYTES_PER_LDG>
 __launch_bounds__(WARPS_PER_CTA* WARP_SIZE) __global__
-    void topkGatingSoftmax(const float* input, const bool* finished, float* output, const int num_rows, int* indices, int* source_rows, const int k,
-                           const int start_expert, const int end_expert) {
+    void topkGatingSoftmax(const float* input, const bool* finished, float* output, const int num_rows, int* indices,
+        int* source_rows, const int k, const int start_expert, const int end_expert)
+{
     // We begin by enforcing compile time assertions and setting up compile time constants.
     static_assert(VPT == (VPT & -VPT), "VPT must be power of 2");
     static_assert(NUM_EXPERTS == (NUM_EXPERTS & -NUM_EXPERTS), "NUM_EXPERTS must be power of 2");
@@ -211,7 +228,8 @@ __launch_bounds__(WARPS_PER_CTA* WARP_SIZE) __global__
     const int thread_row = warp_base_row + thread_row_in_warp;
 
     // Threads with indices out of bounds should early exit here.
-    if (thread_row >= num_rows) {
+    if (thread_row >= num_rows)
+    {
         return;
     }
     const bool row_is_active = finished ? !finished[thread_row] : true;
@@ -236,7 +254,8 @@ __launch_bounds__(WARPS_PER_CTA* WARP_SIZE) __global__
     AccessType* row_chunk_vec_ptr = reinterpret_cast<AccessType*>(&row_chunk);
     const AccessType* vec_thread_read_ptr = reinterpret_cast<const AccessType*>(thread_read_ptr);
 #pragma unroll
-    for (int ii = 0; ii < LDG_PER_THREAD; ++ii) {
+    for (int ii = 0; ii < LDG_PER_THREAD; ++ii)
+    {
         row_chunk_vec_ptr[ii] = vec_thread_read_ptr[ii * THREADS_PER_ROW];
     }
 
@@ -244,13 +263,15 @@ __launch_bounds__(WARPS_PER_CTA* WARP_SIZE) __global__
     // convert to float afterwards for the exp + sum reduction.
     float thread_max = row_chunk[0];
 #pragma unroll
-    for (int ii = 1; ii < VPT; ++ii) {
+    for (int ii = 1; ii < VPT; ++ii)
+    {
         thread_max = max(thread_max, row_chunk[ii]);
     }
 
 // Now, we find the max within the thread group and distribute among the threads. We use a butterfly reduce.
 #pragma unroll
-    for (int mask = THREADS_PER_ROW / 2; mask > 0; mask /= 2) {
+    for (int mask = THREADS_PER_ROW / 2; mask > 0; mask /= 2)
+    {
         thread_max = max(thread_max, VLLM_SHFL_XOR_SYNC_WIDTH(thread_max, mask, THREADS_PER_ROW));
     }
 
@@ -258,14 +279,16 @@ __launch_bounds__(WARPS_PER_CTA* WARP_SIZE) __global__
     // Now, we subtract the max from each element in the thread and take the exp. We also compute the thread local sum.
     float row_sum = 0;
 #pragma unroll
-    for (int ii = 0; ii < VPT; ++ii) {
+    for (int ii = 0; ii < VPT; ++ii)
+    {
         row_chunk[ii] = expf(row_chunk[ii] - thread_max);
         row_sum += row_chunk[ii];
     }
 
 // Now, we perform the sum reduce within each thread group. Similar to the max reduce, we use a bufferfly pattern.
 #pragma unroll
-    for (int mask = THREADS_PER_ROW / 2; mask > 0; mask /= 2) {
+    for (int mask = THREADS_PER_ROW / 2; mask > 0; mask /= 2)
+    {
         row_sum += VLLM_SHFL_XOR_SYNC_WIDTH(row_sum, mask, THREADS_PER_ROW);
     }
 
@@ -277,7 +300,8 @@ __launch_bounds__(WARPS_PER_CTA* WARP_SIZE) __global__
     const float reciprocal_row_sum = 1.f / row_sum;
 
 #pragma unroll
-    for (int ii = 0; ii < VPT; ++ii) {
+    for (int ii = 0; ii < VPT; ++ii)
+    {
         row_chunk[ii] = row_chunk[ii] * reciprocal_row_sum;
     }
 
@@ -286,19 +310,23 @@ __launch_bounds__(WARPS_PER_CTA* WARP_SIZE) __global__
     int start_col = first_elt_read_by_thread;
     static constexpr int COLS_PER_GROUP_LDG = ELTS_PER_LDG * THREADS_PER_ROW;
 
-    for (int k_idx = 0; k_idx < k; ++k_idx) {
+    for (int k_idx = 0; k_idx < k; ++k_idx)
+    {
         // First, each thread does the local argmax
         float max_val = row_chunk[0];
         int expert = start_col;
 #pragma unroll
-        for (int ldg = 0, col = start_col; ldg < LDG_PER_THREAD; ++ldg, col += COLS_PER_GROUP_LDG) {
+        for (int ldg = 0, col = start_col; ldg < LDG_PER_THREAD; ++ldg, col += COLS_PER_GROUP_LDG)
+        {
 #pragma unroll
-            for (int ii = 0; ii < ELTS_PER_LDG; ++ii) {
+            for (int ii = 0; ii < ELTS_PER_LDG; ++ii)
+            {
                 float val = row_chunk[ldg * ELTS_PER_LDG + ii];
 
                 // No check on the experts here since columns with the smallest index are processed first and only
                 // updated if > (not >=)
-                if (val > max_val) {
+                if (val > max_val)
+                {
                     max_val = val;
                     expert = col + ii;
                 }
@@ -309,19 +337,22 @@ __launch_bounds__(WARPS_PER_CTA* WARP_SIZE) __global__
 // This will be useful for K > 1 so that the threads can agree on "who" had the max value. That thread can
 // then blank out their max with -inf and the warp can run more iterations...
 #pragma unroll
-        for (int mask = THREADS_PER_ROW / 2; mask > 0; mask /= 2) {
+        for (int mask = THREADS_PER_ROW / 2; mask > 0; mask /= 2)
+        {
             float other_max = VLLM_SHFL_XOR_SYNC_WIDTH(max_val, mask, THREADS_PER_ROW);
             int other_expert = VLLM_SHFL_XOR_SYNC_WIDTH(expert, mask, THREADS_PER_ROW);
 
             // We want lower indices to "win" in every thread so we break ties this way
-            if (other_max > max_val || (other_max == max_val && other_expert < expert)) {
+            if (other_max > max_val || (other_max == max_val && other_expert < expert))
+            {
                 max_val = other_max;
                 expert = other_expert;
             }
         }
 
         // Write the max for this k iteration to global memory.
-        if (thread_group_idx == 0) {
+        if (thread_group_idx == 0)
+        {
             // Add a guard to ignore experts not included by this node
             const bool node_uses_expert = expert >= start_expert && expert < end_expert;
             const bool should_process_row = row_is_active && node_uses_expert;
@@ -335,12 +366,14 @@ __launch_bounds__(WARPS_PER_CTA* WARP_SIZE) __global__
         }
 
         // Finally, we clear the value in the thread with the current max if there is another iteration to run.
-        if (k_idx + 1 < k) {
+        if (k_idx + 1 < k)
+        {
             const int ldg_group_for_expert = expert / COLS_PER_GROUP_LDG;
             const int thread_to_clear_in_group = (expert / ELTS_PER_LDG) % THREADS_PER_ROW;
 
             // Only the thread in the group which produced the max will reset the "winning" value to -inf.
-            if (thread_group_idx == thread_to_clear_in_group) {
+            if (thread_group_idx == thread_to_clear_in_group)
+            {
                 const int offset_for_expert = expert % ELTS_PER_LDG;
                 // Safe to set to any negative value since row_chunk values must be between 0 and 1.
                 row_chunk[ldg_group_for_expert * ELTS_PER_LDG + offset_for_expert] = -10000.f;
@@ -349,10 +382,12 @@ __launch_bounds__(WARPS_PER_CTA* WARP_SIZE) __global__
     }
 }
 
-namespace detail {
+namespace detail
+{
 // Constructs some constants needed to partition the work across threads at compile time.
 template <int EXPERTS, int BYTES_PER_LDG>
-struct TopkConstants {
+struct TopkConstants
+{
     static constexpr int ELTS_PER_LDG = BYTES_PER_LDG / sizeof(float);
     static_assert(EXPERTS / (ELTS_PER_LDG * WARP_SIZE) == 0 || EXPERTS % (ELTS_PER_LDG * WARP_SIZE) == 0, "");
     static constexpr int VECs_PER_THREAD = MAX(1, EXPERTS / (ELTS_PER_LDG * WARP_SIZE));
@@ -360,11 +395,12 @@ struct TopkConstants {
     static constexpr int THREADS_PER_ROW = EXPERTS / VPT;
     static constexpr int ROWS_PER_WARP = WARP_SIZE / THREADS_PER_ROW;
 };
-}  // namespace detail
+} // namespace detail
 
 template <int EXPERTS, int WARPS_PER_TB>
-void topkGatingSoftmaxLauncherHelper(const float* input, const bool* finished, float* output, int* indices, int* source_row, const int num_rows, const int k,
-                                     const int start_expert, const int end_expert, cudaStream_t stream) {
+void topkGatingSoftmaxLauncherHelper(const float* input, const bool* finished, float* output, int* indices,
+    int* source_row, const int num_rows, const int k, const int start_expert, const int end_expert, cudaStream_t stream)
+{
     static constexpr std::size_t MAX_BYTES_PER_LDG = 16;
 
     static constexpr int BYTES_PER_LDG = MIN(MAX_BYTES_PER_LDG, sizeof(float) * EXPERTS);
@@ -375,16 +411,26 @@ void topkGatingSoftmaxLauncherHelper(const float* input, const bool* finished, f
     const int num_blocks = (num_warps + WARPS_PER_TB - 1) / WARPS_PER_TB;
 
     dim3 block_dim(WARP_SIZE, WARPS_PER_TB);
-    topkGatingSoftmax<VPT, EXPERTS, WARPS_PER_TB, BYTES_PER_LDG>
-        <<<num_blocks, block_dim, 0, stream>>>(input, finished, output, num_rows, indices, source_row, k, start_expert, end_expert);
+    topkGatingSoftmax<VPT, EXPERTS, WARPS_PER_TB, BYTES_PER_LDG><<<num_blocks, block_dim, 0, stream>>>(
+        input, finished, output, num_rows, indices, source_row, k, start_expert, end_expert);
 }
 
-#define LAUNCH_SOFTMAX(NUM_EXPERTS, WARPS_PER_TB)               \
-    topkGatingSoftmaxLauncherHelper<NUM_EXPERTS, WARPS_PER_TB>( \
-        gating_output, nullptr, topk_weights, topk_indicies, token_expert_indices, num_tokens, topk, 0, num_experts, stream);
+#define LAUNCH_SOFTMAX(NUM_EXPERTS, WARPS_PER_TB)                       \
+    topkGatingSoftmaxLauncherHelper<NUM_EXPERTS, WARPS_PER_TB>(         \
+        gating_output, nullptr, topk_weights, topk_indicies,            \
+        token_expert_indices, num_tokens, topk, 0, num_experts,         \
+        stream);
 
-void topkGatingSoftmaxKernelLauncher(const float* gating_output, float* topk_weights, int* topk_indicies, int* token_expert_indices, float* softmax_workspace,
-                                     const int num_tokens, const int num_experts, const int topk, cudaStream_t stream) {
+void topkGatingSoftmaxKernelLauncher(
+    const float* gating_output,
+    float* topk_weights,
+    int* topk_indicies,
+    int* token_expert_indices,
+    float* softmax_workspace,
+    const int num_tokens,
+    const int num_experts,
+    const int topk,
+    cudaStream_t stream) {
     static constexpr int WARPS_PER_TB = 4;
     switch (num_experts) {
         case 1:
@@ -415,22 +461,26 @@ void topkGatingSoftmaxKernelLauncher(const float* gating_output, float* topk_wei
             LAUNCH_SOFTMAX(256, WARPS_PER_TB);
             break;
         default: {
-            TORCH_CHECK(softmax_workspace != nullptr, "softmax_workspace must be provided for num_experts that are not a power of 2.");
+            TORCH_CHECK(softmax_workspace != nullptr,
+                "softmax_workspace must be provided for num_experts that are not a power of 2.");
             static constexpr int TPB = 256;
-            moeSoftmax<TPB><<<num_tokens, TPB, 0, stream>>>(gating_output, nullptr, softmax_workspace, num_experts);
+            moeSoftmax<TPB><<<num_tokens, TPB, 0, stream>>>(
+                gating_output, nullptr, softmax_workspace, num_experts);
             moeTopK<TPB><<<num_tokens, TPB, 0, stream>>>(
-                softmax_workspace, nullptr, topk_weights, topk_indicies, token_expert_indices, num_experts, topk, 0, num_experts);
+                softmax_workspace, nullptr, topk_weights, topk_indicies, token_expert_indices,
+                num_experts, topk, 0, num_experts);
         }
     }
 }
 
-}  // namespace moe
-}  // namespace vllm
+} // namespace moe
+} // namespace vllm
 
-void topk_softmax(torch::Tensor& topk_weights,          // [num_tokens, topk]
-                  torch::Tensor& topk_indices,          // [num_tokens, topk]
-                  torch::Tensor& token_expert_indices,  // [num_tokens, topk]
-                  torch::Tensor& gating_output)         // [num_tokens, num_experts]
+void topk_softmax(
+    torch::Tensor& topk_weights,                // [num_tokens, topk]
+    torch::Tensor& topk_indices,                // [num_tokens, topk]
+    torch::Tensor& token_expert_indices,        // [num_tokens, topk]
+    torch::Tensor& gating_output)               // [num_tokens, num_experts]
 {
     const int num_experts = gating_output.size(-1);
     const int num_tokens = gating_output.numel() / num_experts;
@@ -443,13 +493,14 @@ void topk_softmax(torch::Tensor& topk_weights,          // [num_tokens, topk]
     const at::cuda::OptionalCUDAGuard device_guard(device_of(gating_output));
     const cudaStream_t stream = at::cuda::getCurrentCUDAStream();
     torch::Tensor softmax_workspace = torch::empty({workspace_size}, gating_output.options());
-    vllm::moe::topkGatingSoftmaxKernelLauncher(gating_output.data_ptr<float>(),
-                                               topk_weights.data_ptr<float>(),
-                                               topk_indices.data_ptr<int>(),
-                                               token_expert_indices.data_ptr<int>(),
-                                               softmax_workspace.data_ptr<float>(),
-                                               num_tokens,
-                                               num_experts,
-                                               topk,
-                                               stream);
+    vllm::moe::topkGatingSoftmaxKernelLauncher(
+        gating_output.data_ptr<float>(),
+        topk_weights.data_ptr<float>(),
+        topk_indices.data_ptr<int>(),
+        token_expert_indices.data_ptr<int>(),
+        softmax_workspace.data_ptr<float>(),
+        num_tokens,
+        num_experts,
+        topk,
+        stream);
 }
