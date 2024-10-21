@@ -5,6 +5,7 @@
 #include "aclnn_ops/cast_operation.h"
 #include "aclnn_ops/cat_operation.h"
 #include "aclnn_ops/permute_operation.h"
+#include "aclnn_ops/split_with_size_operation.h"
 #include "atb_ops/activation.h"
 #include "atb_ops/concat.h"
 #include "atb_ops/elewise.h"
