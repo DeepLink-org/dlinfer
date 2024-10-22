@@ -364,26 +364,10 @@ def weight_quant_matmul(
     all_reduce: Optional[bool] = False,
     group_size: Optional[int] = 0,
 ) -> Tensor:
-    if all_reduce:
-        hcomm_info = torch.distributed.distributed_c10d._world.default_pg._get_backend(
-            x.device
-        ).get_hccl_comm_name(x.device.index)
-        out = torch_npu.npu_mm_all_reduce_base(
-            x,
-            qweight,
-            hcomm_info,
-            reduce_op="sum",
-            bias=bias,
-            antiquant_scale=scale,
-            antiquant_offset=offset,
-            antiquant_group_size=group_size,
-        )
-    else:
-        offset = None if (offset is None or offset.numel() == 0) else offset
-        out = torch.ops.npu.npu_weight_quant_batchmatmul(
-            x, qweight, scale, antiquant_offset=offset, antiquant_group_size=group_size
-        )
-    return out
+    offset = None if (offset is None or offset.numel() == 0) else offset
+    return torch.ops.npu.npu_weight_quant_batchmatmul(
+        x, qweight, scale, antiquant_offset=offset, antiquant_group_size=group_size
+    )
 
 
 @register_ops(vendor_ops_registry)
