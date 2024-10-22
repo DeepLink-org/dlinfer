@@ -138,6 +138,7 @@ def fill_kv_cache(
     # only support contiguous k,v
     key = key.contiguous()
     value = value.contiguous()
+    kv_indices = kv_indices.view(-1, 1)
 
     key_cache_reshaped = key_cache.view(block_total, head, dim)
     value_cache_reshaped = value_cache.view(block_total, head, dim)
