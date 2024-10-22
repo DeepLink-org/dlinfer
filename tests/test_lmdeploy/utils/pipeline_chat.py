@@ -208,7 +208,7 @@ def run_pipeline_vl_chat_test(config, model_case, device_type, eager_mode=False)
         + response.text
         + "\n"
     )
-
+    print("### finish simple example")
     prompts = [
         {
             "role": "user",
@@ -227,7 +227,7 @@ def run_pipeline_vl_chat_test(config, model_case, device_type, eager_mode=False)
         + response.text
         + "\n"
     )
-
+    print("### finish OpenAI format example")
     image_urls = [PIC2, PIC1]
     images = [load_image(img_url) for img_url in image_urls]
     # test for multi batchs
@@ -245,7 +245,7 @@ def run_pipeline_vl_chat_test(config, model_case, device_type, eager_mode=False)
         + response.text
         + "\n"
     )
-
+    print("### finish Multi-images example")
     image_urls = [PIC2, PIC1]
     prompts = [(prompt, load_image(img_url)) for img_url in image_urls]
     response = pipe(prompts)
@@ -259,6 +259,7 @@ def run_pipeline_vl_chat_test(config, model_case, device_type, eager_mode=False)
         + str(response)
         + "\n"
     )
+    print("### finish Batch example")
     # test for conversation
     image = load_image(PIC2)
     sess = pipe.chat((prompt, image))
