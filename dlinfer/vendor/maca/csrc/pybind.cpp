@@ -2,6 +2,7 @@
 #include <torch/extension.h>
 
 #include "cache.h"
+#include "moe/moe_ops.h"
 #include "ops.h"
 
 // Note on op signatures:
@@ -108,86 +109,6 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
             "                         int rot_dim,"
             "                         Tensor cos_sin_cache_offsets) -> ()");
 
-    // Quantization ops
-#ifdef MX_MACA
-#ifndef USE_ROCM
-    // Quantized GEMM for AQLM.
-    ops.def("aqlm_gemm", &aqlm_gemm);
-
-    // Decompression method for AQLM.
-    ops.def("aqlm_dequant", &aqlm_dequant);
-
-    // Marlin (Dense) Optimized Quantized GEMM for GPTQ.
-    //   ops.def("marlin_gemm", &marlin_gemm);
-    //   ops.impl("marlin_gemm", &marlin_gemm);
-
-    // Marlin_24 (Sparse) Optimized Quantized GEMM for GPTQ.
-    //   ops.def("gptq_marlin_24_gemm", &gptq_marlin_24_gemm);
-    //   ops.impl("gptq_marlin_24_gemm", &gptq_marlin_24_gemm);
-
-    // gptq_marlin Optimized Quantized GEMM for GPTQ.
-    ops.def("gptq_marlin_gemm", &gptq_marlin_gemm);
-
-    // gptq_marlin repack from GPTQ.
-    ops.def("gptq_marlin_repack", &gptq_marlin_repack);
-
-    // awq_marlin repack from AWQ.
-    ops.def("awq_marlin_repack", &awq_marlin_repack);
-
-    // fp8_marlin Optimized Quantized GEMM for FP8 weight-only.
-    ops.def("fp8_marlin_gemm", &fp8_marlin_gemm);
-
-    // marlin_qqq_gemm for QQQ.
-    //   ops.def("marlin_qqq_gemm", &marlin_qqq_gemm);
-    //   ops.impl("marlin_qqq_gemm", &marlin_qqq_gemm);
-
-    // CUTLASS w8a8 GEMM, supporting symmetric per-tensor or per-row/column
-    // quantization.
-    ops.def("cutlass_scaled_mm",
-            &cutlass_scaled_mm,
-            "cutlass_scaled_mm(Tensor! out, Tensor a,"
-            "                  Tensor b, Tensor a_scales,"
-            "                  Tensor b_scales, Tensor? bias) -> ()");
-
-    // Check if cutlass scaled_mm is supported for CUDA devices of the given
-    // capability
-    ops.def("cutlass_scaled_mm_supports_fp8", &cutlass_scaled_mm_supports_fp8);
-#endif
-#endif
-    // Quantized GEMM for AWQ.
-    ops.def("awq_gemm", &awq_gemm);
-
-    // Dequantization for AWQ.
-    ops.def("awq_dequantize", &awq_dequantize);
-
-    // Quantized GEMM for GPTQ.
-    ops.def("gptq_gemm", &gptq_gemm);
-
-    // Post processing for GPTQ.
-    ops.def("gptq_shuffle", &gptq_shuffle, "gptq_shuffle(Tensor! q_weight, Tensor q_perm, int bit) -> ()");
-    // Quantized GEMM for SqueezeLLM.
-    ops.def("squeezellm_gemm",
-            &squeezellm_gemm,
-            "squeezellm_gemm(Tensor vec, Tensor mat, Tensor! mul, Tensor "
-            "lookup_table) -> ()");
-
-    // Compute FP8 quantized tensor for given scaling factor.
-    ops.def("static_scaled_fp8_quant", &static_scaled_fp8_quant, "static_scaled_fp8_quant(Tensor! out, Tensor input, Tensor scale) -> ()");
-
-    // Compute dynamic-per-tensor FP8 quantized tensor and scaling factor.
-    ops.def("dynamic_scaled_fp8_quant",
-            &dynamic_scaled_fp8_quant,
-            "dynamic_scaled_fp8_quant(Tensor! out, Tensor input, Tensor! scale) -> "
-            "()");
-
-    // Compute dynamic-per-token FP8 quantized tensor and scaling factor.
-    // ops.def(
-    //    "dynamic_per_token_scaled_fp8_quant(Tensor! out, Tensor input, Tensor! "
-    //    "scale, Tensor? scale_ub) -> "
-    //    "()");
-    // ops.impl("dynamic_per_token_scaled_fp8_quant", torch::kCUDA,
-    //         &dynamic_per_token_scaled_fp8_quant);
-
     // Aligning the number of tokens to be processed by each expert such
     // that it is divisible by the block size.
     ops.def("moe_align_block_size",
@@ -196,18 +117,6 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
             "                     int block_size, Tensor! sorted_token_ids,"
             "                     Tensor! experts_ids,"
             "                     Tensor! num_tokens_post_pad) -> ()");
-
-    // Compute int8 quantized tensor for given scaling factor.
-    ops.def("static_scaled_int8_quant",
-            &static_scaled_int8_quant,
-            "static_scaled_int8_quant(Tensor! out, Tensor input, Tensor scale) -> "
-            "()");
-
-    // Compute int8 quantized tensor and scaling factor
-    ops.def("dynamic_scaled_int8_quant",
-            &dynamic_scaled_int8_quant,
-            "dynamic_scaled_int8_quant(Tensor! out, Tensor input, Tensor! scale) -> "
-            "()");
 
     // Cache ops
     pybind11::module cache_ops = m.def_submodule("cache_ops", "vLLM cache ops");
@@ -254,4 +163,11 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
             &convert_fp8,
             "convert_fp8(Tensor! dst_cache, Tensor src_cache, float scale, str "
             "kv_cache_dtype) -> ()");
+
+    // moe
+    // Apply topk softmax to the gating outputs.
+    ops.def("topk_softmax",
+            &topk_softmax,
+            "topk_softmax(Tensor! topk_weights, Tensor! topk_indices, Tensor! "
+            "token_expert_indices, Tensor gating_output) -> ()");
 }

@@ -16,7 +16,7 @@ find_library(torch_python_LIBRARY torch_python PATHS
   "${TORCH_INSTALL_PREFIX}/lib")
 
 set(DLINFER_VLLM_SRC
-  "torch_bindings.cpp"
+  "pybind.cpp"
   "cache_kernels.cu"
   "attention/attention_kernels.cu"
   "pos_encoding_kernels.cu"
@@ -24,11 +24,6 @@ set(DLINFER_VLLM_SRC
   "layernorm_kernels.cu"
   "moe_align_block_size_kernels.cu"
   "moe/topk_softmax_kernels.cu"
-  "quantization/awq/gemm_kernels.cu"
-  "quantization/compressed_tensors/int8_quant_kernels.cu"
-  "quantization/fp8/common.cu"
-  "quantization/gptq/q_gemm.cu"
-  "quantization/squeezellm/quant_cuda_kernel.cu"
 )
 
 Python_add_library(
