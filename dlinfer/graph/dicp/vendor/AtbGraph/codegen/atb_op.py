@@ -259,6 +259,17 @@ class AtbOverrides:
             op.set_output([f"{name}__0", f"{name}__1", f"{name}__2"])
         return op
 
+    def SplitWithSize(name, x, sizes, dim):
+        op = Operation(name, "SplitWithSizeOperation")
+        param = infer_param.SplitParam()
+        param.splitDim = dim
+        param.splitSizes = sizes
+        op.set_param(param)
+        op.set_input([x])
+        for idx, _ in enumerate(sizes):
+            op.add_output(f"{name}__{idx}")
+        return op
+
     def Swish(name, x, scale=1.0, dim=-1):
         op = Operation(name, "ActivationOperation")
         param = infer_param.ActivationParam()

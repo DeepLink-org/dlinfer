@@ -256,6 +256,7 @@ class TransposeParam:
 class SplitParam:
     splitDim: int = 0
     splitNum: int = 2
+    splitSizes: list[int] = field(default_factory=list)
 
 
 @dataclass
