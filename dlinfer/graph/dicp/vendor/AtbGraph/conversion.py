@@ -240,10 +240,9 @@ class AtenToAtbTransformer(SingleOpTransformer):
 
     @register_conversion(torch.ops.aten.split_with_sizes.default)
     def split_with_sizes(self, x, size, dim):
-        assert len(size) == 2 or len(size) == 3
-        assert len(set(size)) == 1
-        split = self.get_proxy(atb_op.SplitSharing, (x, size, dim))
-        return split
+        if len(set(size)) == 1 and (len(size) == 2 or len(size) == 3):
+            return self.get_proxy(atb_op.SplitSharing, (x, size, dim))
+        return self.get_proxy(atb_op.SplitWithSize, (x, size, dim))
 
     @register_conversion("torch.ops.dlinfer.silu_and_mul.default")
     def silu_and_mul(self, gate_up, dim):
@@ -307,8 +306,9 @@ class AtenToAtbTransformer(SingleOpTransformer):
         return self.get_proxy(atb_op.Transpose, (input, permute_shape))
 
     @register_conversion(torch.ops.aten.embedding.default)
-    def embedding(self, weight, indices, axis):
-        return self.get_proxy(atb_op.Gather, (weight, indices, axis))
+    def embedding(self, weight, indices, padding_idx):
+        # The padding_idx parameter is not supported now.
+        return self.get_proxy(atb_op.Gather, (weight, indices, 0))
 
     @register_conversion("torch.ops.lmdeploy.prefill_attention.default")
     def prefill_attention(
@@ -333,6 +333,9 @@ class AtenToAtbTransformer(SingleOpTransformer):
         # fill_kv_cache = self.get_proxy(atb_op.ReshapeAndCache, (key, value, k_cache, v_cache, kv_start_indices_1d))
         # inplace1 = self.get_proxy(atb_op.Inplace, (fill_kv_cache, k_cache, 0))
         # inplace2 = self.get_proxy(atb_op.Inplace, (fill_kv_cache, v_cache, 1))
+        mask = mask[0]
+        if query.node.meta["val"].dtype != mask.node.meta["val"].dtype:
+            mask = self.get_proxy(atb_op.Cast, (mask, query.node.meta["val"].dtype))
         if is_unpaged_prefill:
             k_shape = key.node.meta["val"].shape
             num_q_heads = query.node.meta["val"].shape[-2]
@@ -349,7 +352,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
 
             out = self.get_proxy(
                 atb_op.SelfAttentionPAEncoder,
-                (query, key, value, kv_seq_len, mask[0], num_q_heads, num_kv_heads),
+                (query, key, value, kv_seq_len, mask, num_q_heads, num_kv_heads),
             )
         else:
             q_shape = list(query.node.meta["val"].shape)
@@ -378,7 +381,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
                     v_cache,
                     block_offsets,
                     kv_seq_len,
-                    mask[0],
+                    mask,
                     num_q_heads,
                     num_kv_heads,
                     scale,

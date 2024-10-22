@@ -176,6 +176,14 @@ class SplitSharing(Operator):
         return x.split(size, dim=dim)
 
 
+class SplitWithSize(Operator):
+    def __init__(self):
+        super().__init__("SplitWithSize")
+
+    def infer_result(self, x, sizes, dim):
+        return x.split_with_sizes(sizes, dim=dim)
+
+
 class Swish(Operator):
     def __init__(self):
         super().__init__("Swish")

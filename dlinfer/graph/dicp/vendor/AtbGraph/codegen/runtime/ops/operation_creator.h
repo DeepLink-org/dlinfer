@@ -22,6 +22,7 @@ static std::map<std::string, OperationCreateFunc> g_funcMap = {
     {"AddRmsNormOperation", &AclNnAddRmsNormOperationCreate},
     {"TransposeOperation", &TransposeOperationCreate},
     {"SplitOperation", &SplitOperationCreate},
+    {"SplitWithSizeOperation", &AclNnSplitWithSizeOperationCreate},
     {"ActivationOperation", &ActivationOperationCreate},
     {"AclNnCatOperation", &AclNnCatOperationCreate},
     {"AclNnBatchMatMulOperation", &AclNnBatchMatMulOperationCreate},
