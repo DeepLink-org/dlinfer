@@ -16,6 +16,7 @@ from test_lmdeploy.utils.pipeline_chat import (
 @pytest.mark.usefixtures("common_case_config")
 @pytest.mark.flaky(reruns=0)
 @pytest.mark.lmdeploy
+@pytest.mark.chat
 @pytest.mark.parametrize("model", get_torch_model_list(tp_num=1))
 def test_pipeline_chat_pytorch_tp1_ascend(config, common_case_config, model):
     p = Process(

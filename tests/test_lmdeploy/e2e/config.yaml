@@ -1,5 +1,5 @@
 model_path: /data2/share_data
-log_path: /data2/weitao/profile
+log_path: /data2/wugeshui/GitHub/ci_log/logs
 
 tp_config:
     Mixtral-8x7B-Instruct-v0.1: 2
