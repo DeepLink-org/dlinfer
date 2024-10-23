@@ -1,10 +1,7 @@
 # Copyright (c) 2024, DeepLink. All rights reserved.
 from dlinfer.vendor import vendor_ops_registry
 from dlinfer.utils.type_annotation import Tensor, Optional, Sequence, Tuple
-from dlinfer.utils.graph.custom_op import (
-    register_custom_op,
-    register_custom_op_default_value,
-)
+from dlinfer.graph.custom_op import register_custom_op
 
 
 __all__ = [
@@ -92,13 +89,15 @@ def apply_rotary_pos_emb(
     )
 
 
-@register_custom_op_default_value(
-    {
+@register_custom_op(
+    "dlinfer::prefill_attention",
+    ["query"],
+    default_value={
         "softmax_scale": None,
         "alibi_slopes": None,
-    }
+        "attn_output": None,
+    },
 )
-@register_custom_op("dlinfer::prefill_attention", ["attn_output"])
 def prefill_attention(
     query: Tensor,
     key: Tensor,
@@ -182,13 +181,15 @@ def fill_kv_cache(
     )
 
 
-@register_custom_op_default_value(
-    {
+@register_custom_op(
+    "dlinfer::paged_decode_attention",
+    ["query"],
+    default_value={
         "softmax_scale": None,
         "alibi_slopes": None,
-    }
+        "attn_output": None,
+    },
 )
-@register_custom_op("dlinfer::paged_decode_attention", ["attn_output"])
 def paged_decode_attention(
     query: Tensor,
     key_cache: Tensor,
@@ -241,13 +242,15 @@ def paged_decode_attention(
     )
 
 
-@register_custom_op_default_value(
-    {
+@register_custom_op(
+    "dlinfer::paged_prefill_attention",
+    ["query"],
+    default_value={
         "softmax_scale": None,
         "alibi_slopes": None,
-    }
+        "attn_output": None,
+    },
 )
-@register_custom_op("dlinfer::paged_prefill_attention", ["attn_output"])
 def paged_prefill_attention(
     query: Tensor,
     key_cache: Tensor,
@@ -335,18 +338,26 @@ def silu_and_mul_impl_abstract_func(
     return gate
 
 
-@register_custom_op_default_value(
-    {
-        "dim": -1,
-    }
-)
 @register_custom_op(
-    "dlinfer::silu_and_mul", impl_abstract_func=silu_and_mul_impl_abstract_func
+    "dlinfer::silu_and_mul",
+    default_value={"dim": -1},
+    impl_abstract_func=silu_and_mul_impl_abstract_func,
 )
 def silu_and_mul(
     input_tensor: Tensor,
     dim: int,
 ) -> Tensor:
+    """
+    Apply silu activation on the first half part of input tensor along dim, and then do
+    elementwise mul between the activated result and second half part of input tensor along dim.
+
+    Args:
+        input_tensor (Tensor): The input tensor to be apply silu and mul activation.
+        dim (int): The axis that we would split input tensor into two parts.
+
+    Returns:
+        Tensor: The activated output tensor.
+    """
     return vendor_ops_registry["silu_and_mul"](input_tensor, dim)
 
 
@@ -428,22 +439,14 @@ def get_cache_len(cache: Tensor) -> int:
     return vendor_ops_registry["get_cache_len"](cache)
 
 
-@register_custom_op_default_value(
-    {
-        "offset": None,
-        "bias": None,
-        "all_reduce": bool,
-        "group_size": 0,
-    }
-)
 def weight_quant_matmul(
     x1: Tensor,
     x2: Tensor,
     scale: Tensor,
-    offset: Optional[Tensor],
-    bias: Optional[Tensor],
-    all_reduce: Optional[bool],
-    group_size: Optional[int],
+    offset: Optional[Tensor] = None,
+    bias: Optional[Tensor] = None,
+    all_reduce: Optional[bool] = bool,
+    group_size: Optional[int] = 0,
 ) -> Tensor:
     """
     Complete a matrix multiplication computation with quantized scenarios as inputs.
