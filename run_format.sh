@@ -34,7 +34,7 @@ check_cmd_version() {
 # format all C/C++ files in current git repository with clang-format
 check_cmd_version clang-format 17.x
 git ls-files |\
-  grep -E '^.+\.(c|h|cpp|cc|cxx|hpp|hh|hxx|cu|cuh)$' |
+  grep -E '^.+\.(c|h|cpp|cc|cxx|hpp|hh|hxx)$' |
   grep -Ev "dlinfer/graph/dicp/vendor/AtbGraph/codegen/runtime/third_party/" |
   xargs clang-format -i --style=file
 
