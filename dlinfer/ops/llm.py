@@ -497,12 +497,6 @@ def fused_moe(
     )
 
 
-@register_custom_op_default_value(
-    {
-        "bias": None,
-        "all_reduce": False,
-    }
-)
 def linear(
     x,
     weight: Tensor,
