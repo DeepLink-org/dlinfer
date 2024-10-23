@@ -44,25 +44,6 @@ uint32_t AclNnCastOperation::GetInputNum() const { return NUM1; }
 
 uint32_t AclNnCastOperation::GetOutputNum() const { return NUM1; }
 
-int AclNnCastOperation::CreateAclTensors(const atb::VariantPack& variantPack) {
-    DICP_LOG(INFO) << opName_ << " CreateAclTensor start";
-    aclInTensors_.resize(variantPack.inTensors.size());
-    for (size_t i = 0; i < aclInTensors_.size(); ++i) {
-        aclInTensors_[i] = CreateTensor(variantPack.inTensors.at(i));
-    }
-
-    DICP_LOG(INFO) << opName_ << " Create aclInTensor end";
-
-    aclOutTensors_.resize(variantPack.outTensors.size());
-    for (size_t i = 0; i < aclOutTensors_.size(); ++i) {
-        aclOutTensors_[i] = CreateTensor(variantPack.outTensors.at(i));
-    }
-
-    DICP_LOG(INFO) << opName_ << " Create aclOutTensor end";
-    DICP_LOG(INFO) << opName_ << " CreateAclTensor end";
-    return 0;
-}
-
 int AclNnCastOperation::SetAclNnWorkspaceExecutor(uint64_t& workspaceSize) {
     DICP_LOG(INFO) << opName_ << " aclnnCastGetWorkspaceSize start";
     int ret = aclnnCastGetWorkspaceSize(aclInTensors_.at(0).tensor, dtype_, aclOutTensors_.at(0).tensor, &workspaceSize, &aclExecutor_);
@@ -78,9 +59,4 @@ int AclNnCastOperation::CallAclExecute(uint8_t* workspace, uint64_t workspaceSiz
     return ret;
 }
 
-AclNnTensor AclNnCastOperation::CreateTensor(atb::Tensor atbTensor) {
-    AclNnTensor aclNnTensor;
-    aclNnTensor.atbTensor = atbTensor;
-    return aclNnTensor;
-}
 }  // namespace dicp

@@ -44,25 +44,6 @@ uint32_t AclNnBatchMatMulOperation::GetInputNum() const { return NUM2; }
 
 uint32_t AclNnBatchMatMulOperation::GetOutputNum() const { return NUM1; }
 
-int AclNnBatchMatMulOperation::CreateAclTensors(const atb::VariantPack& variantPack) {
-    DICP_LOG(INFO) << opName_ << " CreateAclTensor start";
-    aclInTensors_.resize(variantPack.inTensors.size());
-    for (size_t i = 0; i < aclInTensors_.size(); ++i) {
-        aclInTensors_[i] = CreateTensor(variantPack.inTensors.at(i));
-    }
-
-    DICP_LOG(INFO) << opName_ << " Create aclInTensor end";
-
-    aclOutTensors_.resize(variantPack.outTensors.size());
-    for (size_t i = 0; i < aclOutTensors_.size(); ++i) {
-        aclOutTensors_[i] = CreateTensor(variantPack.outTensors.at(i));
-    }
-
-    DICP_LOG(INFO) << opName_ << " Create aclOutTensor end";
-    DICP_LOG(INFO) << opName_ << " CreateAclTensor end";
-    return 0;
-}
-
 int AclNnBatchMatMulOperation::SetAclNnWorkspaceExecutor(uint64_t& workspaceSize) {
     DICP_LOG(INFO) << opName_ << " aclnnCatGetWorkspaceSize start";
 
@@ -80,9 +61,4 @@ int AclNnBatchMatMulOperation::CallAclExecute(uint8_t* workspace, uint64_t works
     return ret;
 }
 
-AclNnTensor AclNnBatchMatMulOperation::CreateTensor(atb::Tensor atbTensor) {
-    AclNnTensor aclNnTensor;
-    aclNnTensor.atbTensor = atbTensor;
-    return aclNnTensor;
-}
 }  // namespace dicp

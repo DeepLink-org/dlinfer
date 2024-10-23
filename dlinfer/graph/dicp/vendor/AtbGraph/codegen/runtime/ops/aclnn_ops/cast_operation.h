@@ -12,10 +12,8 @@ public:
 
 private:
     aclDataType dtype_;
-    int CreateAclTensors(const atb::VariantPack& variantPack) override;
     int SetAclNnWorkspaceExecutor(uint64_t& workspaceSize) override;
     int CallAclExecute(uint8_t* workspace, uint64_t workspaceSize, aclOpExecutor* aclExecutor, aclrtStream stream) override;
-    AclNnTensor CreateTensor(atb::Tensor atbTensor);
 };
 
 inline atb::Operation* AclNnCastOperationCreate(const nlohmann::json& paramJson) {
