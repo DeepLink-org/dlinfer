@@ -16,7 +16,7 @@ def InternAttention_naive_attn(self, x):
         [N * i for i in range(B)], device=q.device, dtype=torch.int64
     )
     seq_len = torch.tensor([N for _ in range(B)], device=q.device, dtype=torch.int64)
-    ext_ops.prefill_attention(
+    attn_output = ext_ops.prefill_attention(
         q,
         k,
         v,
@@ -29,7 +29,7 @@ def InternAttention_naive_attn(self, x):
         attn_output=x,
     )
 
-    x = self.proj(x.reshape(B, N, C))
+    x = self.proj(attn_output.reshape(B, N, C))
     x = self.proj_drop(x)
     return x
 

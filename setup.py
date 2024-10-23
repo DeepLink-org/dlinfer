@@ -9,6 +9,7 @@ VERSION = "0.1.0post1"
 
 vendor_dispatch_key_map = {
     "ascend": "PrivateUse1",
+    "maca": "CUDA",
 }
 
 
