@@ -34,6 +34,22 @@ class Add(Operator):
         return a + b
 
 
+class Div(Operator):
+    def __init__(self):
+        super().__init__("Div")
+
+    def infer_result(self, a, b):
+        return a / b
+
+
+class Divs(Operator):
+    def __init__(self):
+        super().__init__("Divs")
+
+    def infer_result(self, a, b):
+        return a / b
+
+
 class Mul(Operator):
     def __init__(self):
         super().__init__("Mul")

@@ -333,6 +333,12 @@ class GatherParam:
     batchDims: int = 0
 
 
+@dataclass
+class DivsParam:
+    name: str = ""
+    divisor: float = 1.0
+
+
 def custom_asdict_factory(data):
     def convert_value(obj):
         if isinstance(obj, IntEnum):

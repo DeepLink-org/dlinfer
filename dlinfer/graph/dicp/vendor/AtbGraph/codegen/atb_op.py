@@ -56,6 +56,29 @@ class AtbOverrides:
         op.set_output([name])
         return op
 
+    @staticmethod
+    def Div(name, x, y):
+        op = Operation(name, "ElewiseOperation")
+        param = infer_param.ElewiseParam()
+        param.elewiseType = infer_param.ElewiseType.ELEWISE_REALDIV
+
+        op.set_input([x, y])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    @staticmethod
+    def Divs(name, x, y):
+        op = Operation(name, "AclNnDivsOperation")
+        param = infer_param.DivsParam()
+        param.name = name
+        param.divisor = float(y)
+
+        op.set_input([x])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
     def Mul(name, x, y):
         op = Operation(name, "ElewiseOperation")
         param = infer_param.ElewiseParam()

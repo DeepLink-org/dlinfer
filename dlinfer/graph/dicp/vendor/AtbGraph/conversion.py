@@ -232,7 +232,13 @@ class AtenToAtbTransformer(SingleOpTransformer):
 
     @register_conversion(torch.ops.aten.add.Tensor)
     def aten_add_tensor(self, x, y):
-        return self.get_proxy(atb_op.Add, (x, y))
+        return self.get_proxy(atb_op.Div, (x, y))
+
+    @register_conversion(torch.ops.aten.div.Tensor)
+    def aten_div_tensor(self, x, y):
+        if isinstance(y, torch.fx.Proxy):
+            return self.get_proxy(atb_op.Div, (x, y))
+        return self.get_proxy(atb_op.Divs, (x, y))
 
     @register_conversion(torch.ops.aten.view.default)
     def aten_view(self, x, size):
