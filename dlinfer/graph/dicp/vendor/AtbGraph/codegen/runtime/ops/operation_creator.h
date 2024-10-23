@@ -29,6 +29,7 @@ static std::map<std::string, OperationCreateFunc> g_funcMap = {
     {"GatherOperation", &GatherOperationCreate},
     {"AclNnPermuteOperation", &AclNnPermuteOperationCreate},
     {"AclNnCastOperation", &AclNnCastOperationCreate},
+    {"AclNnDivsOperation", &AclNnDivsOperationCreate},
 };
 
 atb::Operation* CreateOperation(const std::string& opName, const nlohmann::json& paramJson);
