@@ -306,7 +306,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
         return self.get_proxy(atb_op.Transpose, (input, permute_shape))
 
     @register_conversion(torch.ops.aten.embedding.default)
-    def embedding(self, weight, indices, padding_idx):
+    def embedding(self, weight, indices, padding_idx=None):
         # The padding_idx parameter is not supported now.
         return self.get_proxy(atb_op.Gather, (weight, indices, 0))
 

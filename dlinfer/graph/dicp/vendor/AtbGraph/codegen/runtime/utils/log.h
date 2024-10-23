@@ -6,6 +6,7 @@
 
 #include <cstdlib>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <unordered_map>
 
@@ -84,7 +85,12 @@ private:
 class LogMessage {
 public:
     LogMessage(LogLevel level) : level_(level) {}
-    ~LogMessage() { spdlog::log(levelMap.at(level_), stream_.str()); }
+    ~LogMessage() noexcept(false) {
+        spdlog::log(levelMap.at(level_), stream_.str());
+        if (level_ == LogLevel::FATAL) {
+            throw std::runtime_error("Fatal error occurred: " + stream_.str());
+        }
+    }
 
     template <typename T>
     LogMessage& operator<<(const T& value) {
