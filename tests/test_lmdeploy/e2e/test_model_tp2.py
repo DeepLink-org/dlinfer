@@ -16,6 +16,7 @@ from test_lmdeploy.utils.pipeline_chat import (
     run_pipeline_vl_chat_test,
 )
 
+
 @pytest.mark.skip(
     reason="There is unresolvable issue with the pytest multi process spawning"
 )
@@ -33,7 +34,8 @@ def test_pipeline_chat_pytorch_tp2(model_case, env_config, case_config, device_t
         raise Exception(f"dlinfer test {model_case} with tp2 on {device_type} failed")
     else:
         print(f"dlinfer test {model_case} with tp2 on {device_type} passed")
-    
+
+
 @pytest.mark.skip(
     reason="There is unresolvable issue with the pytest multi process spawning"
 )
@@ -62,6 +64,8 @@ if __name__ == "__main__":
     env_config = get_config()
     case_config = get_case_config()
     if args.model_type == "chat":
-        test_pipeline_chat_pytorch_tp2(args.model_case, env_config, case_config, args.device_type)
+        test_pipeline_chat_pytorch_tp2(
+            args.model_case, env_config, case_config, args.device_type
+        )
     elif args.model_type == "vl":
         test_pipeline_vl_pytorch_tp2(args.model_case, env_config, args.device_type)
