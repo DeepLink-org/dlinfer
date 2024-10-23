@@ -5,7 +5,7 @@ from torch import nn
 from typing import Optional, Type, TypeVar, Any, List
 from lmdeploy.lite.quantization.modules.linear import WeightOnlyQLinear
 from lmdeploy.lite.utils.cal_qparams import QParams
-from lmdeploy.pytorch.nn.utils import get_world_rank
+from lmdeploy.pytorch.distributed import get_world_rank
 from lmdeploy.pytorch.nn.linear import _chunk_align, MergedAwqLinear, AwqLinear
 
 
