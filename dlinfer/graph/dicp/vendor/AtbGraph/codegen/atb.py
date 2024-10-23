@@ -130,7 +130,7 @@ class AtbCodegen(torch.fx.Interpreter):
                 from dlinfer.graph.dicp.dynamo_bridge.compile import AsyncCompileKernel
                 from dlinfer.graph.dicp.vendor.AtbGraph.compile_job import AtbCompileJob
                 
-                print('### codegen python file path: ', os.path.abspath(__file__))
+                # print('### codegen python file path: ', os.path.abspath(__file__))
 
                 aten = torch.ops.aten
                 assert_size_stride = torch._C._dynamo.guards.assert_size_stride
