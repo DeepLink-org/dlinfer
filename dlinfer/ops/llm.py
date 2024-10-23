@@ -19,6 +19,7 @@ __all__ = [
     "get_cache_len",
     "weight_quant_matmul",
     "fused_moe",
+    "linear",
 ]
 
 
@@ -445,7 +446,7 @@ def weight_quant_matmul(
     scale: Tensor,
     offset: Optional[Tensor] = None,
     bias: Optional[Tensor] = None,
-    all_reduce: Optional[bool] = bool,
+    all_reduce: Optional[bool] = False,
     group_size: Optional[int] = 0,
 ) -> Tensor:
     """
@@ -494,3 +495,24 @@ def fused_moe(
     return vendor_ops_registry["fused_moe"](
         hidden_states, top_k, topk_ids, topk_weights, gate_up_weights, down_weights
     )
+
+
+def linear(
+    x,
+    weight: Tensor,
+    bias: Optional[Tensor],
+    all_reduce: Optional[bool],
+) -> Tensor:
+    """
+    Complete a linear computation.
+
+    Args:
+        x1 (Tensor): The first input tensor of linear computation.
+        x2 (Tensor): The second input tensor of linear computation.
+        bias (Optional[Tensor]): An optional bias tensor of linear computation.
+        all_reduce (Optional[bool]): An optional bool describes whether or not allreduce is required.
+
+    Returns:
+        Tensor: The output tensor of linear computation.
+    """
+    return vendor_ops_registry["linear"](x, weight, bias, all_reduce)
