@@ -15,10 +15,8 @@ public:
 private:
     int64_t splitDim_;
     std::vector<int64_t> splitSizes_;
-    int CreateAclTensors(const atb::VariantPack& variantPack) override;
     int SetAclNnWorkspaceExecutor(uint64_t& workspaceSize) override;
     int CallAclExecute(uint8_t* workspace, uint64_t workspaceSize, aclOpExecutor* aclExecutor, aclrtStream stream) override;
-    AclNnTensor CreateTensor(atb::Tensor atbTensor);
 };
 
 inline atb::Operation* AclNnSplitWithSizeOperationCreate(const nlohmann::json& paramJson) {

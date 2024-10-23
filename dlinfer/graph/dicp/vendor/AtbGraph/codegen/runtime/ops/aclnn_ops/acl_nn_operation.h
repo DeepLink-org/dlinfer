@@ -30,13 +30,14 @@ public:
 protected:
     aclTensor* CreateAclTensor(const AclNnTensor& aclNnTensor);
     atb::Status UpdateAclTensorDataPtr(const atb::VariantPack& variantPack);
+    AclNnTensor CreateTensor(atb::Tensor atbTensor);
+    int CreateAclTensors(const atb::VariantPack& variantPack);
     std::string opName_;
     atb::SVector<AclNnTensor> aclInTensors_;
     atb::SVector<AclNnTensor> aclOutTensors_;
     aclOpExecutor* aclExecutor_ = nullptr;
 
 private:
-    virtual int CreateAclTensors(const atb::VariantPack& variantPack) = 0;
     virtual int SetAclNnWorkspaceExecutor(uint64_t& workspaceSize) = 0;
     virtual int CallAclExecute(uint8_t* workspace, uint64_t workspaceSize, aclOpExecutor* aclExecutor, aclrtStream stream) = 0;
 };
