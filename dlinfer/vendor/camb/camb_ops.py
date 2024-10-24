@@ -120,6 +120,8 @@ def prefill_attention(
 ) -> Tensor:
     if alibi_slopes is not None:
         alibi_slopes = torch.tensor(alibi_slopes, dtype=torch.float32)
+    if softmax_scale is None:
+        softmax_scale = 1. / math.sqrt(query.shape[-1]) 
 
     tmo.flash_attention(query, key, value, attn_output, q_start_loc,q_start_loc, alibi_slopes, 
                         None, max_q_seq_len, max_q_seq_len, softmax_scale, True, -1, -1, query.dtype, False)
@@ -147,6 +149,9 @@ def paged_decode_attention(
     assert value_cache.ndim == 4, "only support v_cache: [num_blocks, kv_head_num, block_size, head_size]"
     assert block_table.ndim == 2, "only support bloack_table: [batch_size, max_num_blocks_per_seq]"
     assert block_table.dtype == torch.int32, "only support torch.int32"
+
+    if softmax_scale is None:
+        softmax_scale = 1. / math.sqrt(query.shape[-1])
 
     k_cache_quant_scale = None
     v_cache_quant_scale = None
