@@ -211,7 +211,7 @@ def paged_decode_attention(
         block_size=block_size,
         inner_precise=1,
     )
-    return attn_output
+    return attn_output.reshape(1, 2)
 
 
 @register_ops(vendor_ops_registry)
