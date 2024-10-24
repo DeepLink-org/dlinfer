@@ -104,13 +104,12 @@ def prefill_attention(
     value = value.contiguous()
 
     if attn_mask is not None:
-        seq_qlen_list = None if q_seq_len is None else q_seq_len.cumsum(0).tolist()
-        seq_kvlen_list = seq_qlen_list
         scale_value = (
             softmax_scale if softmax_scale else 1.0 / math.sqrt(query.shape[-1])
         )
-        assert SocVersion.is_Ascend910B() or SocVersion.is_Ascend310P()
         if SocVersion.is_Ascend910B():
+            seq_qlen_list = None if q_seq_len is None else q_seq_len.cumsum(0).tolist()
+            seq_kvlen_list = seq_qlen_list
             attn_output[:] = torch.ops.npu.npu_fusion_attention(
                 query,
                 key,
@@ -123,10 +122,11 @@ def prefill_attention(
                 actual_seq_kvlen=seq_kvlen_list,
             )[0]
         elif SocVersion.is_Ascend310P():
-            batch = q_start_loc.size(0)
+            assert num_q_heads == num_kv_heads, f"Ascend310P only support mha models."
+            seq_qlen_list = q_seq_len.tolist()
+            batch = len(seq_qlen_list)
+            start = 0
             for i in range(batch):
-                start = q_start_loc[i]
-
                 end = start + seq_qlen_list[i]
                 single_seqlen = int(seq_qlen_list[i])
 
@@ -135,6 +135,7 @@ def prefill_attention(
                 single_v = value[start:end].reshape(1, single_seqlen, -1)
                 single_o = attn_output[start:end].view(1, single_seqlen, -1)
 
+                start = end
                 actual_seq_lengths = seq_qlen_list[i : i + 1]
 
                 torch.ops.npu_ext.npu_prompt_flash_attention_out(
@@ -152,6 +153,10 @@ def prefill_attention(
                     input_layout="BSH",
                     num_key_value_heads=num_kv_heads,
                 )
+        else:
+            raise ValueError(
+                f"dlinfer doesn't support {SocVersion.device_name} device currently."
+            )
     else:
         # For now, the value of attn_mask is None only in vit
         seq_len_list = None if q_seq_len is None else q_seq_len.tolist()
