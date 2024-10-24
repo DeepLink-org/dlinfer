@@ -109,6 +109,7 @@ def prefill_attention(
         scale_value = (
             softmax_scale if softmax_scale else 1.0 / math.sqrt(query.shape[-1])
         )
+        assert SocVersion.is_Ascend910B() or SocVersion.is_Ascend310P()
         if SocVersion.is_Ascend910B():
             attn_output[:] = torch.ops.npu.npu_fusion_attention(
                 query,
@@ -142,7 +143,7 @@ def prefill_attention(
                     single_v,
                     single_o,
                     padding_mask=None,
-                    atten_mask=attn_mask[0],
+                    atten_mask=None,
                     actual_seq_lengths=actual_seq_lengths,
                     num_heads=num_q_heads,
                     scale_value=scale_value,
