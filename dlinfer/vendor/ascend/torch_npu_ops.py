@@ -25,15 +25,15 @@ __all__ = [
 class SocVersion:
     Ascend310P: str = "Ascend310P"
     Ascend910B: str = "Ascend910B"
-    # device_name = torch_npu.npu.get_device_name(0)[:10]
+    device_name = torch_npu.npu.get_device_name()[:10]
 
     @classmethod
     def is_Ascend310P(cls) -> bool:
-        return False  # cls.device_name == cls.Ascend310P
+        return cls.device_name == cls.Ascend310P
 
     @classmethod
     def is_Ascend910B(cls) -> bool:
-        return True  # cls.device_name == cls.Ascend910B
+        return cls.device_name == cls.Ascend910B
 
 
 @register_ops(vendor_ops_registry)
