@@ -1,6 +1,7 @@
 # Copyright (c) 2024, DeepLink. All rights reserved.
 import pytest
 import argparse
+import multiprocessing
 
 import dlinfer
 
@@ -78,6 +79,7 @@ def test_pipeline_vl_pytorch_tp2(env_config, device_type):
 
 
 if __name__ == "__main__":
+    multiprocessing.set_start_method("spawn")
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_type", choices=["chat", "vl"], required=True)
     parser.add_argument("--device_type", choices=["ascend"], required=True)
