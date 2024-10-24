@@ -25,7 +25,7 @@ __all__ = [
 class SocVersion:
     Ascend310P: str = "Ascend310P"
     Ascend910B: str = "Ascend910B"
-    device_name = torch_npu.npu.get_device_name(0)[:10]
+    device_name = torch_npu.npu.get_device_name()[:10]
 
     @classmethod
     def is_Ascend310P(cls) -> bool:
