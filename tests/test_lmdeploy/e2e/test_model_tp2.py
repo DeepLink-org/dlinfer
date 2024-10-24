@@ -17,8 +17,10 @@ from test_lmdeploy.utils.pipeline_chat import (
     run_pipeline_vl_chat_test,
 )
 
+
 def pytest_sessionstart(session):
-    multiprocessing.set_start_method('spawn')
+    multiprocessing.set_start_method("spawn")
+
 
 @pytest.mark.skip(
     reason="There is unresolvable issue with the pytest multi process spawning"
