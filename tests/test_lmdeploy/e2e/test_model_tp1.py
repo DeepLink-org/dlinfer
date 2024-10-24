@@ -14,8 +14,7 @@ from test_lmdeploy.utils.pipeline_chat import (
 )
 
 
-def pytest_sessionstart(session):
-    multiprocessing.set_start_method("spawn")
+multiprocessing.set_start_method("spawn")
 
 
 @pytest.mark.usefixtures("common_case_config")
