@@ -71,17 +71,15 @@ def apply_rotary_pos_emb(
     key: Tensor,
     cos: Optional[Tensor],
     sin: Optional[Tensor],
-    cos_sin_ids: Optional[Tensor],
     cu_seqlens: Optional[Tensor],
 ) -> Tuple[Tensor, Tensor]:
     assert query.ndim == 3, "only support q:[totalSeq, head ,head_dim]"
     assert key.ndim == 3, "only support k:[totalSeq, head ,head_dim]"
-    assert cos_sin_ids.dtype == torch.int32, "cos_sin_ids must be int32"
     interleaved = False
     max_context_len = query.shape[0]
-    
-    query = tmo.apply_rotary(query, sin, cos, cos_sin_ids, cu_seqlens, interleaved, True, False, max_context_len)
-    key = tmo.apply_rotary(key, sin, cos, cos_sin_ids, cu_seqlens, interleaved, True, False, max_context_len)
+   
+    query = tmo.apply_rotary(query, sin, cos, None, cu_seqlens, interleaved, False, False, max_context_len)
+    key = tmo.apply_rotary(key, sin, cos, None, cu_seqlens, interleaved, False, False, max_context_len)
     return query, key
 
 @register_ops(vendor_ops_registry)
