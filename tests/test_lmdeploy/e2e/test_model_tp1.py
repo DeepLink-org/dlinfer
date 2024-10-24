@@ -19,7 +19,6 @@ from test_lmdeploy.utils.pipeline_chat import (
 @pytest.mark.lmdeploy
 @pytest.mark.parametrize("model", get_torch_model_list(tp_num=1))
 def test_pipeline_chat_pytorch_tp1_ascend(config, common_case_config, model):
-    multiprocessing.set_start_method("spawn")
     p = Process(
         target=run_pipeline_chat_test,
         args=(config, common_case_config, model, "ascend"),
@@ -35,7 +34,6 @@ def test_pipeline_chat_pytorch_tp1_ascend(config, common_case_config, model):
 @pytest.mark.lmdeploy
 @pytest.mark.parametrize("model", get_torch_model_list(tp_num=1, model_type="vl_model"))
 def test_pipeline_vl_pytorch_tp1_ascend(config, model):
-    multiprocessing.set_start_method("spawn")
     p = Process(target=run_pipeline_vl_chat_test, args=(config, model, "ascend"))
     p.start()
     p.join()
