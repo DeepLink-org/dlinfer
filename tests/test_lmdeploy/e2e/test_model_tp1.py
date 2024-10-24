@@ -1,5 +1,6 @@
 # Copyright (c) 2024, DeepLink. All rights reserved.
 from multiprocessing import Process
+import multiprocessing
 import pytest
 
 import dlinfer
@@ -12,6 +13,8 @@ from test_lmdeploy.utils.pipeline_chat import (
     run_pipeline_vl_chat_test,
 )
 
+def pytest_sessionstart(session):
+    multiprocessing.set_start_method('spawn')
 
 @pytest.mark.usefixtures("common_case_config")
 @pytest.mark.flaky(reruns=0)
