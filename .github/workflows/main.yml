@@ -80,7 +80,7 @@ jobs:
           cd ${{env.CI_PATH }}/tests
           export DLINFER_TEST_DIR=${{env.CI_PATH }}/tests
           echo $PYTHONPATH && pwd
-          pytest ./ -m 'lmdeploy' -s -x --alluredir=allure-results --clean-alluredir
+          pytest ./ -m 'lmdeploy' -s -x --alluredir=allure-results --clean-alluredir --dist=loadscope
           python ./test_lmdeploy/e2e/test_model_tp2.py --model_type=chat --device_type=ascend
           python ./test_lmdeploy/e2e/test_model_tp2.py --model_type=vl --device_type=ascend
 
