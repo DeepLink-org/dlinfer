@@ -8,7 +8,8 @@ execute_process(
 )
 
 execute_process(
-    COMMAND bash -c "pip show torch-npu | awk '/^Location:/{ORS=\"\"; print \$2\"/torch_npu\"}'"
+    COMMAND python -c "from importlib.metadata import distribution; \
+    print(str(distribution('torch_npu').locate_file('torch_npu')), end='')"
     OUTPUT_VARIABLE Torch_npu_ROOT
 )
 
@@ -62,7 +63,8 @@ target_link_libraries(
     PUBLIC ${HCCL_LIBRARY}
 )
 
+file(RELATIVE_PATH OUTPUT_LIB_RELATIVE_PATH "${CMAKE_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}")
 install(
     TARGETS ${PROJECT_NAME}
-    DESTINATION ./dlinfer/vendor/ascend
+    DESTINATION ${OUTPUT_LIB_RELATIVE_PATH}
 )
