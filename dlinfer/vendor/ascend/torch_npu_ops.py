@@ -89,37 +89,27 @@ def prefill_attention(
     key = key.contiguous()
     value = value.contiguous()
 
-    if attn_mask is not None:
-        seq_qlen_list = None if q_seq_len is None else q_seq_len.cumsum(0).tolist()
-        seq_kvlen_list = seq_qlen_list
-        scale_value = (
-            softmax_scale if softmax_scale else 1.0 / math.sqrt(query.shape[-1])
-        )
-        attn_output[:] = torch.ops.npu.npu_fusion_attention(
-            query,
-            key,
-            value,
-            num_q_heads,
-            "TND",
-            scale=scale_value,
-            atten_mask=attn_mask[0],
-            actual_seq_qlen=seq_qlen_list,
-            actual_seq_kvlen=seq_kvlen_list,
-        )[0]
-    else:
-        # For now, the value of attn_mask is None only in vit
-        seq_len_list = None if q_seq_len is None else q_seq_len.tolist()
-        scale_value = 1.0 / math.sqrt(query.shape[-1] // num_q_heads)
-        attn_output[:] = torch.ops.npu.npu_prompt_flash_attention(
-            query,
-            key,
-            value,
-            actual_seq_lengths=seq_len_list,
-            num_heads=num_q_heads,
-            scale_value=scale_value,
-            input_layout="BSH",
-            num_key_value_heads=num_kv_heads,
-        )
+    seq_qlen_list = None if q_seq_len is None else q_seq_len.cumsum(0).tolist()
+    seq_kvlen_list = seq_qlen_list
+    if attn_mask is None:
+        query = query.view(query.shape[0] * query.shape[1], num_q_heads, -1)
+        key = key.view(key.shape[0] * key.shape[1], num_kv_heads, -1)
+        value = value.view(value.shape[0] * value.shape[1], num_kv_heads, -1)
+    scale_value = (
+        softmax_scale if softmax_scale else 1.0 / math.sqrt(query.shape[-1])
+    )
+    attn_mask_ = None if attn_mask is None else attn_mask[0]
+    attn_output.view(query.shape)[:] = torch.ops.npu.npu_fusion_attention(
+        query,
+        key,
+        value,
+        num_q_heads,
+        "TND",
+        scale=scale_value,
+        atten_mask=attn_mask_,
+        actual_seq_qlen=seq_qlen_list,
+        actual_seq_kvlen=seq_kvlen_list,
+    )[0]
     return attn_output
 
 
