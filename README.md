@@ -41,6 +41,9 @@ dlinfer提供了一套将国产硬件接入大模型推理框架的解决方案�
 pip install dlinfer-ascend
 ```
 
+目前只有华为支持pip安装。沐曦请使用源码安装。
+
+
 ## 源码安装
 
 ### 华为Atlas 800T A2
@@ -58,26 +61,40 @@ pip install dlinfer-ascend
    DEVICE=ascend python3 setup.py develop
    ```
 
+### 沐曦C500
+
+1. 沐曦软件栈请自行联系沐曦相关人员。
+
+2. 沐曦版本的dlinfer安装命令如下：
+
+   ```shell
+   cd /path_to_dlinfer
+   DEVICE=maca python3 setup.py develop
+   ```
+
 # 支持模型框架列表
 
 ## LMDeploy
 
-|  | 华为Atlas 800T A2 | 沐曦C500（待开源） | 寒武纪云端智能加速卡（开发中） |
+|  | 华为Atlas 800T A2(bf16, w4a16) | 沐曦C500 | 寒武纪云端智能加速卡（开发中） |
 | --- | --- | --- | --- |
-| InternLM2.5-7B/20B | √ |   |  |
-| InternLM2-7B/20B | √ | √ |  |
-| InternVL2-2B | √ |    |  |
-| InternVL1-5 | √ | √ |  |
-| Llama3-8B | √ | √ |  |
-| Mixtral8x7B | √ | √ |  |
-| Qwen2-7B | √ | √ |  |
-| Qwen2-57B-A14B | √ |   |  |
-| CogVLM | √ |  |  |
-| CogVLM2 |  | √ |  |
+| InternLM2.5-7B/20B   | √,√ | √  |  |
+| InternLM2-7B/20B     | √,√ | √  |  |
+| InternVL2-2B         | √,√ | √  |  |
+| InternVL1-5          | √,√ | √  |  |
+| Llama3-8B            | √,√ | √  |  |
+| Mixtral8x7B          | √,X | √  |  |
+| Qwen2-7B             | √,X | √  |  |
+| Qwen2-57B-A14B       | √,X | √  |  |
+| CogVLM               | √,X | √  |  |
+| CogVLM2              | √,X | √  |  |
 
 ### 使用LMDeploy
 
-只需要指定pytorch engine后端为ascend，不需要其他任何修改即可。详细可参考lmdeploy文档。
+只需要指定pytorch engine后端为ascend/maca，不需要其他任何修改即可。详细可参考lmdeploy文档。
+
+> [!CAUTION]
+> 沐曦环境下必须把`PytorchEnginConfig`中的`block_size`设为`256`。
 
 示例代码如下：
 
@@ -87,7 +104,7 @@ from lmdeploy import PytorchEngineConfig
 if __name__ == "__main__":
     pipe = lmdeploy.pipeline("/path_to_model",
                             backend_config = PytorchEngineConfig(tp=1,
-                            cache_max_entry_count=0.4, device_type="ascend"))
+                            cache_max_entry_count=0.4, device_type="ascend", eager_mode=True))
     question = ["Shanghai is", "Please introduce China", "How are you?"]
     response = pipe(question, request_output_len=256, do_preprocess=False)
     for idx, r in enumerate(response):
@@ -95,3 +112,10 @@ if __name__ == "__main__":
         print(f"A: {r.text}")
         print()
 ```
+
+> [!TIP]
+> 图模式已经支持了Atlas 800T A2。目前，单卡下的InternLM2-7B/LLaMa2-7B/Qwen2-7B已经通过测试。
+> 用户可以在离线模式下设定`PytorchEngineConfig`中的`eager_mode=False`来开启图模式，或者设定`eager_mode=True`来关闭图模式。
+> 在线模式下默认开启图模式，请添加`--eager-mode`来关闭图模式。
+> (启动图模式需要事先`source /usr/local/Ascend/nnal/atb/set_env.sh`)  
+
