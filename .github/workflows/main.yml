@@ -51,6 +51,7 @@ jobs:
         run: |
           set -ex
           source /usr/local/Ascend/ascend-toolkit/set_env.sh
+          source /usr/local/Ascend/nnal/atb/set_env.sh
           cd ${{ env.CI_PATH }}
           pip uninstall -y dlinfer-ascend
           pip install -r requirements/ascend/full.txt

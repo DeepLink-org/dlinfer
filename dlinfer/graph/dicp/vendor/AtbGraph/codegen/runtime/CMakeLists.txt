@@ -67,12 +67,14 @@ set(COMPILE_OPTIONS
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O2")
 
 add_library(dicp_model SHARED ${SOURCES})
-set_target_properties(dicp_model PROPERTIES
-    OUTPUT_NAME "dicp_model"
-    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../
-)
 
 target_compile_options(dicp_model PRIVATE ${COMPILE_OPTIONS})
 
 target_link_libraries(dicp_model PRIVATE
     atb torch c10 torch_cpu torch_python torch_npu opapi)
+
+file(RELATIVE_PATH OUTPUT_LIB_RELATIVE_PATH "${CMAKE_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../")
+install(
+    TARGETS dicp_model
+    DESTINATION ${OUTPUT_LIB_RELATIVE_PATH}
+)
