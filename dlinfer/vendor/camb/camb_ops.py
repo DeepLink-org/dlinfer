@@ -71,15 +71,26 @@ def apply_rotary_pos_emb(
     key: Tensor,
     cos: Optional[Tensor],
     sin: Optional[Tensor],
-    cu_seqlens: Optional[Tensor],
 ) -> Tuple[Tensor, Tensor]:
     assert query.ndim == 3, "only support q:[totalSeq, head ,head_dim]"
     assert key.ndim == 3, "only support k:[totalSeq, head ,head_dim]"
     interleaved = False
     max_context_len = query.shape[0]
-   
-    query = tmo.apply_rotary(query, sin, cos, None, cu_seqlens, interleaved, False, False, max_context_len)
-    key = tmo.apply_rotary(key, sin, cos, None, cu_seqlens, interleaved, False, False, max_context_len)
+  
+    total_seq_len, q_head_num, head_dim = query.shape
+    k_head_num = key.shape[1]
+
+    query = query.reshape(total_seq_len, 1, q_head_num, head_dim)
+    key = key.reshape(total_seq_len, 1, k_head_num, head_dim)
+    sin = sin.reshape(total_seq_len, 1, head_dim)
+    cos = cos.reshape(total_seq_len, 1, head_dim)  
+    
+    query = tmo.apply_rotary(query, sin, cos, None, None, interleaved, False, True, 1)
+    key = tmo.apply_rotary(key, sin, cos, None, None, interleaved, False, True, 1)
+
+    query = query.view(total_seq_len, q_head_num, head_dim)
+    key = key.view(total_seq_len, k_head_num, head_dim)
+
     return query, key
 
 @register_ops(vendor_ops_registry)
@@ -106,11 +117,9 @@ def prefill_attention(
     query: Tensor,
     key: Tensor,
     value: Tensor,
-    q_start_loc: Tensor,
+    q_start_loc: Tensor, # cu_seqlens
     q_seq_len: Tensor,
     max_q_seq_len: int,
-    num_q_heads: int,
-    num_kv_heads: int,
     attn_mask: Sequence[Optional[Tensor]],
     softmax_scale: Optional[float],
     alibi_slopes: Optional[Sequence[float]],
@@ -121,7 +130,7 @@ def prefill_attention(
     if softmax_scale is None:
         softmax_scale = 1. / math.sqrt(query.shape[-1]) 
 
-    tmo.flash_attention(query, key, value, attn_output, q_start_loc,q_start_loc, alibi_slopes, 
+    tmo.flash_attention(query, key, value, attn_output, q_start_loc, q_start_loc, alibi_slopes, 
                         None, max_q_seq_len, max_q_seq_len, softmax_scale, True, -1, -1, query.dtype, False)
 
     return attn_output
@@ -135,14 +144,11 @@ def paged_decode_attention(
     block_size: int,
     kv_seq_len: Tensor,
     max_kv_seq_len: int,
-    num_q_heads: int,
-    num_kv_heads: int,
     softmax_scale: Optional[float],
     alibi_slopes: Optional[Sequence[float]],
     attn_output: Optional[Tensor],
 ) -> Tensor:
-    assert query.ndim == 4, "only support q: [batch, seq_q=1, head ,head_dim]"
-    assert query.shape[1] == 1, "only support seq_q = 1 in paged decode attention"
+    assert query.ndim == 3, "only support q: [batch, head_num ,head_dim]"
     assert key_cache.ndim == 4, "only support k_cache: [num_blocks, kv_head_num, block_size, head_size]"
     assert value_cache.ndim == 4, "only support v_cache: [num_blocks, kv_head_num, block_size, head_size]"
     assert block_table.ndim == 2, "only support bloack_table: [batch_size, max_num_blocks_per_seq]"
@@ -155,7 +161,12 @@ def paged_decode_attention(
     v_cache_quant_scale = None
     alibi_slopes = None
 
+    total_seq_len, head_num, head_dim = query.shape
+    query = query.reshape(total_seq_len, 1, head_num, head_dim)
+    attn_output = attn_output.reshape(total_seq_len, 1, head_num, head_dim)
+
     tmo.single_query_cached_kv_attn(query, key_cache, value_cache, attn_output, block_table, kv_seq_len, k_cache_quant_scale, v_cache_quant_scale, \
         alibi_slopes, max_kv_seq_len, 0, 0, softmax_scale)
-
+    
+    attn_output = attn_output.reshape(total_seq_len, head_num, head_dim)
     return attn_output

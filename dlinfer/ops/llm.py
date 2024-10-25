@@ -55,7 +55,6 @@ def apply_rotary_pos_emb(
     cos: Optional[Tensor],
     sin: Optional[Tensor],
     cos_sin_cache: Optional[Tensor],
-    cu_seqlens: Optional[Tensor],
 ) -> Tuple[Tensor, Tensor]:
     """
     Applies rotary position embeddings to the query and key tensors.
@@ -86,7 +85,6 @@ def apply_rotary_pos_emb(
         key,
         cos,
         sin,
-        cu_seqlens,
     )
 
 
@@ -106,8 +104,6 @@ def prefill_attention(
     q_start_loc: Tensor,
     q_seq_len: Tensor,
     max_q_seq_len: int,
-    num_q_heads: int,
-    num_kv_heads: int,
     attn_mask: Sequence[Optional[Tensor]],
     softmax_scale: Optional[float],
     alibi_slopes: Optional[Sequence[float]],
@@ -124,8 +120,6 @@ def prefill_attention(
         q_start_loc (Tensor): The start location of each query sequence.
         q_seq_len (Tensor): The length of each query sequence.
         max_q_seq_len (int): The maximum length of any query sequence.
-        num_q_heads (int): The number of query heads.
-        num_kv_heads (int): The number of key/value heads.
         attn_mask (Sequence[Optional[Tensor]]): A sequence of optional attention masks, one for each batch.
         softmax_scale (Optional[float]): The scale factor to apply to the attention logits before the softmax.
         alibi_slopes (Optional[Sequence[float]]): The slopes for the ALiBi attention bias, one for each head.
@@ -141,8 +135,6 @@ def prefill_attention(
         q_start_loc,
         q_seq_len,
         max_q_seq_len,
-        num_q_heads,
-        num_kv_heads,
         attn_mask,
         softmax_scale,
         alibi_slopes,
@@ -199,8 +191,6 @@ def paged_decode_attention(
     block_size: int,
     kv_seq_len: Tensor,
     max_kv_seq_len: int,
-    num_q_heads: int,
-    num_kv_heads: int,
     softmax_scale: Optional[float],
     alibi_slopes: Optional[Sequence[float]],
     attn_output: Optional[Tensor],
@@ -218,8 +208,6 @@ def paged_decode_attention(
         block_size (int): The size of each block in the input sequence.
         kv_seq_len (Tensor): The length of each key/value sequence.
         max_kv_seq_len (int): The maximum length of any key/value sequence.
-        num_q_heads (int): The number of query heads.
-        num_kv_heads (int): The number of key/value heads.
         softmax_scale (Optional[float]): The scale factor to apply to the attention logits before the softmax.
         alibi_slopes (Optional[Sequence[float]]): The slopes for the ALiBi attention bias, one for each head.
         attn_output (Optional[Tensor]): The computed attention output tensor.
@@ -235,8 +223,6 @@ def paged_decode_attention(
         block_size,
         kv_seq_len,
         max_kv_seq_len,
-        num_q_heads,
-        num_kv_heads,
         softmax_scale,
         alibi_slopes,
         attn_output,
