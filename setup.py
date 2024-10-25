@@ -5,7 +5,7 @@ import yaml
 from skbuild import setup
 
 
-VERSION = "0.1.0post1"
+VERSION = "0.1.1"
 
 vendor_dispatch_key_map = {
     "ascend": "PrivateUse1",
@@ -71,6 +71,14 @@ def get_requirements(file_name):
     return requirements
 
 
+def get_vendor_excludes():
+    device = get_device()
+    exclude_vendors = [
+        name for name in vendor_dispatch_key_map.keys() if name != device
+    ]
+    return [f"dlinfer.vendor.{name}" for name in exclude_vendors]
+
+
 def get_entry_points():
     device = get_device()
     if device == "ascend":
@@ -91,7 +99,7 @@ def main():
         long_description=get_readme(),
         long_description_content_type="text/markdown",
         url="https://github.com/DeepLink-org/dlinfer",
-        packages=find_packages(),
+        packages=find_packages(exclude=get_vendor_excludes()),
         package_data=get_package_data(),
         exclude_package_data={"": ["tests/*"]},
         cmake_args=get_cmake_args(),
