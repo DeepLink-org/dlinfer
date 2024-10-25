@@ -43,7 +43,6 @@ pip install dlinfer-ascend
 
 目前只有华为支持pip安装。沐曦请使用源码安装。
 
-
 ## 源码安装
 
 ### 华为Atlas 800T A2
@@ -118,4 +117,3 @@ if __name__ == "__main__":
 > 用户可以在离线模式下设定`PytorchEngineConfig`中的`eager_mode=False`来开启图模式，或者设定`eager_mode=True`来关闭图模式。
 > 在线模式下默认开启图模式，请添加`--eager-mode`来关闭图模式。
 > (启动图模式需要事先`source /usr/local/Ascend/nnal/atb/set_env.sh`)  
-
