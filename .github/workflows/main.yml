@@ -77,6 +77,7 @@ jobs:
         run: |
           set -ex
           source /usr/local/Ascend/ascend-toolkit/set_env.sh
+          source /usr/local/Ascend/nnal/atb/set_env.sh
           export PYTHONPATH=${{env.LMDEPLOY_PATH }}:$PYTHONPATH
           cd ${{env.CI_PATH }}/tests
           export DLINFER_TEST_DIR=${{env.CI_PATH }}/tests
