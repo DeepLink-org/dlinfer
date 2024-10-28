@@ -1,28 +1,23 @@
 #include "divs_operation.h"
 
-#include <aclnn/acl_meta.h>
-#include <securec.h>
-#include <syscall.h>
-#include <unistd.h>
-
-#include <cstring>
-#include <iostream>
-#include <sstream>
-#include <vector>
-
-#include "acl/acl.h"
 #include "aclnnop/aclnn_div.h"
 #include "log.h"
+#include "utils.h"
 
 namespace dicp {
 
 const int NUM1 = 1;
 
-AclNnDivsOperation::AclNnDivsOperation(const std::string& name, float divisor) : AclNnOperation(name) {
-    divisor_ = aclCreateScalar(&divisor, aclDataType::ACL_FLOAT);
+AclNnDivsOperation::AclNnDivsOperation(const std::string& name, float divisor, const std::string& dtype) : AclNnOperation(name) {
+    divisor_ = DICPScalar(divisor, dtype);
+    aclDivisor_ = aclCreateScalar(divisor_.getValuePtr(), divisor_.getDataType());
 }
 
-AclNnDivsOperation::~AclNnDivsOperation() {}
+AclNnDivsOperation::~AclNnDivsOperation() {
+    if (aclDivisor_ != nullptr) {
+        aclDestroyScalar(aclDivisor_);
+    }
+}
 
 atb::Status AclNnDivsOperation::InferShape(const atb::SVector<atb::TensorDesc>& inTensorDescs, atb::SVector<atb::TensorDesc>& outTensorDescs) const {
     DICP_LOG(INFO) << opName_ << " infer shape start";
@@ -43,7 +38,7 @@ uint32_t AclNnDivsOperation::GetOutputNum() const { return NUM1; }
 int AclNnDivsOperation::SetAclNnWorkspaceExecutor(uint64_t& workspaceSize) {
     DICP_LOG(INFO) << opName_ << " aclnnDivsGetWorkspaceSize start";
 
-    int ret = aclnnDivsGetWorkspaceSize(aclInTensors_.at(0).tensor, divisor_, aclOutTensors_.at(0).tensor, &workspaceSize, &aclExecutor_);
+    int ret = aclnnDivsGetWorkspaceSize(aclInTensors_.at(0).tensor, aclDivisor_, aclOutTensors_.at(0).tensor, &workspaceSize, &aclExecutor_);
     DICP_LOG(INFO) << opName_ << " aclnnDivsGetWorkspaceSize end, ret:" << ret << ", workspaceSize:" << workspaceSize << ", aclExecutor:" << aclExecutor_;
 
     return ret;

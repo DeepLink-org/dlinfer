@@ -30,6 +30,16 @@ static std::map<std::string, OperationCreateFunc> g_funcMap = {
     {"AclNnPermuteOperation", &AclNnPermuteOperationCreate},
     {"AclNnCastOperation", &AclNnCastOperationCreate},
     {"AclNnDivsOperation", &AclNnDivsOperationCreate},
+    {"AclNnAddsOperation", &AclNnAddsOperationCreate},
+    {"AclNnMulsOperation", &AclNnMulsOperationCreate},
+    {"AclNnSubsOperation", &AclNnSubsOperationCreate},
+    {"AclNnPowTensorScalarOperation", &AclNnPowTensorScalarOperationCreate},
+    {"AclNnPowTensorTensorOperation", &AclNnPowTensorTensorOperationCreate},
+    {"AclNnMaxOperation", &AclNnMaxOperationCreate},
+    {"AclNnReciprocalOperation", &AclNnReciprocalOperationCreate},
+    {"AclNnGtScalarOperation", &AclNnGtScalarOperationCreate},
+    {"AclNnSWhereOperation", &AclNnSWhereOperationCreate},
+    {"AclNnArangeOperation", &AclNnArangeOperationCreate},
 };
 
 atb::Operation* CreateOperation(const std::string& opName, const nlohmann::json& paramJson);

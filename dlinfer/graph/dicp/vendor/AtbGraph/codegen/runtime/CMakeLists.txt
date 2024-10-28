@@ -30,6 +30,7 @@ include_directories(
     $ENV{PYTHON_INCLUDE_PATH}
     ${THIRD_PARTY_DIR}/json/single_include
     ${THIRD_PARTY_DIR}/spdlog/include
+    ${THIRD_PARTY_DIR}/half/include
     ${TORCH_PATH}/include
     ${TORCH_PATH}/include/torch/csrc/api/include
     ${TORCH_NPU_PATH}/include

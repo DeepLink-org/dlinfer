@@ -21,7 +21,7 @@ def get_shape(elem):
         return [1], 1
     shape = list(elem.shape)
     if len(shape) == 0:
-        raise RuntimeError("Error handling empty output_shape")
+        shape = [1]
     shape = [process_sym_name(dim) for dim in shape]
     dim_num = len(shape)
     return shape, dim_num

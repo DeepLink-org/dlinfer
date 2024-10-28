@@ -34,6 +34,30 @@ class Add(Operator):
         return a + b
 
 
+class Adds(Operator):
+    def __init__(self):
+        super().__init__("Adds")
+
+    def infer_result(self, a, b, dtype="FLOAT"):
+        return a + b
+
+
+class Sub(Operator):
+    def __init__(self):
+        super().__init__("Sub")
+
+    def infer_result(self, a, b):
+        return a - b
+
+
+class Subs(Operator):
+    def __init__(self):
+        super().__init__("Subs")
+
+    def infer_result(self, a, b, dtype="FLOAT"):
+        return a - b
+
+
 class Div(Operator):
     def __init__(self):
         super().__init__("Div")
@@ -56,6 +80,70 @@ class Mul(Operator):
 
     def infer_result(self, a, b):
         return a * b
+
+
+class Muls(Operator):
+    def __init__(self):
+        super().__init__("Muls")
+
+    def infer_result(self, a, b, dtype="FLOAT"):
+        return a * b
+
+
+class PowTensorScalar(Operator):
+    def __init__(self):
+        super().__init__("PowTensorScalar")
+
+    def infer_result(self, a, b, dtype="FLOAT"):
+        return torch.ops.aten.pow.Tensor_Scala(a, b)
+
+
+class PowTensorTensor(Operator):
+    def __init__(self):
+        super().__init__("PowTensorTensor")
+
+    def infer_result(self, a, b):
+        return torch.ops.aten.pow.Tensor_Tensor(a, b)
+
+
+class Max(Operator):
+    def __init__(self):
+        super().__init__("Max")
+
+    def infer_result(self, x):
+        return torch.ops.aten.max.default(x)
+
+
+class Reciprocal(Operator):
+    def __init__(self):
+        super().__init__("Reciprocal")
+
+    def infer_result(self, x):
+        return torch.ops.aten.reciprocal.default(x)
+
+
+class GtScalar(Operator):
+    def __init__(self):
+        super().__init__("GtScalar")
+
+    def infer_result(self, x, y, dtype="FLOAT"):
+        return torch.ops.aten.gt.Scalar(x, y)
+
+
+class Where(Operator):
+    def __init__(self):
+        super().__init__("Where")
+
+    def infer_result(self, cond, x, y):
+        return torch.ops.aten.where.self(cond, x, y)
+
+
+class Arange(Operator):
+    def __init__(self):
+        super().__init__("Arange")
+
+    def infer_result(self, start, end, step):
+        return torch.ops.aten.arange.start_step(start, end, step, dtype=torch.int64)
 
 
 class Graph(Operator):

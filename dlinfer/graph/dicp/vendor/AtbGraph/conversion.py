@@ -31,6 +31,7 @@ from dlinfer.graph.dicp.dynamo_bridge.utils import (
 from dlinfer.graph.dicp.dynamo_bridge.conversion import register_conversion_impl
 from dlinfer.graph.dicp.dynamo_bridge.op_transformer import SingleOpTransformer
 from dlinfer.graph.dicp.vendor.AtbGraph import ext_ops
+from dlinfer.graph.dicp.vendor.AtbGraph.codegen.utils import get_ascend_dtype
 
 aten = torch.ops.aten
 conversions = {}
@@ -232,13 +233,92 @@ class AtenToAtbTransformer(SingleOpTransformer):
 
     @register_conversion(torch.ops.aten.add.Tensor)
     def aten_add_tensor(self, x, y):
-        return self.get_proxy(atb_op.Div, (x, y))
+        out_dtype = fx_traceback.get_current_meta()["val"].dtype
+        x_shape = x.node.meta["val"].shape
+        if x.node.meta["val"].dtype != out_dtype:
+            x = self.get_proxy(atb_op.Cast, (x, out_dtype))
+
+        if isinstance(y, torch.fx.Proxy):
+            if y.node.meta["val"].dtype != out_dtype:
+                y = self.get_proxy(atb_op.Cast, (y, out_dtype))
+            return self.get_proxy(atb_op.Add, (x, y))
+        dtype = get_ascend_dtype(out_dtype)
+        return self.get_proxy(atb_op.Adds, (x, y, dtype))
 
     @register_conversion(torch.ops.aten.div.Tensor)
     def aten_div_tensor(self, x, y):
+        out_dtype = fx_traceback.get_current_meta()["val"].dtype
+        if x.node.meta["val"].dtype != out_dtype:
+            x = self.get_proxy(atb_op.Cast, (x, out_dtype))
+
         if isinstance(y, torch.fx.Proxy):
+            if y.node.meta["val"].dtype != out_dtype:
+                y = self.get_proxy(atb_op.Cast, (y, out_dtype))
             return self.get_proxy(atb_op.Div, (x, y))
-        return self.get_proxy(atb_op.Divs, (x, y))
+        dtype = get_ascend_dtype(out_dtype)
+        return self.get_proxy(atb_op.Divs, (x, y, dtype))
+
+    @register_conversion(torch.ops.aten.mul.Tensor)
+    def aten_mul_tensor(self, x, y):
+        out_dtype = fx_traceback.get_current_meta()["val"].dtype
+        if x.node.meta["val"].dtype != out_dtype:
+            x = self.get_proxy(atb_op.Cast, (x, out_dtype))
+
+        if isinstance(y, torch.fx.Proxy):
+            if y.node.meta["val"].dtype != out_dtype:
+                y = self.get_proxy(atb_op.Cast, (y, out_dtype))
+            return self.get_proxy(atb_op.Mul, (x, y))
+        dtype = get_ascend_dtype(out_dtype)
+        return self.get_proxy(atb_op.Muls, (x, y, dtype))
+
+    @register_conversion(torch.ops.aten.sub.Tensor)
+    def aten_sub_tensor(self, x, y):
+        out_dtype = fx_traceback.get_current_meta()["val"].dtype
+        if x.node.meta["val"].dtype != out_dtype:
+            x = self.get_proxy(atb_op.Cast, (x, out_dtype))
+
+        if isinstance(y, torch.fx.Proxy):
+            if y.node.meta["val"].dtype != out_dtype:
+                y = self.get_proxy(atb_op.Cast, (y, out_dtype))
+            return self.get_proxy(atb_op.Sub, (x, y))
+        dtype = get_ascend_dtype(out_dtype)
+        return self.get_proxy(atb_op.Subs, (x, y, dtype))
+
+    @register_conversion(torch.ops.aten.pow.Tensor_Scalar)
+    def aten_pow_tensor_scalar(self, x, y):
+        dtype = get_ascend_dtype(x.node.meta["val"].dtype)
+        return self.get_proxy(atb_op.PowTensorScalar, (x, y, dtype))
+
+    @register_conversion(torch.ops.aten.pow.Tensor_Tensor)
+    def aten_pow_tensor_tensor(self, x, y):
+        return self.get_proxy(atb_op.PowTensorTensor, (x, y))
+
+    @register_conversion(torch.ops.aten.gt.Scalar)
+    def aten_gt_scalar(self, x, y):
+        dtype = get_ascend_dtype(x.node.meta["val"].dtype)
+        if len(x.node.meta["val"].shape) == 0:
+            x = self.get_proxy(atb_op.View, (x, [1]))
+        return self.get_proxy(atb_op.GtScalar, (x, y, dtype))
+
+    @register_conversion(torch.ops.aten.max.default)
+    def aten_max(self, x):
+        if len(x.node.meta["val"].shape) == 0:
+            x = self.get_proxy(atb_op.View, (x, [1]))
+        return self.get_proxy(atb_op.Max, (x,))
+
+    @register_conversion(torch.ops.aten.reciprocal.default)
+    def aten_reciprocal(self, x):
+        return self.get_proxy(atb_op.Reciprocal, (x,))
+
+    @register_conversion(torch.ops.aten.where.self)
+    def aten_where(self, cond, x, y):
+        return self.get_proxy(atb_op.Where, (cond, x, y))
+
+    @register_conversion(torch.ops.aten.arange.start_step)
+    def aten_arange_start_step(self, start, end, step, dtype, device, index=0):
+        assert dtype == torch.int64
+        assert index == 0
+        return self.get_proxy(atb_op.Arange, (start, end, step))
 
     @register_conversion(torch.ops.aten.view.default)
     def aten_view(self, x, size):
