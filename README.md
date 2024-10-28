@@ -113,7 +113,7 @@ if __name__ == "__main__":
 ```
 
 > [!TIP]
-> 图模式已经支持了Atlas 800T A2。目前，单卡下的InternLM2-7B/LLaMa2-7B/Qwen2-7B已经通过测试。
+> 图模式已经支持了Atlas 800T A2。目前，单卡下的LLaMa3-8B/LLaMa2-7B/Qwen2-7B已经通过测试。
 > 用户可以在离线模式下设定`PytorchEngineConfig`中的`eager_mode=False`来开启图模式，或者设定`eager_mode=True`来关闭图模式。
 > 在线模式下默认开启图模式，请添加`--eager-mode`来关闭图模式。
 > (启动图模式需要事先`source /usr/local/Ascend/nnal/atb/set_env.sh`)  
