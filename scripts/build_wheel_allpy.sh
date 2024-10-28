@@ -6,8 +6,8 @@ eval "$(conda shell.bash hook)"
 REPO_ROOT=$(cd $(dirname $(dirname $0)); pwd)
 cd ${REPO_ROOT}
 
-# PY_VERSION_LIST=("3.8" "3.9" "3.10")
-PY_VERSION_LIST=("3.10")
+PY_VERSION_LIST=("3.8" "3.9" "3.10")
+# PY_VERSION_LIST=("3.10")
 for PY_VERSION in ${PY_VERSION_LIST[@]}; do
     echo start building wheels for python${PY_VERSION}
     PY_VERSION_NAME=${PY_VERSION/./}
