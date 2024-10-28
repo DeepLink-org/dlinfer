@@ -71,6 +71,8 @@ def apply_rotary_pos_emb(
     key: Tensor,
     cos: Optional[Tensor],
     sin: Optional[Tensor],
+    position_ids: Optional[Tensor],
+    cos_sin_cache: Optional[Tensor],
 ) -> Tuple[Tensor, Tensor]:
     assert query.ndim == 3, "only support q:[totalSeq, head ,head_dim]"
     assert key.ndim == 3, "only support k:[totalSeq, head ,head_dim]"
