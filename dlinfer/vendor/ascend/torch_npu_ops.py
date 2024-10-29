@@ -415,7 +415,7 @@ def linear(
         hcomm_info = torch.distributed.distributed_c10d._world.default_pg._get_backend(
             x.device
         ).get_hccl_comm_name(x.device.index)
-        out = torch_npu.npu_mm_all_reduce_base(
+        out = torch.ops.npu.npu_mm_all_reduce_base(
             x, weight.transpose(0, 1), hcomm_info, reduce_op="sum", bias=bias
         )
     else:
