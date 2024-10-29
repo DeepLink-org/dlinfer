@@ -20,5 +20,4 @@ pytorch_chat_model:
 pytorch_vl_model:
     - internvl_model_data/InternVL-Chat-V1-5
     - internvl_model_data/InternVL2-2B
-    - cogvlm_model_data/cogvlm-chat
     - cogvlm_model_data/cogvlm2-llama3-chat-19B
