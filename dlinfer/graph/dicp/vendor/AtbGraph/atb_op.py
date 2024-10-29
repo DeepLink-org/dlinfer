@@ -26,6 +26,17 @@ class Linear(Operator):
         return out
 
 
+class LinearAllReduce(Operator):
+    def __init__(self):
+        super().__init__("LinearAllReduce")
+
+    def infer_result(self, x, weight, bias):
+        out = torch.matmul(x, weight.t())
+        if bias:
+            out = out + bias
+        return out
+
+
 class Add(Operator):
     def __init__(self):
         super().__init__("Add")

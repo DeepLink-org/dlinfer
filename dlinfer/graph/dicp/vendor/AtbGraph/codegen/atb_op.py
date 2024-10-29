@@ -1,6 +1,7 @@
 import math
 import json
 import torch
+import torch.distributed as dist
 from torch.fx.node import Node
 from torch.utils._pytree import tree_map_only
 from torch._inductor.utils import IndentedBuffer
@@ -43,6 +44,26 @@ class AtbOverrides:
         op.set_output([name])
         return op
 
+    def LinearAllReduce(name, x, weight, bias):
+        op = Operation(name, "LinearParallelOperation")
+        param = infer_param.LinearParallelParam()
+
+        param.transWeight = True
+        param.rank = dist.get_rank()
+        param.rankSize = dist.get_world_size()
+        param.rankRoot = 0
+        param.hasResidual = False
+        param.parallelType = infer_param.ParallelType.LINEAR_ALL_REDUCE
+
+        if bias:
+            op.set_input([x, weight, bias])
+        else:
+            op.set_input([x, weight])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    @staticmethod
     def Add(name, x, y):
         op = Operation(name, "ElewiseOperation")
         param = infer_param.ElewiseParam()
