@@ -12,6 +12,7 @@ on:
 jobs:
   markdownlint:
     runs-on: ubuntu-latest
+    if: github.repository == 'DeepLink-org/dlinfer'
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
