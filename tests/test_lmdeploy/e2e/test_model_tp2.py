@@ -5,7 +5,6 @@ import argparse
 import dlinfer
 
 from test_lmdeploy.utils.config_utils import (
-    get_torch_model_list,
     get_config,
     get_case_config,
 )
@@ -21,9 +20,13 @@ from test_lmdeploy.utils.pipeline_chat import (
     reason="There is unresolvable issue with the pytest multi process spawning"
 )
 @pytest.mark.lmdeploy
-def test_pipeline_chat_pytorch_tp2(model_case, env_config, case_config, device_type):
+def test_pipeline_chat_pytorch_tp2(
+    model_case, env_config, case_config, device_type, eager_mode=True
+):
     print("######## dlinfer testting chat_model case: ", model_case)
-    run_pipeline_chat_test(env_config, case_config, model_case, device_type)
+    run_pipeline_chat_test(
+        env_config, case_config, model_case, device_type, eager_mode=eager_mode
+    )
     # assert script
     log_results = assert_pipeline_chat_log(
         env_config, case_config, model_case, device_type, use_pytest=False
@@ -40,9 +43,11 @@ def test_pipeline_chat_pytorch_tp2(model_case, env_config, case_config, device_t
     reason="There is unresolvable issue with the pytest multi process spawning"
 )
 @pytest.mark.lmdeploy
-def test_pipeline_vl_pytorch_tp2(model_case, env_config, device_type):
+def test_pipeline_vl_pytorch_tp2(model_case, env_config, device_type, eager_mode=True):
     print("######## dlinfer testting vl_model case: ", model_case)
-    run_pipeline_vl_chat_test(env_config, model_case, device_type)
+    run_pipeline_vl_chat_test(
+        env_config, model_case, device_type, eager_mode=eager_mode
+    )
     # assert script
     log_results = assert_pipeline_vl_chat_log(
         env_config, model_case, device_type, use_pytest=False
@@ -60,12 +65,16 @@ if __name__ == "__main__":
     parser.add_argument("--model_case", required=True)
     parser.add_argument("--model_type", choices=["chat", "vl"], required=True)
     parser.add_argument("--device_type", choices=["ascend"], required=True)
+    parser.add_argument("--eager", action="store", default=True)
     args = parser.parse_args()
+    eager_mode = args.eager
     env_config = get_config()
     case_config = get_case_config()
     if args.model_type == "chat":
         test_pipeline_chat_pytorch_tp2(
-            args.model_case, env_config, case_config, args.device_type
+            args.model_case, env_config, case_config, args.device_type, eager_mode
         )
     elif args.model_type == "vl":
-        test_pipeline_vl_pytorch_tp2(args.model_case, env_config, args.device_type)
+        test_pipeline_vl_pytorch_tp2(
+            args.model_case, env_config, args.device_type, eager_mode
+        )
