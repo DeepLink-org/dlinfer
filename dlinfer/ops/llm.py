@@ -515,12 +515,17 @@ def linear_impl_abstract_func(
 @register_custom_op(
     "dlinfer::linear",
     impl_abstract_func=linear_impl_abstract_func,
+    default_value={
+        "bias": None,
+        "all_reduce": None
+    },
+
 )
 def linear(
     x: Tensor,
     weight: Tensor,
-    bias: Optional[Tensor] = None,
-    all_reduce: Optional[bool] = False,
+    bias: Optional[Tensor],
+    all_reduce: Optional[bool],
 ) -> Tensor:
     """
     Complete a linear computation.
