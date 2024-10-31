@@ -88,10 +88,13 @@ def prefill_attention(
     query = query.contiguous()
     key = key.contiguous()
     value = value.contiguous()
-
-    seq_qlen_list = None if q_seq_len is None else q_seq_len.cumsum(0).tolist()
+    seq_qlen_list = (
+        [max_q_seq_len * (i + 1) for i in range(query.shape[0])]
+        if q_seq_len is None
+        else q_seq_len.cumsum(0).tolist()
+    )
     seq_kvlen_list = seq_qlen_list
-    if attn_mask is None:
+    if attn_mask is None and q_seq_len is None:
         query = query.view(query.shape[0] * query.shape[1], num_q_heads, -1)
         key = key.view(key.shape[0] * key.shape[1], num_kv_heads, -1)
         value = value.view(value.shape[0] * value.shape[1], num_kv_heads, -1)
