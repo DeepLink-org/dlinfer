@@ -517,7 +517,7 @@ def linear_impl_abstract_func(
     impl_abstract_func=linear_impl_abstract_func,
 )
 def linear(
-    x,
+    x: Tensor,
     weight: Tensor,
     bias: Optional[Tensor] = None,
     all_reduce: Optional[bool] = False,
