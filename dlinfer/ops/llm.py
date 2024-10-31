@@ -497,6 +497,27 @@ def fused_moe(
     )
 
 
+def linear_impl_abstract_func(
+    x: Tensor,
+    weight: Tensor,
+    bias: Optional[Tensor],
+    all_reduce: Optional[bool]
+) -> Tensor:
+    shape_x = x.shape
+    shape_w = weight.shape
+    rank_x = len(x.shape)
+    rank_w = len(weight.shape)
+    assert rank_w == 2, "weight in linear must be a 2D tensor"
+    cx = shape_x[-1]
+    cy = shape_w[-1]
+    assert cx == cy, "The last dimension of x must match the last dimension of weight."
+    return torch.empty(shape_x[:-1] + shape_w[-2:-1])
+
+
+@register_custom_op(
+    "dlinfer::linear",
+    impl_abstract_func=linear_impl_abstract_func,
+)
 def linear(
     x,
     weight: Tensor,
