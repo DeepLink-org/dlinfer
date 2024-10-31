@@ -21,6 +21,7 @@ concurrency:
 
 jobs:
   AscendEndtoEndTests:
+    if: github.repository == 'DeepLink-org/dlinfer'
     runs-on: Atlas_800T_A2
 
     steps:
@@ -83,8 +84,7 @@ jobs:
           export DLINFER_TEST_DIR=${{env.CI_PATH }}/tests
           echo $PYTHONPATH && pwd
           pytest ./ -m 'lmdeploy' -s -x --alluredir=allure-results --clean-alluredir
-          python ./test_lmdeploy/e2e/test_model_tp2.py --model_type=chat --device_type=ascend
-          python ./test_lmdeploy/e2e/test_model_tp2.py --model_type=vl --device_type=ascend
+          bash ${{env.CI_PATH }}/tests/test_lmdeploy/scripts/test_model_tp2.sh
 
       - name: Generate reports
         if: always()
