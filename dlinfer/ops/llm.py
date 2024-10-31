@@ -1,4 +1,5 @@
 # Copyright (c) 2024, DeepLink. All rights reserved.
+import torch
 from dlinfer.vendor import vendor_ops_registry
 from dlinfer.utils.type_annotation import Tensor, Optional, Sequence, Tuple
 from dlinfer.graph.custom_op import register_custom_op
@@ -498,10 +499,7 @@ def fused_moe(
 
 
 def linear_impl_abstract_func(
-    x: Tensor,
-    weight: Tensor,
-    bias: Optional[Tensor],
-    all_reduce: Optional[bool]
+    x: Tensor, weight: Tensor, bias: Optional[Tensor], all_reduce: Optional[bool]
 ) -> Tensor:
     shape_x = x.shape
     shape_w = weight.shape
