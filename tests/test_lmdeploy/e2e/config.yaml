@@ -6,6 +6,7 @@ tp_config:
     internlm2-chat-20b: 2
     internlm2_5-20b-chat: 2
     InternVL-Chat-V1-5: 2
+    cogvlm2-llama3-chat-19B: 2
 
 pytorch_chat_model:
     - llama_model_data/llama-2-7b-chat-hf
@@ -19,3 +20,5 @@ pytorch_chat_model:
 pytorch_vl_model:
     - internvl_model_data/InternVL-Chat-V1-5
     - internvl_model_data/InternVL2-2B
+    - cogvlm_model_data/cogvlm-chat
+    - cogvlm_model_data/cogvlm2-llama3-chat-19B
