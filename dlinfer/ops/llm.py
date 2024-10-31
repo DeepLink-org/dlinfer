@@ -515,11 +515,7 @@ def linear_impl_abstract_func(
 @register_custom_op(
     "dlinfer::linear",
     impl_abstract_func=linear_impl_abstract_func,
-    default_value={
-        "bias": None,
-        "all_reduce": None
-    },
-
+    default_value={"bias": None, "all_reduce": False}
 )
 def linear(
     x: Tensor,
