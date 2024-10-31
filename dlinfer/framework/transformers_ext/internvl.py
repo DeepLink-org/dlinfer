@@ -20,7 +20,7 @@ def InternAttention_naive_attn(self, x):
         N,
         self.num_heads,
         self.num_heads,
-        None,
+        [],
         attn_output=q,
     )
 
