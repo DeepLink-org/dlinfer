@@ -73,10 +73,8 @@ class SingleOpTransformer(torch.fx.Transformer):
             try:
                 proxy = self.tracer.create_proxy("call_function", out, args, kwargs)
             except Exception as e:
-                import pdb
+                raise RuntimeError("tracer create_proxy failed!")
 
-                pdb.set_trace()
-                pass
             proxy.node.meta = fx_traceback.get_current_meta()
             return proxy
         return super().call_function(target, args, kwargs)
@@ -84,9 +82,6 @@ class SingleOpTransformer(torch.fx.Transformer):
     def get_attr(
         self, target: "Target", args: Tuple[Argument, ...], kwargs: Dict[str, Any]
     ) -> Proxy:
-        import pdb
-
-        pdb.set_trace()
         proxy = super().get_attr(target, args, kwargs)
         proxy.node.meta = fx_traceback.get_current_meta()
         if "val" not in proxy.node.meta:

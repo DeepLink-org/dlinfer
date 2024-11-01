@@ -559,10 +559,6 @@ def parse_graph(
 
         graph_node.set_inputs(graph_inputs)
         graph_node.set_internals(graph_internals)
-        # graph_node.set_internals([])
-        # # import pdb;pdb.set_trace()
-        # graph_internals.extend(graph_node.outputs)
-        # graph_node.set_outputs(list(set(graph_internals)))
         graph_node.node_names = list(graph_node.nodes.keys())
         if graph_node.has_infer_shape:
             infer_shape = []
