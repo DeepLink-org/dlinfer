@@ -467,6 +467,12 @@ class AtenToAtbTransformer(SingleOpTransformer):
         shape = replace_sym_in_shape_if_only_one(x.node.meta["val"].shape)
         return self.get_proxy(atb_op.View, (x, shape))
 
+    @register_conversion("torch.ops.dlinfer.linear.default")
+    def dlinfer_linear(self, x, weight, bias, all_reduce):
+        if all_reduce == False:
+            return self.get_proxy(atb_op.Linear, (x, weight, bias, False, True))
+        return self.get_proxy(atb_op.LinearAllReduce, (x, weight, bias))
+
 
 class ViewSymIntTransformer(torch.fx.Transformer):
     def call_function(self, target, args, kwargs):

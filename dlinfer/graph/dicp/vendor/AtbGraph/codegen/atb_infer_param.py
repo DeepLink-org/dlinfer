@@ -405,6 +405,47 @@ class ArangeParam:
     step: int = 0
 
 
+class ParallelType(IntEnum):
+    UNDEFINED = -1
+    LINEAR_ALL_REDUCE = 0
+    LINEAR_REDUCE_SCATTER = 1
+    ALL_GATHER_LINEAR = 2
+    PURE_LINEAR = 3
+    MAX = 4
+
+
+class LinearParallelQuantType(IntEnum):
+    QUANT_TYPE_UNDEFINED = -1
+    QUANT_TYPE_PER_TENSOR = 0
+    QUANT_TYPE_PER_CHANNEL = 1
+    QUANT_TYPE_PER_GROUP = 2
+    QUANT_TYPE_MAX = 3
+
+
+class CommMode(IntEnum):
+    COMM_UNDEFINED = -1
+    COMM_MULTI_PROCESS = 0
+    COMM_MULTI_THREAD = 1
+
+
+@dataclass
+class LinearParallelParam:
+    transWeight: bool = True
+    rank: int = 0
+    rankSize: int = 0
+    rankRoot: int = 0
+    hasResidual: bool = False
+    backend: str = "hccl"
+    commMode: CommMode = CommMode.COMM_MULTI_PROCESS
+    rankTableFile: str = ""
+    parallelType: ParallelType = ParallelType.LINEAR_ALL_REDUCE
+    keepIntermediate: bool = False
+    quantType: QuantType = LinearParallelQuantType.QUANT_TYPE_UNDEFINED
+    quantGroupSize: int = 0
+    outDataType: AclDataType = AclDataType.ACL_DT_UNDEFINED
+    commDomain: str = ""
+
+
 def custom_asdict_factory(data):
     def convert_value(obj):
         if isinstance(obj, IntEnum):

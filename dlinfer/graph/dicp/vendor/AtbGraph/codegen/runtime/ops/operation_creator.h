@@ -40,6 +40,7 @@ static std::map<std::string, OperationCreateFunc> g_funcMap = {
     {"AclNnGtScalarOperation", &AclNnGtScalarOperationCreate},
     {"AclNnSWhereOperation", &AclNnSWhereOperationCreate},
     {"AclNnArangeOperation", &AclNnArangeOperationCreate},
+    {"LinearParallelOperation", &LinearParallelOperationCreate},
 };
 
 atb::Operation* CreateOperation(const std::string& opName, const nlohmann::json& paramJson);
