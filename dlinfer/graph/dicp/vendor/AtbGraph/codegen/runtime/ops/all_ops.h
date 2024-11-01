@@ -22,6 +22,7 @@
 #include "atb_ops/elewise.h"
 #include "atb_ops/gather.h"
 #include "atb_ops/linear.h"
+#include "atb_ops/linear_parallel.h"
 #include "atb_ops/paged_attention.h"
 #include "atb_ops/reshape_and_cache.h"
 #include "atb_ops/rms_norm.h"
