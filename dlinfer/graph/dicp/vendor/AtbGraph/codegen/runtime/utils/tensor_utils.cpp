@@ -62,6 +62,11 @@ atb::Tensor AtTensor2Tensor(const at::Tensor& atTensor) {
         tensor.desc.shape.dims[i] = atTensor.sizes()[i];
     }
 
+    if (tensor.desc.shape.dimNum == 0) {
+        tensor.desc.shape.dimNum = 1;
+        tensor.desc.shape.dims[0] = 1;
+    }
+
     if (tensor.desc.shape.dimNum == 1 && tensor.desc.shape.dims[0] == 0) {
         tensor.desc.shape.dimNum = 0;
     }

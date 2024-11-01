@@ -67,7 +67,7 @@ class ElewiseQuantParam:
 
 
 @dataclass
-class MulsParam:
+class ElewiseMulsParam:
     varAttr: float = 0.0
 
 
@@ -75,7 +75,7 @@ class MulsParam:
 class ElewiseParam:
     elewiseType: ElewiseType = ElewiseType.ELEWISE_UNDEFINED
     quantParam: ElewiseQuantParam = field(default_factory=ElewiseQuantParam)
-    mulsParam: MulsParam = field(default_factory=MulsParam)
+    mulsParam: ElewiseMulsParam = field(default_factory=ElewiseMulsParam)
     outTensorType: AclDataType = AclDataType.ACL_DT_UNDEFINED
 
 
@@ -331,6 +331,78 @@ class GatherParam:
     name: str = ""
     axis: int = 0
     batchDims: int = 0
+
+
+@dataclass
+class AddsParam:
+    name: str = ""
+    value: float = 0
+    alpha: float = 1.0
+    dtype: str = "FLOAT"
+
+
+@dataclass
+class SubsParam:
+    name: str = ""
+    value: float = 0
+    alpha: float = 1.0
+    dtype: str = "FLOAT"
+
+
+@dataclass
+class MulsParam:
+    name: str = ""
+    value: float = 1.0
+    dtype: str = "FLOAT"
+
+
+@dataclass
+class DivsParam:
+    name: str = ""
+    divisor: float = 1.0
+    dtype: str = "FLOAT"
+
+
+@dataclass
+class PowTensorScalarParam:
+    name: str = ""
+    exponent: float = 1.0
+    dtype: str = "FLOAT"
+
+
+@dataclass
+class PowTensorTensorParam:
+    name: str = ""
+
+
+@dataclass
+class MaxParam:
+    name: str = ""
+
+
+@dataclass
+class ReciprocalParam:
+    name: str = ""
+
+
+@dataclass
+class WhereParam:
+    name: str = ""
+
+
+@dataclass
+class GtScalarParam:
+    name: str = ""
+    value: float = 1.0
+    dtype: str = "FLOAT"
+
+
+@dataclass
+class ArangeParam:
+    name: str = ""
+    start: int = 0
+    end: int = 0
+    step: int = 0
 
 
 def custom_asdict_factory(data):
