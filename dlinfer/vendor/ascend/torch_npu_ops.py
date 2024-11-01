@@ -412,7 +412,6 @@ def linear(
     bias: Optional[Tensor],
     all_reduce: Optional[bool],
 ) -> Tensor:
-    import pdb; pdb.set_trace()
     if all_reduce:
         hcomm_info = torch.distributed.distributed_c10d._world.default_pg._get_backend(
             x.device
