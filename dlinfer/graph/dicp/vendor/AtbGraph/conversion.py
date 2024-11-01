@@ -1,37 +1,17 @@
-import re
-import os
 import functools
 import operator
-import _operator
 import torch
 import math
-from typing import (
-    Optional,
-)
-from torch.types import (
-    Number,
-)
-import numpy as np
-import sympy
+
 import torch.fx
 import torch.fx.traceback as fx_traceback
-from torch.fx.immutable_collections import immutable_list
 from dlinfer.graph.dicp.vendor.AtbGraph import atb_op
-from dlinfer.graph.dicp.dynamo_bridge.utils import (
-    symint_in_shape,
-    neg_in_shape,
-    not_all_num_shape,
-    process_sym_name,
-)
-from dlinfer.graph.dicp.dynamo_bridge.utils import (
-    preprocess_expression,
-    find_root_num,
-    merge_disjoint_set,
-)
+
 from dlinfer.graph.dicp.dynamo_bridge.conversion import register_conversion_impl
 from dlinfer.graph.dicp.dynamo_bridge.op_transformer import SingleOpTransformer
 from dlinfer.graph.dicp.vendor.AtbGraph import ext_ops
 from dlinfer.graph.dicp.vendor.AtbGraph.codegen.utils import get_ascend_dtype
+
 
 aten = torch.ops.aten
 conversions = {}
@@ -99,6 +79,7 @@ def replace_negative_one_when_fixed(origin_shape, new_shape):
 class AtenToAtbTransformer(SingleOpTransformer):
     def __init__(self, gm):
         super().__init__(gm, conversions)
+        self._register_binary_ops()
 
     @register_conversion(torch.ops.atb.linear.default)
     def linear(self, a, b, bias, trans_a, trans_b):
@@ -231,58 +212,34 @@ class AtenToAtbTransformer(SingleOpTransformer):
     def aten_mm(self, x, y):
         return self.get_proxy(atb_op.Linear, (x, y, None, False, False))
 
-    @register_conversion(torch.ops.aten.add.Tensor)
-    def aten_add_tensor(self, x, y):
-        out_dtype = fx_traceback.get_current_meta()["val"].dtype
-        x_shape = x.node.meta["val"].shape
-        if x.node.meta["val"].dtype != out_dtype:
-            x = self.get_proxy(atb_op.Cast, (x, out_dtype))
+    def _register_binary_ops(self):
+        binary_ops = {
+            (torch.ops.aten.add.Tensor, "add"): (atb_op.Add, atb_op.Adds),
+            (torch.ops.aten.sub.Tensor, "sub"): (atb_op.Sub, atb_op.Subs),
+            (torch.ops.aten.mul.Tensor, "mul"): (atb_op.Mul, atb_op.Muls),
+            (torch.ops.aten.div.Tensor, "div"): (atb_op.Div, atb_op.Divs),
+        }
 
-        if isinstance(y, torch.fx.Proxy):
-            if y.node.meta["val"].dtype != out_dtype:
-                y = self.get_proxy(atb_op.Cast, (y, out_dtype))
-            return self.get_proxy(atb_op.Add, (x, y))
-        dtype = get_ascend_dtype(out_dtype)
-        return self.get_proxy(atb_op.Adds, (x, y, dtype))
+        for (aten_op, op_name), (tensor_op, scalar_op) in binary_ops.items():
 
-    @register_conversion(torch.ops.aten.div.Tensor)
-    def aten_div_tensor(self, x, y):
-        out_dtype = fx_traceback.get_current_meta()["val"].dtype
-        if x.node.meta["val"].dtype != out_dtype:
-            x = self.get_proxy(atb_op.Cast, (x, out_dtype))
+            def make_handler(tensor_op, scalar_op):
+                def handler(self, x, y):
+                    out_dtype = fx_traceback.get_current_meta()["val"].dtype
 
-        if isinstance(y, torch.fx.Proxy):
-            if y.node.meta["val"].dtype != out_dtype:
-                y = self.get_proxy(atb_op.Cast, (y, out_dtype))
-            return self.get_proxy(atb_op.Div, (x, y))
-        dtype = get_ascend_dtype(out_dtype)
-        return self.get_proxy(atb_op.Divs, (x, y, dtype))
+                    if x.node.meta["val"].dtype != out_dtype:
+                        x = self.get_proxy(atb_op.Cast, (x, out_dtype))
 
-    @register_conversion(torch.ops.aten.mul.Tensor)
-    def aten_mul_tensor(self, x, y):
-        out_dtype = fx_traceback.get_current_meta()["val"].dtype
-        if x.node.meta["val"].dtype != out_dtype:
-            x = self.get_proxy(atb_op.Cast, (x, out_dtype))
+                    if isinstance(y, torch.fx.Proxy):
+                        if y.node.meta["val"].dtype != out_dtype:
+                            y = self.get_proxy(atb_op.Cast, (y, out_dtype))
+                        return self.get_proxy(tensor_op, (x, y))
+                    else:
+                        dtype = get_ascend_dtype(out_dtype)
+                        return self.get_proxy(scalar_op, (x, y, dtype))
 
-        if isinstance(y, torch.fx.Proxy):
-            if y.node.meta["val"].dtype != out_dtype:
-                y = self.get_proxy(atb_op.Cast, (y, out_dtype))
-            return self.get_proxy(atb_op.Mul, (x, y))
-        dtype = get_ascend_dtype(out_dtype)
-        return self.get_proxy(atb_op.Muls, (x, y, dtype))
+                return handler
 
-    @register_conversion(torch.ops.aten.sub.Tensor)
-    def aten_sub_tensor(self, x, y):
-        out_dtype = fx_traceback.get_current_meta()["val"].dtype
-        if x.node.meta["val"].dtype != out_dtype:
-            x = self.get_proxy(atb_op.Cast, (x, out_dtype))
-
-        if isinstance(y, torch.fx.Proxy):
-            if y.node.meta["val"].dtype != out_dtype:
-                y = self.get_proxy(atb_op.Cast, (y, out_dtype))
-            return self.get_proxy(atb_op.Sub, (x, y))
-        dtype = get_ascend_dtype(out_dtype)
-        return self.get_proxy(atb_op.Subs, (x, y, dtype))
+            register_conversion(aten_op)(make_handler(tensor_op, scalar_op))
 
     @register_conversion(torch.ops.aten.pow.Tensor_Scalar)
     def aten_pow_tensor_scalar(self, x, y):
