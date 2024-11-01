@@ -95,12 +95,12 @@ def prefill_attention(
         else q_seq_len.cumsum(0).tolist()
     )
     seq_kvlen_list = seq_qlen_list
-    if attn_mask is None and q_seq_len is None:
+    if len(attn_mask) == 0 and q_seq_len is None:
         query = query.view(query.shape[0] * query.shape[1], num_q_heads, -1)
         key = key.view(key.shape[0] * key.shape[1], num_kv_heads, -1)
         value = value.view(value.shape[0] * value.shape[1], num_kv_heads, -1)
     scale_value = softmax_scale if softmax_scale else 1.0 / math.sqrt(query.shape[-1])
-    attn_mask_ = None if attn_mask is None else attn_mask[0]
+    attn_mask_ = None if len(attn_mask) == 0 else attn_mask[0]
     attn_output.view(query.shape)[:] = torch.ops.npu.npu_fusion_attention(
         query,
         key,
