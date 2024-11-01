@@ -1,4 +1,5 @@
 # Copyright (c) 2024, DeepLink. All rights reserved.
+import torch
 from dlinfer.vendor import vendor_ops_registry
 from dlinfer.utils.type_annotation import Tensor, Optional, Sequence, Tuple
 from dlinfer.graph.custom_op import register_custom_op
@@ -19,6 +20,7 @@ __all__ = [
     "get_cache_len",
     "weight_quant_matmul",
     "fused_moe",
+    "linear",
 ]
 
 
@@ -494,3 +496,43 @@ def fused_moe(
     return vendor_ops_registry["fused_moe"](
         hidden_states, top_k, topk_ids, topk_weights, gate_up_weights, down_weights
     )
+
+
+def linear_impl_abstract_func(
+    x: Tensor, weight: Tensor, bias: Optional[Tensor], all_reduce: Optional[bool]
+) -> Tensor:
+    shape_x = x.shape
+    shape_w = weight.shape
+    rank_x = len(x.shape)
+    rank_w = len(weight.shape)
+    assert rank_w == 2, "weight in linear must be a 2D tensor"
+    cx = shape_x[-1]
+    cy = shape_w[-1]
+    assert cx == cy, "The last dimension of x must match the last dimension of weight."
+    return torch.empty(shape_x[:-1] + shape_w[-2:-1], dtype=x.dtype)
+
+
+@register_custom_op(
+    "dlinfer::linear",
+    impl_abstract_func=linear_impl_abstract_func,
+    default_value={"bias": None, "all_reduce": False},
+)
+def linear(
+    x: Tensor,
+    weight: Tensor,
+    bias: Optional[Tensor],
+    all_reduce: Optional[bool],
+) -> Tensor:
+    """
+    Complete a linear computation.
+
+    Args:
+        x1 (Tensor): The first input tensor of linear computation.
+        x2 (Tensor): The second input tensor of linear computation.
+        bias (Optional[Tensor]): An optional bias tensor of linear computation.
+        all_reduce (Optional[bool]): An optional bool describes whether or not allreduce is required.
+
+    Returns:
+        Tensor: The output tensor of linear computation.
+    """
+    return vendor_ops_registry["linear"](x, weight, bias, all_reduce)
