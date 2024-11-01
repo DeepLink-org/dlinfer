@@ -51,8 +51,6 @@ def preserve_meta_val():
 def atbgraph_opset_convert(
     gm: torch.fx.GraphModule,
 ):
-    # gm.print_readable()
-    # import pdb;pdb.set_trace()
     with preserve_meta_val():
         gm = ViewSymIntTransformer(gm).transform()
         gm.graph.eliminate_dead_code()

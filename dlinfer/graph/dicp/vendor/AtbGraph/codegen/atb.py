@@ -176,11 +176,6 @@ class AtbCodegen(torch.fx.Interpreter):
         graph_output_names = self.atb_graph.outputs
 
         for output in graph_output_names:
-            if output not in self.output_tensor_descs["param"].keys():
-                import pdb
-
-                pdb.set_trace()
-                pass
             param = self.output_tensor_descs["param"][output]
             create_info = self.output_tensor_descs["create"][output]
             # call_body.writeline(f'''output_tensor_descs["outputTensorDescs"].append({param})''')
