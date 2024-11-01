@@ -97,7 +97,8 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
             &rotary_embedding,
             "rotary_embedding(Tensor positions, Tensor! query,"
             "                 Tensor! key, int head_size,"
-            "                 Tensor cos_sin_cache, bool is_neox) -> ()");
+            "                 Tensor cos, Tensor sin,"
+            "                 bool is_neox) -> ()");
 
     // Apply GPT-NeoX or GPT-J style rotary embedding to query and key
     // (supports multiple loras).

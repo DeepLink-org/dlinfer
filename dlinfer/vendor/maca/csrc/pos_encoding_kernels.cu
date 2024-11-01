@@ -1,3 +1,4 @@
+#include <ATen/ops/cat.h>
 #include <torch/all.h>
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/cuda/CUDAGuard.h>
@@ -128,8 +129,11 @@ void rotary_embedding(
     torch::Tensor& key,    // [batch_size, seq_len, num_kv_heads * head_size] or
                            // [num_tokens, num_kv_heads * head_size]
     int64_t head_size,
-    torch::Tensor& cos_sin_cache,  // [max_position, rot_dim]
+    torch::Tensor& cos,  // [max_position, rot_dim]
+    torch::Tensor& sin,  // [max_position, rot_dim]
     bool is_neox) {
+  auto cos_sin_cache = torch::cat({cos, sin}, -1);
+
   int64_t num_tokens = query.numel() / query.size(-1);
   int rot_dim = cos_sin_cache.size(1);
   int num_heads = query.size(-1) / head_size;
