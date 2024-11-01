@@ -8,12 +8,19 @@ from lmdeploy.model import MODELS
 TEST_DIR = os.environ.get("DLINFER_TEST_DIR")
 
 
-def get_torch_model_list(tp_num: int = None, graph_mode: bool = False, model_type: str = "chat_model"):
+def get_torch_model_list(
+    tp_num: int = None, graph_mode: bool = False, model_type: str = "chat_model"
+):
     config = get_config()
     case_list = config.get("pytorch_" + model_type)
     if tp_num is not None:
         if graph_mode:
-            return [model for model in case_list if get_tp_num(config, model) == tp_num and is_graph_enabled(config, model)]
+            return [
+                model
+                for model in case_list
+                if get_tp_num(config, model) == tp_num
+                and is_graph_enabled(config, model)
+            ]
         else:
             return [model for model in case_list if get_tp_num(config, model) == tp_num]
     else:
@@ -43,6 +50,7 @@ def get_tp_num(config, model):
     if model_name in tp_config.keys():
         tp_num = tp_config.get(model_name)
     return tp_num
+
 
 def is_graph_enabled(config, model):
     graph_config = config.get("graph_config")

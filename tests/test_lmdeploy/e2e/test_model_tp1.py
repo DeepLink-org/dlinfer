@@ -17,7 +17,9 @@ from test_lmdeploy.utils.pipeline_chat import (
 @pytest.mark.flaky(reruns=0)
 @pytest.mark.lmdeploy
 @pytest.mark.chat
-@pytest.mark.parametrize("model", get_torch_model_list(tp_num=1, graph_mode=False, model_type="chat_model"))
+@pytest.mark.parametrize(
+    "model", get_torch_model_list(tp_num=1, graph_mode=False, model_type="chat_model")
+)
 def test_pipeline_chat_pytorch_tp1_ascend_eager(config, common_case_config, model):
     p = Process(
         target=run_pipeline_chat_test,
@@ -33,7 +35,9 @@ def test_pipeline_chat_pytorch_tp1_ascend_eager(config, common_case_config, mode
 @pytest.mark.flaky(reruns=0)
 @pytest.mark.lmdeploy
 @pytest.mark.vl
-@pytest.mark.parametrize("model", get_torch_model_list(tp_num=1, graph_mode=False, model_type="vl_model"))
+@pytest.mark.parametrize(
+    "model", get_torch_model_list(tp_num=1, graph_mode=False, model_type="vl_model")
+)
 def test_pipeline_vl_pytorch_tp1_ascend_eager(config, model):
     p = Process(target=run_pipeline_vl_chat_test, args=(config, model, "ascend", True))
     p.start()
@@ -48,7 +52,9 @@ def test_pipeline_vl_pytorch_tp1_ascend_eager(config, model):
 @pytest.mark.lmdeploy
 @pytest.mark.chat
 @pytest.mark.graph
-@pytest.mark.parametrize("model", get_torch_model_list(tp_num=1, graph_mode=True, model_type="chat_model"))
+@pytest.mark.parametrize(
+    "model", get_torch_model_list(tp_num=1, graph_mode=True, model_type="chat_model")
+)
 def test_pipeline_chat_pytorch_tp1_ascend_graph(config, common_case_config, model):
     p = Process(
         target=run_pipeline_chat_test,
