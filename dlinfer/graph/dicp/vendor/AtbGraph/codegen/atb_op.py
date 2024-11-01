@@ -19,14 +19,12 @@ from dlinfer.graph.dicp.vendor.AtbGraph.codegen.utils import get_acl_dtype
 
 
 class AtbOverrides:
-    @staticmethod
     def gen_args(op_var, args_dict, args):
         src_code = IndentedBuffer()
         args_str = [op_var]
         args_str.extend(tree_map_only(Node, lambda x: args_dict[x.name], args))
         return src_code, args_str
 
-    @staticmethod
     def Linear(name, a, b, bias, trans_a, trans_b, out_dtype=None):
         op = Operation(name, "LinearOperation")
         param = infer_param.LinearParam()
@@ -45,7 +43,6 @@ class AtbOverrides:
         op.set_output([name])
         return op
 
-    @staticmethod
     def Add(name, x, y):
         op = Operation(name, "ElewiseOperation")
         param = infer_param.ElewiseParam()
@@ -56,12 +53,156 @@ class AtbOverrides:
         op.set_output([name])
         return op
 
+    def Adds(name, x, y, dtype="FLOAT"):
+        op = Operation(name, "AclNnAddsOperation")
+        param = infer_param.AddsParam()
+        param.name = name
+        param.value = y
+        param.dtype = dtype
+
+        op.set_input([x])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def Sub(name, x, y):
+        op = Operation(name, "ElewiseOperation")
+        param = infer_param.ElewiseParam()
+        param.elewiseType = infer_param.ElewiseType.ELEWISE_SUB
+
+        op.set_input([x, y])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def Subs(name, x, y, dtype="FLOAT"):
+        op = Operation(name, "AclNnSubsOperation")
+        param = infer_param.SubsParam()
+        param.name = name
+        param.value = y
+        param.dtype = dtype
+
+        op.set_input([x])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def Div(name, x, y):
+        op = Operation(name, "ElewiseOperation")
+        param = infer_param.ElewiseParam()
+        param.elewiseType = infer_param.ElewiseType.ELEWISE_REALDIV
+
+        op.set_input([x, y])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def Divs(name, x, y, dtype="FLOAT"):
+        op = Operation(name, "AclNnDivsOperation")
+        param = infer_param.DivsParam()
+        param.name = name
+        param.divisor = float(y)
+        param.dtype = dtype
+
+        op.set_input([x])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
     def Mul(name, x, y):
         op = Operation(name, "ElewiseOperation")
         param = infer_param.ElewiseParam()
         param.elewiseType = infer_param.ElewiseType.ELEWISE_MUL
 
         op.set_input([x, y])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def Muls(name, x, y, dtype="FLOAT"):
+        op = Operation(name, "AclNnMulsOperation")
+        param = infer_param.MulsParam()
+        param.name = name
+        param.value = float(y)
+        param.dtype = dtype
+
+        op.set_input([x])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def PowTensorTensor(name, x, y):
+        op = Operation(name, "AclNnPowTensorTensorOperation")
+        param = infer_param.PowTensorTensorParam()
+        param.name = name
+
+        op.set_input([x, y])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def PowTensorScalar(name, x, y, dtype="FLOAT"):
+        op = Operation(name, "AclNnPowTensorScalarOperation")
+        param = infer_param.PowTensorScalarParam()
+        param.name = name
+        param.exponent = float(y)
+        param.dtype = dtype
+
+        op.set_input([x])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def Max(name, x):
+        op = Operation(name, "AclNnMaxOperation")
+        param = infer_param.MaxParam()
+        param.name = name
+
+        op.set_input([x])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def Reciprocal(name, x):
+        op = Operation(name, "AclNnReciprocalOperation")
+        param = infer_param.ReciprocalParam()
+        param.name = name
+
+        op.set_input([x])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def Where(name, cond, x, y):
+        op = Operation(name, "AclNnSWhereOperation")
+        param = infer_param.WhereParam()
+        param.name = name
+
+        op.set_input([cond, x, y])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def Arange(name, start, end, step):
+        op = Operation(name, "AclNnArangeOperation")
+        param = infer_param.ArangeParam()
+        param.name = name
+        param.start = start
+        param.end = end
+        param.step = step
+
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def GtScalar(name, x, y, dtype="FLOAT"):
+        op = Operation(name, "AclNnGtScalarOperation")
+        param = infer_param.GtScalarParam()
+        param.name = name
+        param.value = float(y)
+        param.dtype = dtype
+
+        op.set_input([x])
         op.set_param(param)
         op.set_output([name])
         return op
