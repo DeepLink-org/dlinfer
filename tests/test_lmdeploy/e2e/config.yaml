@@ -1,5 +1,5 @@
 model_path: /data2/share_data
-log_path: /data2/wugeshui/GitHub/ci_log/logs
+log_path: /data2/weitao/profile
 
 tp_config:
     Mixtral-8x7B-Instruct-v0.1: 2
@@ -7,6 +7,10 @@ tp_config:
     internlm2_5-20b-chat: 2
     InternVL-Chat-V1-5: 2
     cogvlm2-llama3-chat-19B: 2
+
+graph_config:
+    Qwen2-7B-Instruct: True
+    Meta-Llama-3-8B-Instruct: True
 
 pytorch_chat_model:
     - llama_model_data/llama-2-7b-chat-hf
