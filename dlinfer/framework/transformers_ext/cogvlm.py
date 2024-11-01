@@ -18,7 +18,7 @@ def PatchedAttention_forward(self, x: "tensor(B, L, D)") -> "tensor(B, L, D)":
         L,
         self.num_heads,
         self.num_heads,
-        None,
+        [],
         attn_output=q,
     )
     output = self.dense(out.view(B, L, -1))
