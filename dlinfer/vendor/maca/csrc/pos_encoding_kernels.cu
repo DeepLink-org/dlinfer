@@ -65,7 +65,7 @@ inline __device__ void apply_rotary_embedding(
 }
 
 template <typename scalar_t, bool IS_NEOX>
-inline __device__ void batched_rotary_embedding(
+inline __device__ void batched_apply_rotary_embedding(
     scalar_t* __restrict__ query,  // [batch_size, seq_len, num_heads,
                                    // head_size] or [num_tokens, num_heads,
                                    // head_size]
@@ -147,7 +147,7 @@ __global__ void batched_rotary_embedding_kernel(
   const scalar_t* cache_ptr =
       cos_sin_cache + (cos_sin_cache_offset + pos) * rot_dim;
 
-  batched_rotary_embedding<scalar_t, IS_NEOX>(
+  batched_apply_rotary_embedding<scalar_t, IS_NEOX>(
       query, key, cache_ptr, head_size, num_heads, num_kv_heads, rot_dim,
       token_idx, query_stride, key_stride);
 }
@@ -164,8 +164,6 @@ void rotary_embedding(
     torch::Tensor& cos,  // [max_position, embed_dim]
     torch::Tensor& sin,  // [max_position, embed_dim]
     bool is_neox) {
-  auto cos_sin_cache = torch::cat({cos, sin}, -1);
-
   int64_t num_tokens = query.numel() / query.size(-1);
   int embed_dim = cos.size(-1);
   int num_heads = query.size(-1) / head_size;
