@@ -1,5 +1,5 @@
 ninja
-setuptools==65.6.3
+setuptools
 wheel
 scikit-build
 cmake>=3.18
