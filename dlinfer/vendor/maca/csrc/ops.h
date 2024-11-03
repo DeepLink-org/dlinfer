@@ -35,7 +35,8 @@ void rms_norm(torch::Tensor& out, torch::Tensor& input, torch::Tensor& weight, d
 
 void fused_add_rms_norm(torch::Tensor& input, torch::Tensor& residual, torch::Tensor& weight, double epsilon);
 
-void rotary_embedding(torch::Tensor& positions, torch::Tensor& query, torch::Tensor& key, int64_t head_size, torch::Tensor& cos_sin_cache, bool is_neox);
+void rotary_embedding(torch::Tensor& positions, torch::Tensor& query, torch::Tensor& key, int64_t head_size, torch::Tensor& cos, torch::Tensor& sin,
+                      bool is_neox);
 
 void batched_rotary_embedding(torch::Tensor& positions, torch::Tensor& query, torch::Tensor& key, int64_t head_size, torch::Tensor& cos_sin_cache, bool is_neox,
                               int64_t rot_dim, torch::Tensor& cos_sin_cache_offsets);
