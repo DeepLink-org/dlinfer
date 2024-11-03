@@ -129,3 +129,6 @@ cmake-build-*/
 
 # scripts
 !/scripts/*
+
+# clang files
+.clangd

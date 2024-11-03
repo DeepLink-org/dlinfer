@@ -326,7 +326,7 @@ def moe_gating_topk_softmax(
 
 
 @register_ops(vendor_ops_registry)
-def silu_and_mul(x: Tensor) -> Tensor:
+def silu_and_mul(x: Tensor, dim: int = -1) -> Tensor:
     d = x.shape[-1] // 2
     output_shape = x.shape[:-1] + (d,)
     out = torch.empty(output_shape, dtype=x.dtype, device=x.device)
