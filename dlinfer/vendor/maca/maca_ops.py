@@ -1,5 +1,6 @@
 import math
 import torch
+import torch.distributed as dist
 
 from flash_attn import flash_attn_varlen_func
 from flash_attn import flash_attn_with_kvcache
@@ -376,8 +377,7 @@ def linear(
     bias: Optional[Tensor],
     all_reduce: Optional[bool],
 ) -> Tensor:
+    out = torch.nn.functional.linear(x, weight, bias)
     if all_reduce:
-        raise ValueError("all_reduce is not supported on maca backend for now")
-    else:
-        out = torch.nn.functional.linear(x, weight, bias)
+        dist.all_reduce(out)
     return out
