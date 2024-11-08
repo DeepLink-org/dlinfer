@@ -84,6 +84,11 @@ def apply_rotary_pos_emb(
     total_seq_len, q_head_num, head_dim = query.shape
     k_head_num = key.shape[1]
 
+    # another version
+    # cu_seqlens = position_ids
+    # query = tmo.apply_rotary(query, sin, cos, None, cu_seqlens, interleaved, False, False, total_seq_len)
+    # key = tmo.apply_rotary(key, sin, cos, None, cu_seqlens, interleaved, False, False, total_seq_len)
+
     query = query.reshape(total_seq_len, 1, q_head_num, head_dim)
     key = key.reshape(total_seq_len, 1, k_head_num, head_dim)
     sin = sin.reshape(total_seq_len, 1, head_dim)
