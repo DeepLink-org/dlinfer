@@ -15,6 +15,8 @@ __all__ =[
     "paged_decode_attention",
     # "paged_prefill_attention",
     "rms_norm",
+    "moe_gating_topk_softmax",
+    "fused_moe"
 ]
 
 
@@ -172,3 +174,23 @@ def paged_decode_attention(
     
     attn_output = attn_output.reshape(total_seq_len, head_num, head_dim)
     return attn_output
+
+@register_ops(vendor_ops_registry)
+def moe_gating_topk_softmax(router_logits: Tensor, topk: int) -> Tuple[Tensor, Tensor]:
+    routing_weights = torch.nn.functional.softmax(router_logits, dim=1, dtype=torch.float)
+    routing_weights, selected_experts = torch.topk(routing_weights, topk, dim=-1)
+    # return routing_weights, selected_experts
+    return router_logits, router_logits
+
+@register_ops(vendor_ops_registry)
+def fused_moe(
+    hidden_states: Tensor,
+    top_k: int,
+    topk_ids: Tensor,
+    topk_weights: Tensor,
+    gate_up_weights: Tensor,
+    down_weights: Tensor,
+) -> Tensor:
+    return tmo.fused_moe(hidden_states, topk_weights, gate_up_weights, down_weights, \
+        bias1=None, bias2=None, residual=None, input_smooth=None, act_smooth=None, w1_scale=None, \
+            w2_scale=None, topk=top_k, renormalize=True, gated=True, act_mode='silu')
