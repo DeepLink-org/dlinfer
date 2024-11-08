@@ -21,6 +21,7 @@ __all__ = [
     "rms_norm",
     "silu_and_mul",
     "moe_gating_topk_softmax",
+    "linear",
 ]
 
 
@@ -366,3 +367,17 @@ def fused_moe(
         out.view(N, -1, down_weights.shape[1])
         * topk_weights.view(N, -1, 1).to(out.dtype)
     ).sum(dim=1)
+
+
+@register_ops(vendor_ops_registry)
+def linear(
+    x: Tensor,
+    weight: Tensor,
+    bias: Optional[Tensor],
+    all_reduce: Optional[bool],
+) -> Tensor:
+    if all_reduce:
+        raise ValueError("all_reduce is not supported on maca backend for now")
+    else:
+        out = torch.nn.functional.linear(x, weight, bias)
+    return out
