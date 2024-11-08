@@ -1,5 +1,6 @@
 import math
 import torch
+import torch.distributed as dist
 
 from flash_attn import flash_attn_varlen_func
 from flash_attn import flash_attn_with_kvcache
@@ -21,6 +22,7 @@ __all__ = [
     "rms_norm",
     "silu_and_mul",
     "moe_gating_topk_softmax",
+    "linear",
 ]
 
 
@@ -366,3 +368,16 @@ def fused_moe(
         out.view(N, -1, down_weights.shape[1])
         * topk_weights.view(N, -1, 1).to(out.dtype)
     ).sum(dim=1)
+
+
+@register_ops(vendor_ops_registry)
+def linear(
+    x: Tensor,
+    weight: Tensor,
+    bias: Optional[Tensor],
+    all_reduce: Optional[bool],
+) -> Tensor:
+    out = torch.nn.functional.linear(x, weight, bias)
+    if all_reduce:
+        dist.all_reduce(out)
+    return out
