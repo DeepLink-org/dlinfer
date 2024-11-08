@@ -12,7 +12,7 @@
 
 #include "acl/acl.h"
 #include "aclnnop/aclnn_split_with_size.h"
-#include "log.h"
+#include "utils/log.h"
 
 namespace dicp {
 

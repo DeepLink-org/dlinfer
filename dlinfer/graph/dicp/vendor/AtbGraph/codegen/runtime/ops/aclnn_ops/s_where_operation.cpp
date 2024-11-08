@@ -1,8 +1,8 @@
 #include "s_where_operation.h"
 
 #include "aclnnop/aclnn_s_where.h"
-#include "common.h"
-#include "log.h"
+#include "utils/common.h"
+#include "utils/log.h"
 
 namespace dicp {
 

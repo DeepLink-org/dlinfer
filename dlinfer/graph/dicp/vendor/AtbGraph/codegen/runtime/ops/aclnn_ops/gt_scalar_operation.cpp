@@ -1,8 +1,8 @@
 #include "gt_scalar_operation.h"
 
 #include "aclnnop/aclnn_gt_scalar.h"
-#include "log.h"
-#include "utils.h"
+#include "utils/log.h"
+#include "utils/misc.h"
 
 namespace dicp {
 
