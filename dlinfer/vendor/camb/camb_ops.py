@@ -2,6 +2,8 @@ import math
 import torch
 import torch_mlu
 import torch_mlu_ops as tmo
+import torch.nn.functional as F
+from torch import distributed as dist
 
 from dlinfer.vendor import vendor_ops_registry
 from dlinfer.utils.registry import register_ops
@@ -16,7 +18,8 @@ __all__ =[
     # "paged_prefill_attention",
     "rms_norm",
     "moe_gating_topk_softmax",
-    "fused_moe"
+    "fused_moe",
+    "linear",
 ]
 
 
@@ -182,7 +185,7 @@ def paged_decode_attention(
 
 @register_ops(vendor_ops_registry)
 def moe_gating_topk_softmax(router_logits: Tensor, topk: int) -> Tuple[Tensor, Tensor]:
-    routing_weights = torch.nn.functional.softmax(router_logits, dim=1, dtype=torch.float)
+    routing_weights = F.softmax(router_logits, dim=1, dtype=torch.float)
     routing_weights, selected_experts = torch.topk(routing_weights, topk, dim=-1)
     # return routing_weights, selected_experts
     return router_logits, router_logits
@@ -199,3 +202,15 @@ def fused_moe(
     return tmo.fused_moe(hidden_states, topk_weights, gate_up_weights, down_weights, \
         bias1=None, bias2=None, residual=None, input_smooth=None, act_smooth=None, w1_scale=None, \
             w2_scale=None, topk=top_k, renormalize=True, gated=True, act_mode='silu')
+    
+@register_ops(vendor_ops_registry)
+def linear(
+    x: Tensor,
+    weight: Tensor,
+    bias: Optional[Tensor],
+    all_reduce: Optional[bool],
+) -> Tensor:
+    out = F.linear(x, weight, bias)
+    if all_reduce:
+        dist.all_reduce(out)
+    return out
