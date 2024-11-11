@@ -21,10 +21,13 @@ def get_llama2(model_path, seqlen=2048):
     torch.nn.init.kaiming_uniform_ = skip
     torch.nn.init.uniform_ = skip
     torch.nn.init.normal_ = skip
-    model = AutoModelForCausalLM.from_pretrained(model_path, trust_remote_code=True, torch_dtype=torch.float16)
+    model = AutoModelForCausalLM.from_pretrained(
+        model_path, trust_remote_code=True, torch_dtype=torch.float16
+    )
 
     model.seqlen = seqlen
     return model
+
 
 def build_model_and_enc(model, model_path, gpu_num):
     config = AutoConfig.from_pretrained(model_path, trust_remote_code=True)
@@ -45,9 +48,9 @@ def build_model_and_enc(model, model_path, gpu_num):
     # a clever way:
     max_memory = []
     for i in range(gpu_num):
-        max_memory.append(f'{i}:12GiB')
-    max_memory.append('cpu:80GiB')
-    print('Max_memory allocation: \n', max_memory)
+        max_memory.append(f"{i}:12GiB")
+    max_memory.append("cpu:80GiB")
+    print("Max_memory allocation: \n", max_memory)
 
     max_memory = [v.split(":") for v in (max_memory or [])]
     max_memory = {(int(k) if k.isdigit() else k): v for k, v in max_memory}
@@ -69,76 +72,89 @@ def build_model_and_enc(model, model_path, gpu_num):
         ],
         **kwargs,
     )
-    model = dispatch_model(model, device_map=device_map, 
-        offload_dir=os.path.join(model_path, 'offload_dir'))
+    model = dispatch_model(
+        model,
+        device_map=device_map,
+        offload_dir=os.path.join(model_path, "offload_dir"),
+    )
 
     return model, enc
 
 
 def get_loaders(dataset_path: str, enc, seqlen):
-    print('Loading dataset c4/realnewslike')
+    print("Loading dataset c4/realnewslike")
     testenc = load_dataset(
-            'json', 
-            data_files={'validation':dataset_path},
-            split = 'validation'
-        )
-    import pdb;pdb.set_trace()
-    testenc = enc(' '.join(testenc[:1100]['text']), return_tensors='pt')
-    testenc = testenc.input_ids[:, :(256 * seqlen)]
+        "json", data_files={"validation": dataset_path}, split="validation"
+    )
+    import pdb
+
+    pdb.set_trace()
+    testenc = enc(" ".join(testenc[:1100]["text"]), return_tensors="pt")
+    testenc = testenc.input_ids[:, : (256 * seqlen)]
 
     class TokenizerWrapper:
         def __init__(self, input_ids):
             self.input_ids = input_ids
+
     testenc = TokenizerWrapper(testenc)
-    
+
     return testenc
 
 
 def main():
     # Load model
-    model_path = '/data2/share_data/internlm_model_data/internlm2_5-7b-chat'
+    model_path = "/data2/share_data/internlm_model_data/internlm2_5-7b-chat"
     model = get_llama2(model_path)
     model = model.eval()
-    gpus = os.getenv('CUDA_VISIBLE_DEVICES')
-    if gpus == '' or gpus is None:
+    gpus = os.getenv("CUDA_VISIBLE_DEVICES")
+    if gpus == "" or gpus is None:
         gpu_num = 0
     else:
-        gpu_num = len(gpus.split(','))
+        gpu_num = len(gpus.split(","))
     model, enc = build_model_and_enc(model, model_path, gpu_num)
     model.seqlen = 2048
 
     # Load dataset
-    dataset_path = './c4/c4-train.00000-of-00512.json'
-    testenc = get_loaders(dataset_path=dataset_path,
-                          enc=enc, 
-                          seqlen=model.seqlen)
-    
-    import pdb;pdb.set_trace()
-    testenc = testenc.input_ids.to(model.device)
-    
-    config_file = './outputs/config.json'
-    amct.create_quant_cali_config(config_file=config_file,
-                                  model=model,
-                                  quant_layers={'kv_cache_quant_laye':
-                                      [f'model.layers.{i}.attention.wqkv' for i in range(32)]},
-                                  config_defination=None)
+    dataset_path = "./c4/c4-train.00000-of-00512.json"
+    testenc = get_loaders(dataset_path=dataset_path, enc=enc, seqlen=model.seqlen)
 
-    record_file = './outputs/record.txt'
-    quant_cali_model = amct.create_quant_cali_model(config_file=config_file,
-                                                    record_file=record_file,
-                                                    model=model).npu()
+    import pdb
+
+    pdb.set_trace()
+    testenc = testenc.input_ids.to(model.device)
+
+    config_file = "./outputs/config.json"
+    amct.create_quant_cali_config(
+        config_file=config_file,
+        model=model,
+        quant_layers={
+            "kv_cache_quant_laye": [
+                f"model.layers.{i}.attention.wqkv" for i in range(32)
+            ]
+        },
+        config_defination=None,
+    )
+
+    record_file = "./outputs/record.txt"
+    quant_cali_model = amct.create_quant_cali_model(
+        config_file=config_file, record_file=record_file, model=model
+    ).npu()
 
     # Do inference to get quantize factors
     batch_num = 3
     test_start_time = time.time()
     for i in tqdm.tqdm(range(batch_num), desc="getting quantize factors..."):
-        batch = testenc[:, (i * model.seqlen) : ((i + 1) * model.seqlen)].to(model.device)
+        batch = testenc[:, (i * model.seqlen) : ((i + 1) * model.seqlen)].to(
+            model.device
+        )
         with torch.no_grad():
             quant_cali_model(batch)
     test_end_time = time.time()
     total_time = test_end_time - test_start_time
-    print('Get quantize factors taken: ', total_time // 60, 'min ', total_time%60, 's'  )
+    print(
+        "Get quantize factors taken: ", total_time // 60, "min ", total_time % 60, "s"
+    )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
