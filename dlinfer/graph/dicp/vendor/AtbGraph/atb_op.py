@@ -37,6 +37,14 @@ class LinearAllReduce(Operator):
         return out
 
 
+class AllReduce(Operator):
+    def __init__(self):
+        super().__init__("AllReduce")
+
+    def infer_result(self, x, reduce_type):
+        return torch.ops._c10d_functional.all_reduce.default(x, reduce_type, "0")
+
+
 class Add(Operator):
     def __init__(self):
         super().__init__("Add")
@@ -353,3 +361,48 @@ class Gather(Operator):
 
     def infer_result(self, x1, x2, axis):
         return torch.ops.aten.embedding.default(x1, x2, axis)
+
+
+class Softmax(Operator):
+    def __init__(self):
+        super().__init__("Softmax")
+
+    def infer_result(self, x, dim):
+        return torch.softmax(x, dim=self.dim)
+
+
+class Sort(Operator):
+    def __init__(self):
+        super().__init__("Sort")
+
+    def infer_result(self, x, topk):
+        value, index = torch.topk(x, topk)
+        return value, index
+
+
+class Slice(Operator):
+    def __init__(self):
+        super().__init__("Slice")
+
+    def infer_result(self, x, dim, offsets, size):
+        return torch.ops.aten.slice.Tensor(
+            x, dim, offsets[dim], offsets[dim] + size[dim], 1
+        )
+
+
+class AclNnSlice(Operator):
+    def __init__(self):
+        super().__init__("AclNnSlice")
+
+    def infer_result(self, x, dim, start, end, step):
+        return torch.ops.aten.slice.Tensor(x, dim, start, end, step)
+
+
+class IndexSelect(Operator):
+    def __init__(self):
+        super().__init__("IndexSelect")
+
+    def infer_result(self, x, dim, index):
+        indices = [None] * len(x.shape)
+        indices[dim] = index
+        return torch.ops.aten.index.Tensor(x, indices)

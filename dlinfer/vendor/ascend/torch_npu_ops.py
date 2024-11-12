@@ -1,7 +1,6 @@
 # Copyright (c) 2024, DeepLink. All rights reserved.
 import math
 import torch
-import torch_npu
 
 from dlinfer.vendor import vendor_ops_registry
 from dlinfer.utils.registry import register_ops
@@ -384,24 +383,27 @@ def fused_moe(
     gate_up_weights: Tensor,
     down_weights: Tensor,
 ) -> Tensor:
+    seq_length = hidden_states.size(0)
     moe_output = torch.zeros_like(hidden_states)
 
-    for k in range(top_k):
-        expert_ids = topk_ids[:, k]
-        weights = topk_weights[:, k]
+    for i in range(seq_length):
+        current_hidden_state = hidden_states[i]
 
-        up_weights = gate_up_weights[expert_ids]
-        down_weights_selected = down_weights[expert_ids]
+        # faster than remove the for loop
+        for j in range(top_k):
+            expert_id = topk_ids[i][j]
+            weight = topk_weights[i][j]
 
-        up_proj = torch.bmm(up_weights, hidden_states.unsqueeze(-1))
-        up_proj = up_proj.squeeze(-1)
+            up_weight = gate_up_weights[expert_id]
+            up_proj = torch.matmul(up_weight, current_hidden_state)
 
-        gate_cache = torch.ops.npu.npu_swiglu(up_proj, -1)
+            gate_cache, up_cache = up_proj.chunk(2, -1)
+            gate_cache = torch.nn.functional.silu(gate_cache, inplace=True) * up_cache
 
-        down_proj = torch.bmm(down_weights_selected, gate_cache.unsqueeze(-1))
-        down_proj = down_proj.squeeze(-1)
+            down_weight = down_weights[expert_id]
+            down_proj = torch.matmul(down_weight, gate_cache)
 
-        moe_output += weights.unsqueeze(-1) * down_proj
+            moe_output[i] += weight * down_proj
     return moe_output
 
 

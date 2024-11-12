@@ -1,6 +1,5 @@
 #pragma once
 #include "atb_ops.h"
-
 namespace dicp {
 
 inline atb::Operation* LinearParallelOperationCreate(const nlohmann::json& paramJson) {
@@ -21,9 +20,13 @@ inline atb::Operation* LinearParallelOperationCreate(const nlohmann::json& param
         auto type = paramJson["parallelType"].get<int32_t>();
         param.type = static_cast<atb::infer::LinearParallelParam::ParallelType>(type);
     }
-    DICP_LOG(INFO) << "LinearParallelParam: rank:" << param.rank << ", rankSize:" << param.rankSize << ", outDataType:" << param.outDataType;
+    if (paramJson.contains("backend")) {
+        param.backend = paramJson["backend"].get<std::string>();
+    }
+    DICP_LOG(INFO) << "LinearParallelParam: rank:" << param.rank << ", rankSize:" << param.rankSize << ", outDataType:" << param.outDataType
+                   << " backend:" << param.backend;
     atb::Operation* op = nullptr;
-    ;
+
     CREATE_OPERATION_NO_RETURN(param, &op);
     return op;
 }

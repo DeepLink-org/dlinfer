@@ -1,6 +1,7 @@
 #pragma once
 
 #include <aclnn/acl_meta.h>
+#include <aclnn/opdev/bfloat16.h>
 #include <half.hpp>
 
 #include <cstdint>
@@ -18,11 +19,12 @@ public:
         int32_t int32Value;
         float floatValue;
         half_float::half halfValue;
+        op::bfloat16 bf16Value;
 
         ScalarValue();
     };
 
-    enum class ValueType { INT64, INT32, FLOAT, FLOAT16, UNKNOWN };
+    enum class ValueType { INT64, INT32, FLOAT, FLOAT16, BF16, UNKNOWN };
 
     DICPScalar();
 
@@ -35,6 +37,7 @@ public:
     bool isInt32() const;
     bool isFloat() const;
     bool isFloat16() const;
+    bool isBF16() const;
 
     aclDataType getDataType() const;
     void* getValuePtr();
@@ -51,7 +54,8 @@ private:
 
     template <typename T>
     static constexpr bool is_supported_type() {
-        return std::is_same_v<T, int64_t> || std::is_same_v<T, int32_t> || std::is_same_v<T, float> || std::is_same_v<T, half_float::half>;
+        return std::is_same_v<T, int64_t> || std::is_same_v<T, int32_t> || std::is_same_v<T, float> || std::is_same_v<T, half_float::half> ||
+               std::is_same_v<T, op::bfloat16>;
     }
 
     template <typename T>
@@ -76,6 +80,8 @@ DICPScalar::DICPScalar(T val) {
         value.floatValue = val;
     } else if constexpr (std::is_same_v<T, half_float::half>) {
         value.halfValue = val;
+    } else if constexpr (std::is_same_v<T, op::bfloat16>) {
+        value.bf16Value = val;
     }
 }
 
@@ -89,6 +95,8 @@ DICPScalar::ValueType DICPScalar::getValueType() {
         return ValueType::FLOAT;
     else if constexpr (std::is_same_v<T, half_float::half>)
         return ValueType::FLOAT16;
+    else if constexpr (std::is_same_v<T, op::bfloat16>)
+        return ValueType::BF16;
     else
         return ValueType::UNKNOWN;
 }
@@ -103,6 +111,8 @@ aclDataType DICPScalar::getAclDataType() {
         return aclDataType::ACL_FLOAT;
     else if constexpr (std::is_same_v<T, half_float::half>)
         return aclDataType::ACL_FLOAT16;
+    else if constexpr (std::is_same_v<T, op::bfloat16>)
+        return aclDataType::ACL_BF16;
     else
         throw std::invalid_argument("Unsupported type");
 }
