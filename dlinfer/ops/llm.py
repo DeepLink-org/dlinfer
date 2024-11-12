@@ -155,8 +155,8 @@ def prefill_attention(
     "dlinfer::fill_kv_cache",
     ["key_cache", "value_cache"],
     default_value={
-        "k_scales_zeros": None,
-        "v_scales_zeros": None,
+        "k_scales_zeros": [],
+        "v_scales_zeros": [],
         "quant_bits": 0,
     },
 )
@@ -166,8 +166,8 @@ def fill_kv_cache(
     key_cache: Tensor,
     value_cache: Tensor,
     kv_indices: Tensor,
-    k_scales_zeros: Sequence[Optional[Tensor]],
-    v_scales_zeros: Sequence[Optional[Tensor]],
+    k_scales_zeros: Sequence[Tensor],
+    v_scales_zeros: Sequence[Tensor],
     quant_bits: int,
 ) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
     """

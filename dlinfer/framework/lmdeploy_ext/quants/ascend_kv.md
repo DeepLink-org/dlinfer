@@ -24,7 +24,7 @@ amct_pytorch==0.22.2(Ascend-cann-amct_8.0.RC2)
 在当前目录执行如下命令，得到量化因子记录文件，用户根据实际情况修改示例程序中的model_path和dataset_path，并根据模型结构修改quant_layers。
 
 ```shell
-python3 ascend_kv.py
+VISIBLE_DEVICES=0,1 python3 ascend_kv.py
 ```
 
 推理成功后，在当前目录会生成量化日志文件./amct_log/amct_pytorch.log和./outputs文件夹，该文件夹内包含以下内容：
