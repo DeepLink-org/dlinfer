@@ -125,7 +125,7 @@ def fill_kv_cache(
     k_scales_zeros: Sequence[Optional[Tensor]],
     v_scales_zeros: Sequence[Optional[Tensor]],
     quant_bits: int,
-) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
+) -> Tuple[Tensor, Tensor]:
     _, head, dim = key.shape
     block_num, block_size = key_cache.shape[:2]
     block_total = block_num * block_size

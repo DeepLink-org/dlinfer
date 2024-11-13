@@ -1,7 +1,5 @@
 import os
-import time
 import json
-
 import tqdm
 import torch
 import dlinfer
@@ -9,13 +7,11 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from accelerate import infer_auto_device_map, dispatch_model
 from accelerate.utils.modeling import get_balanced_memory
 from datasets import load_dataset
-
 import amct_pytorch as amct
 
 
-def get_llama2(model_path, seqlen=2048):
-    def skip(*args, **kwargs):
-        pass
+def get_model(model_path, seqlen=2048):
+    def skip(*args, **kwargs): ...
 
     torch.nn.init.kaiming_uniform_ = skip
     torch.nn.init.uniform_ = skip
@@ -23,7 +19,6 @@ def get_llama2(model_path, seqlen=2048):
     model = AutoModelForCausalLM.from_pretrained(
         model_path, trust_remote_code=True, torch_dtype=torch.float16
     )
-
     model.seqlen = seqlen
     return model
 
@@ -83,7 +78,6 @@ def build_model_and_enc(model, model_path, gpu_num):
         device_map=device_map,
         offload_dir=os.path.join(model_path, "offload_dir"),
     )
-
     return model, enc
 
 
@@ -100,20 +94,15 @@ def get_loaders(dataset_path: str, enc, seqlen):
             self.input_ids = input_ids
 
     testenc = TokenizerWrapper(testenc)
-
     return testenc
 
 
 def main():
     # Load model
     model_path = "/data2/share_data/internlm_model_data/internlm2_5-7b-chat"
-    model = get_llama2(model_path)
+    model = get_model(model_path)
     model = model.eval()
-    gpus = os.getenv("VISIBLE_DEVICES")
-    if gpus == "" or gpus is None:
-        gpu_num = 0
-    else:
-        gpu_num = len(gpus.split(","))
+    gpu_num = torch.cuda.device_count()
     model, enc = build_model_and_enc(model, model_path, gpu_num)
     model.seqlen = 2048
 
@@ -146,18 +135,12 @@ def main():
 
     # Do inference to get quantize factors
     batch_num = 3
-    test_start_time = time.time()
     for i in tqdm.tqdm(range(batch_num), desc="getting quantize factors..."):
         batch = testenc[:, (i * model.seqlen) : ((i + 1) * model.seqlen)].to(
             model.device
         )
         with torch.no_grad():
             quant_cali_model(batch)
-    test_end_time = time.time()
-    total_time = test_end_time - test_start_time
-    print(
-        "Get quantize factors taken: ", total_time // 60, "min ", total_time % 60, "s"
-    )
 
 
 if __name__ == "__main__":

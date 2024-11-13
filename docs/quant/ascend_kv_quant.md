@@ -21,10 +21,10 @@ amct_pytorch==0.22.2(Ascend-cann-amct_8.0.RC2)
 
 ## KV Cache量化示例
 
-在当前目录执行如下命令，得到量化因子记录文件，用户根据实际情况修改示例程序中的model_path和dataset_path，并根据模型结构修改quant_layers。
+在当前目录执行如下命令，得到量化因子记录文件，用户根据实际情况修改示例程序中的model_path（VL模型需要用其语言模型的权重）和dataset_path，并根据模型结构修改quant_layers。
 
-```shell
-VISIBLE_DEVICES=0,1 python3 ascend_kv.py
+```python
+python3 ascend_scales_offsets.py
 ```
 
 推理成功后，在当前目录会生成量化日志文件./amct_log/amct_pytorch.log和./outputs文件夹，该文件夹内包含以下内容：
