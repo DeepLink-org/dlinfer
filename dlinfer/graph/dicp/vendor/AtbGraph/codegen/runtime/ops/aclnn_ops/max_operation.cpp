@@ -1,7 +1,7 @@
 #include "max_operation.h"
 
 #include "aclnnop/aclnn_max.h"
-#include "log.h"
+#include "utils/log.h"
 
 namespace dicp {
 

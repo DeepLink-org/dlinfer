@@ -14,7 +14,7 @@
 #include <unordered_set>
 #include <vector>
 
-#include "log.h"
+#include "utils/log.h"
 
 namespace dicp {
 

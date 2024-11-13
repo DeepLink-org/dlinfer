@@ -10,8 +10,8 @@
 
 #include "acl/acl.h"
 #include "aclnnop/aclnn_add_rms_norm.h"
-#include "common.h"
-#include "log.h"
+#include "utils/common.h"
+#include "utils/log.h"
 
 namespace dicp {
 const int DIM0 = 0;

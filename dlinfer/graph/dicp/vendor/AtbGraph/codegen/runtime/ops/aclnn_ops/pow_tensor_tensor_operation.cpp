@@ -1,8 +1,8 @@
 #include "pow_tensor_tensor_operation.h"
 
 #include "aclnnop/aclnn_pow_tensor_tensor.h"
-#include "log.h"
-#include "utils.h"
+#include "utils/log.h"
+#include "utils/misc.h"
 
 namespace dicp {
 

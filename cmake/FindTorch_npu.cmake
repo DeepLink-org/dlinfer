@@ -1,4 +1,3 @@
-# modified from torch_npu cmake.in
 include(FindPackageHandleStandardArgs)
 
 # Include directories.

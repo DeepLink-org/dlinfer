@@ -1,4 +1,4 @@
-#include "tensor_utils.h"
+#include "utils/tensor_utils.h"
 
 #include <acl/acl.h>
 #include <atb/utils.h>
@@ -12,7 +12,7 @@
 #include <sstream>
 #include <string>
 
-#include "log.h"
+#include "utils/log.h"
 
 namespace dicp {
 namespace tensor_utils {

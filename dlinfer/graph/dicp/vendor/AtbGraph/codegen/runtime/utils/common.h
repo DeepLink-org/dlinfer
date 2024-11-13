@@ -3,7 +3,7 @@
 #include <acl/acl.h>
 #include <atb/types.h>
 
-#include "log.h"
+#include "utils/log.h"
 
 namespace dicp {
 

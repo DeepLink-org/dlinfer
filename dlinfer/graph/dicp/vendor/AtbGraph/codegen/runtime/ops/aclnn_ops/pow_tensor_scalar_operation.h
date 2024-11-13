@@ -1,7 +1,7 @@
 #pragma once
 
 #include "acl_nn_operation.h"
-#include "scalar.h"
+#include "utils/scalar.h"
 
 namespace dicp {
 

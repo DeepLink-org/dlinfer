@@ -3,9 +3,9 @@
 #include <iostream>
 
 #include "aclnnop/aclnn_add.h"
-#include "log.h"
-#include "scalar.h"
-#include "utils.h"
+#include "utils/log.h"
+#include "utils/misc.h"
+#include "utils/scalar.h"
 
 namespace dicp {
 

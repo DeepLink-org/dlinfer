@@ -1,7 +1,7 @@
 #include "reciprocal_operation.h"
 
 #include "aclnnop/aclnn_reciprocal.h"
-#include "log.h"
+#include "utils/log.h"
 
 namespace dicp {
 

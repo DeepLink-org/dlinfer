@@ -3,7 +3,7 @@
 #include <cmath>
 
 #include "aclnnop/aclnn_arange.h"
-#include "log.h"
+#include "utils/log.h"
 
 namespace dicp {
 

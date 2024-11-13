@@ -12,7 +12,7 @@
 
 #include "acl/acl.h"
 #include "aclnnop/aclnn_batch_matmul.h"
-#include "log.h"
+#include "utils/log.h"
 namespace dicp {
 const int DIM0 = 0;
 const int DIM1 = 1;

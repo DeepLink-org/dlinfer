@@ -1,4 +1,4 @@
-#include "scalar.h"
+#include "utils/scalar.h"
 
 #include <algorithm>
 #include <cctype>

@@ -1,8 +1,8 @@
 #include "muls_operation.h"
 
 #include "aclnnop/aclnn_mul.h"
-#include "log.h"
-#include "utils.h"
+#include "utils/log.h"
+#include "utils/misc.h"
 
 namespace dicp {
 
