@@ -1,9 +1,9 @@
-#include "utils.h"
+#include "utils/misc.h"
 
 #include <acl/acl.h>
 #include <torch_npu/csrc/core/npu/NPUStream.h>
 
-#include "log.h"
+#include "utils/log.h"
 
 namespace dicp {
 namespace utils {

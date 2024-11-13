@@ -5,11 +5,11 @@
 #include <algorithm>
 #include <fstream>
 
-#include "config.h"
-#include "log.h"
-#include "operation_creator.h"
-#include "tensor_utils.h"
-#include "workspace.h"
+#include "ops/operation_creator.h"
+#include "utils/config.h"
+#include "utils/log.h"
+#include "utils/tensor_utils.h"
+#include "utils/workspace.h"
 
 namespace dicp {
 

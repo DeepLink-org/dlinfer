@@ -1,12 +1,12 @@
-#include "workspace.h"
+#include "utils/workspace.h"
 
 #include <acl/acl.h>
 
 #include <cstdlib>
 
-#include "config.h"
-#include "log.h"
-#include "tensor_utils.h"
+#include "utils/config.h"
+#include "utils/log.h"
+#include "utils/tensor_utils.h"
 
 namespace dicp {
 

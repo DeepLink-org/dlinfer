@@ -1,7 +1,7 @@
 #include "acl_nn_operation.h"
 
-#include "common.h"
-#include "log.h"
+#include "utils/common.h"
+#include "utils/log.h"
 
 namespace dicp {
 

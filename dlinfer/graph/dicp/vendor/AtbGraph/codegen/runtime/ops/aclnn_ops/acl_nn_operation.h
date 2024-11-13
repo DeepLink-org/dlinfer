@@ -7,7 +7,7 @@
 #include <string>
 
 #include "atb/operation.h"
-#include "log.h"
+#include "utils/log.h"
 
 namespace dicp {
 constexpr size_t SVECTOR_SIZE = 8;
