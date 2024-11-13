@@ -281,9 +281,10 @@ def moe_gating_topk_softmax(router_logits: Tensor, topk: int) -> Tuple[Tensor, T
         (*router_logits.shape[:-1], topk), dtype=torch.int32
     )
     selected_idx = torch.empty_like(selected_experts)
-    return torch.ops.npu_ext.npu_moe_gating_topk_softmax(
+    routing_weights, selected_idx = torch.ops.npu_ext.npu_moe_gating_topk_softmax(
         router_logits, None, topk, routing_weights, selected_experts, selected_idx
     )
+    return routing_weights, selected_idx.to(torch.int64)
 
 
 # TODO only for internlm in transformers lib.
