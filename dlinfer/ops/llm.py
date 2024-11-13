@@ -155,8 +155,6 @@ def prefill_attention(
     "dlinfer::fill_kv_cache",
     ["key_cache", "value_cache"],
     default_value={
-        "k_scales_zeros": [],
-        "v_scales_zeros": [],
         "quant_bits": 0,
     },
 )
@@ -166,8 +164,8 @@ def fill_kv_cache(
     key_cache: Tensor,
     value_cache: Tensor,
     kv_indices: Tensor,
-    k_scales_zeros: Sequence[Tensor],
-    v_scales_zeros: Sequence[Tensor],
+    k_scales_zeros: Sequence[Optional[Tensor]],
+    v_scales_zeros: Sequence[Optional[Tensor]],
     quant_bits: int,
 ) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
     """
@@ -222,9 +220,9 @@ def paged_decode_attention(
     softmax_scale: Optional[float],
     alibi_slopes: Optional[Sequence[float]],
     attn_output: Optional[Tensor],
-    kv_scales: Tensor,
-    kv_zeros: Tensor,
-    quant_bits: int,
+    kv_scales: Optional[Tensor],
+    kv_zeros: Optional[Tensor],
+    quant_bits: Optional[int],
 ) -> Tensor:
     """
     Computes the multi-head attention over the query, key, and value tensors.

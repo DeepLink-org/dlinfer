@@ -181,9 +181,9 @@ def paged_decode_attention(
     softmax_scale: Optional[float],
     alibi_slopes: Optional[Sequence[float]],
     attn_output: Optional[Tensor],
-    kv_scales: Tensor,
-    kv_zeros: Tensor,
-    quant_bits: int,
+    kv_scales: Optional[Tensor],
+    kv_zeros: Optional[Tensor],
+    quant_bits: Optional[int],
 ) -> Tensor:
     if alibi_slopes is not None:
         raise RuntimeError(
@@ -239,9 +239,9 @@ def paged_prefill_attention(
     softmax_scale: Optional[float],
     alibi_slopes: Optional[Sequence[float]],
     attn_output: Optional[Tensor],
-    kv_scales: Tensor,
-    kv_zeros: Tensor,
-    quant_bits: int,
+    kv_scales: Optional[Tensor],
+    kv_zeros: Optional[Tensor],
+    quant_bits: Optional[int],
 ) -> Tensor:
     if alibi_slopes is not None:
         raise RuntimeError(
