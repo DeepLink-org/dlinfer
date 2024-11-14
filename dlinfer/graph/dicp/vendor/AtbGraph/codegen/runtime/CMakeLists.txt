@@ -32,6 +32,7 @@ target_include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${TORCH_NPU_INCLUDE_DIRS}
     ${CANN_INCLUDE_DIRS}
+    ${CANN_INCLUDE_DIRS}/aclnn
     ${ATB_INCLUDE_DIRS}
 )
 
