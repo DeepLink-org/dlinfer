@@ -1,6 +1,6 @@
 #pragma once
 #include "atb_ops.h"
-#include "utils.h"
+#include "utils/common.h"
 
 namespace dicp {
 
@@ -21,7 +21,7 @@ inline atb::Operation* SliceOperationCreate(const nlohmann::json& paramJson) {
         }
     }
 
-    DICP_LOG(INFO) << "SliceParam: offsets:" << utils::svectorToString<int64_t>(param.offsets) << ", size:" << utils::svectorToString<int64_t>(param.size);
+    DICP_LOG(INFO) << "SliceParam: offsets:" << svectorToString<int64_t>(param.offsets) << ", size:" << svectorToString<int64_t>(param.size);
     atb::Operation* op = nullptr;
 
     CREATE_OPERATION_NO_RETURN(param, &op);

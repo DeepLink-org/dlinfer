@@ -1,7 +1,7 @@
 #include "index_select_operation.h"
 
 #include "aclnnop/aclnn_index_select.h"
-#include "log.h"
+#include "utils/log.h"
 
 namespace dicp {
 

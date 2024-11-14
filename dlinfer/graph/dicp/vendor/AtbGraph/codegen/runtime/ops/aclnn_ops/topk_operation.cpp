@@ -1,7 +1,7 @@
 #include "topk_operation.h"
 
 #include "aclnnop/aclnn_topk.h"
-#include "log.h"
+#include "utils/log.h"
 
 namespace dicp {
 

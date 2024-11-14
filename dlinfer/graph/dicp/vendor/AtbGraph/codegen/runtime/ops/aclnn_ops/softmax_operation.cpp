@@ -1,7 +1,7 @@
 #include "softmax_operation.h"
 
 #include "aclnnop/aclnn_softmax.h"
-#include "log.h"
+#include "utils/log.h"
 
 namespace dicp {
 

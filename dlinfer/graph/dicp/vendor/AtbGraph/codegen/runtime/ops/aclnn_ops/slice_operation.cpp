@@ -1,7 +1,7 @@
 #include "slice_operation.h"
 
 #include "aclnnop/aclnn_slice.h"
-#include "log.h"
+#include "utils/log.h"
 
 namespace dicp {
 

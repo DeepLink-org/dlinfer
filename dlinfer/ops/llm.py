@@ -373,10 +373,7 @@ def moe_gating_topk_softmax_impl_abstract_func(
     return routing_weights, selected_experts
 
 
-@register_custom_op(
-    "dlinfer::moe_gating_topk_softmax",
-    impl_abstract_func=moe_gating_topk_softmax_impl_abstract_func,
-)
+@register_custom_op("dlinfer::moe_gating_topk_softmax", ["hidden_states"])
 def moe_gating_topk_softmax(router_logits: Tensor, topk: int) -> Tuple[Tensor, Tensor]:
     """
     Given router_logits of experts, it computes the probability distributions of experts
