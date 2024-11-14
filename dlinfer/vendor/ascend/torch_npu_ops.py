@@ -176,6 +176,7 @@ def paged_decode_attention(
 
     bs, _, dim = query.shape
     query = query.contiguous()
+    attn_output = attn_output.contiguous()
     query = query.view(bs, 1, num_q_heads * dim)
     scale_value = 1.0 / math.sqrt(dim)
 
