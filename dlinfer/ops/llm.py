@@ -363,6 +363,20 @@ def silu_and_mul(
     return vendor_ops_registry["silu_and_mul"](input_tensor, dim)
 
 
+def moe_gating_topk_softmax_impl_abstract_func(
+    router_logits: Tensor, topk: int
+) -> Tuple[Tensor, Tensor]:
+    routing_weights = router_logits.new_empty((*router_logits.shape[:-1], topk))
+    selected_experts = router_logits.new_empty(
+        (*router_logits.shape[:-1], topk), dtype=torch.int64
+    )
+    return routing_weights, selected_experts
+
+
+@register_custom_op(
+    "dlinfer::moe_gating_topk_softmax",
+    impl_abstract_func=moe_gating_topk_softmax_impl_abstract_func,
+)
 def moe_gating_topk_softmax(router_logits: Tensor, topk: int) -> Tuple[Tensor, Tensor]:
     """
     Given router_logits of experts, it computes the probability distributions of experts
@@ -470,6 +484,7 @@ def weight_quant_matmul(
     )
 
 
+@register_custom_op("dlinfer::fused_moe", ["hidden_states"])
 def fused_moe(
     hidden_states: Tensor,
     top_k: int,

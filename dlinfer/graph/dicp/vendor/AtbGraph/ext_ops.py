@@ -36,3 +36,23 @@ def atb_linear_impl(a, b, bias, trans_a, trans_b):
     if bias:
         out = out + bias
     return out
+
+
+# atb allreduce
+@torch._custom_op.impl.custom_op("atb::allreduce")
+def allreduce(
+    x: Tensor,
+    reduce_type: str,
+) -> Tensor: ...
+
+
+@allreduce.impl_abstract()
+def atb_allreduce_abstract(x, reduce_type):
+    return torch.ops._c10d_functional.all_reduce.default(x, reduce_type, 0)
+
+
+@allreduce.impl(["cpu", "cuda"])
+def atb_allreduce_impl(x, reduce_type):
+    all_reduce = torch.ops._c10d_functional.all_reduce.default(x, reduce_type, 0)
+    wait_tensor = torch.ops._c10d_functional.wait_tensor.default(all_reduce)
+    return wait_tensor

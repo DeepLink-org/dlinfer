@@ -1,7 +1,6 @@
 # Copyright (c) 2024, DeepLink. All rights reserved.
 import math
 import torch
-import torch_npu
 
 from dlinfer.vendor import vendor_ops_registry
 from dlinfer.utils.registry import register_ops
@@ -405,7 +404,6 @@ def fused_moe(
             down_proj = torch.matmul(down_weight, gate_cache)
 
             moe_output[i] += weight * down_proj
-
     return moe_output
 
 

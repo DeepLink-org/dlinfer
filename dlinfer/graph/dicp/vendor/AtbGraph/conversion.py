@@ -85,6 +85,10 @@ class AtenToAtbTransformer(SingleOpTransformer):
     def linear(self, a, b, bias, trans_a, trans_b):
         return self.get_proxy(atb_op.Linear, (a, b, bias, trans_a, trans_b))
 
+    @register_conversion(torch.ops.atb.allreduce.default)
+    def allreduce(self, x, reduce_type):
+        return self.get_proxy(atb_op.AllReduce, (x, reduce_type))
+
     @register_conversion(operator.getitem)
     def identity(self, x, idx):
         return self.get_proxy(atb_op.GetItem, (x, idx))
@@ -321,6 +325,14 @@ class AtenToAtbTransformer(SingleOpTransformer):
             return self.get_proxy(atb_op.Cast, (x, dtype))
         raise RuntimeError("not support yet!")
 
+    @register_conversion("torch.ops.npu.npu_dtype_cast.default")
+    def npu_dtype_cast(self, x, dtype=None, layout=None, device=None):
+        assert layout is None
+        assert device is None
+        if dtype is not None:
+            return self.get_proxy(atb_op.Cast, (x, dtype))
+        raise RuntimeError("not support yet!")
+
     @register_conversion(torch.ops.aten.sin.default)
     def sin(self, x):
         return self.get_proxy(atb_op.Sin, (x,))
@@ -335,8 +347,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
 
     @register_conversion(torch.ops.aten.bmm.default)
     def bmm(self, x1, x2):
-        out = self.get_proxy(atb_op.BatchMatMul, (x1, x2))
-        return out
+        return self.get_proxy(atb_op.BatchMatMul, (x1, x2))
 
     @register_conversion(torch.ops.aten.transpose.int)
     def transpose_int(self, input, dim_1, dim_2):
@@ -461,6 +472,21 @@ class AtenToAtbTransformer(SingleOpTransformer):
             pass
         raise RuntimeError(f"torch.ops.aten.select.int not support {dim} {index} yet!")
 
+    @register_conversion(torch.ops.aten.slice.Tensor)
+    def slice_tensor(self, x, dim, start, end, step=1):
+        dtype = fx_traceback.get_current_meta()["val"].dtype
+        if dtype == torch.int64 or step != 1:
+            return self.get_proxy(atb_op.AclNnSlice, (x, dim, start, end, step))
+
+        x_shape = x.node.meta["val"].shape
+        offsets = [0] * len(x_shape)
+        size = [-1] * len(x_shape)
+
+        offsets[dim] = start
+        size[dim] = end - start
+
+        return self.get_proxy(atb_op.Slice, (x, dim, offsets, size))
+
     @register_conversion(torch.ops.aten.alias.default)
     def alias(self, x):
         # lowering through view
@@ -472,6 +498,87 @@ class AtenToAtbTransformer(SingleOpTransformer):
         if all_reduce == False:
             return self.get_proxy(atb_op.Linear, (x, weight, bias, False, True))
         return self.get_proxy(atb_op.LinearAllReduce, (x, weight, bias))
+
+    @register_conversion(torch.ops.aten.index.Tensor)
+    def index_tensor(self, x, indices):
+        dim = 0
+        for index in indices:
+            if index is None:
+                continue
+            x = self.get_proxy(atb_op.IndexSelect, (x, dim, index))
+            dim += 1
+        return x
+
+    @register_conversion("torch.ops.dlinfer.fused_moe.default")
+    def dlinfer_fused_moe(
+        self,
+        hidden_states,
+        top_k,
+        topk_ids,
+        topk_weights,
+        gate_up_weights,
+        down_weights,
+    ):
+        hidden_states_dtype = hidden_states.node.meta["val"].dtype
+        hidden_states_shape = hidden_states.node.meta["val"].shape
+        hidden_states_unsqueeze_shape = [
+            -1 if isinstance(x, torch.SymInt) else x for x in hidden_states_shape
+        ]
+        hidden_states_unsqueeze_shape.append(1)
+        hidden_states_unsqueeze = self.get_proxy(
+            atb_op.View, (hidden_states, hidden_states_unsqueeze_shape)
+        )
+
+        moe_out = self.get_proxy(
+            atb_op.Muls, (hidden_states, 0, get_ascend_dtype(hidden_states_dtype))
+        )
+
+        topk_weights_dtype = topk_weights.node.meta["val"].dtype
+        if topk_weights_dtype != hidden_states_dtype:
+            topk_weights = self.get_proxy(
+                atb_op.Cast, (topk_weights, hidden_states_dtype)
+            )
+
+        topk_ids_shape = topk_ids.node.meta["val"].shape
+        squeeze_shape = [
+            -1 if isinstance(x, torch.SymInt) else x for x in topk_ids_shape
+        ]
+        squeeze_shape = squeeze_shape[:-1]
+        for k in range(top_k):
+            expert_ids = self.get_proxy(atb_op.AclNnSlice, (topk_ids, 1, k, k + 1, 1))
+            weights = self.get_proxy(atb_op.AclNnSlice, (topk_weights, 1, k, k + 1, 1))
+
+            expert_ids_squeeze = self.get_proxy(
+                atb_op.View, (expert_ids, squeeze_shape)
+            )
+            up_weights = self.get_proxy(
+                atb_op.IndexSelect, (gate_up_weights, 0, expert_ids_squeeze)
+            )
+            down_weights_selected = self.get_proxy(
+                atb_op.IndexSelect, (down_weights, 0, expert_ids_squeeze)
+            )
+
+            up_proj = self.get_proxy(
+                atb_op.BatchMatMul, (up_weights, hidden_states_unsqueeze)
+            )
+            up_proj = self.get_proxy(atb_op.Squeeze, (up_proj, -1))
+
+            silu_and_mul = self.silu_and_mul(up_proj, -1)
+            silu_and_mul = self.get_proxy(atb_op.Unsqueeze, (silu_and_mul, -1))
+
+            down_proj = self.get_proxy(
+                atb_op.BatchMatMul, (down_weights_selected, silu_and_mul)
+            )
+            down_proj = self.get_proxy(atb_op.Squeeze, (down_proj, -1))
+
+            mul = self.get_proxy(atb_op.Mul, (weights, down_proj))
+            moe_out = self.get_proxy(atb_op.Add, (moe_out, mul))
+        return moe_out
+
+    @register_conversion("torch.ops.dlinfer.moe_gating_topk_softmax.default")
+    def dlinfer_moe_gating_topk_softmax(self, router_logits, top_k):
+        routing_weights = self.get_proxy(atb_op.Softmax, (router_logits, -1))
+        return self.get_proxy(atb_op.Sort, (routing_weights, top_k))
 
 
 class ViewSymIntTransformer(torch.fx.Transformer):

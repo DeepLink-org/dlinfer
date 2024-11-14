@@ -54,6 +54,7 @@ class AtbOverrides:
         param.rankRoot = 0
         param.hasResidual = False
         param.parallelType = infer_param.ParallelType.LINEAR_ALL_REDUCE
+        param.backend = "lccl"
 
         if bias:
             op.set_input([x, weight, bias])
@@ -63,7 +64,19 @@ class AtbOverrides:
         op.set_output([name])
         return op
 
-    @staticmethod
+    def AllReduce(name, x, reduce_type):
+        op = Operation(name, "AllReduceOperation")
+        param = infer_param.AllReduceParam()
+        param.rank = dist.get_rank()
+        param.rankSize = dist.get_world_size()
+        param.rankRoot = 0
+        param.allReduceType = reduce_type
+        param.backend = "lccl"
+        op.set_input([x])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
     def Add(name, x, y):
         op = Operation(name, "ElewiseOperation")
         param = infer_param.ElewiseParam()
@@ -534,6 +547,65 @@ class AtbOverrides:
         param.axis = axis
 
         op.set_input([x1, x2])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def Softmax(name, x, dim):
+        op = Operation(name, "AclNnSoftmaxOperation")
+        param = infer_param.SoftmaxParam()
+        param.name = name
+        if not isinstance(dim, list):
+            dim = [dim]
+        param.axes = dim
+
+        op.set_input([x])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def Sort(name, x, topk):
+        op = Operation(name, "AclNnTopkOperation")
+        param = infer_param.SortParam()
+        param.num = topk
+
+        op.set_input([x])
+        op.set_param(param)
+        op.set_output([f"{name}__0", f"{name}__1"])
+        return op
+
+    def Slice(name, x, dim, offsets, size):
+        op = Operation(name, "SliceOperation")
+        param = infer_param.SliceParam()
+        param.offsets = offsets
+        param.size = size
+
+        op.set_input([x])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def AclNnSlice(name, x, dim, start, end, step):
+        op = Operation(name, "AclNnSliceOperation")
+        param = infer_param.AclNnSliceParam()
+        param.name = name
+        param.dim = dim
+        param.start = start
+        param.end = end
+        param.step = step
+
+        op.set_input([x])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def IndexSelect(name, x, dim, index):
+        op = Operation(name, "AclNnIndexSelectOperation")
+        param = infer_param.IndexSelectParam()
+        param.name = name
+        param.dim = dim
+
+        op.set_input([x, index])
         op.set_param(param)
         op.set_output([name])
         return op
