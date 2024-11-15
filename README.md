@@ -90,7 +90,7 @@ pip install dlinfer-ascend
 | CogVLM2              | √ | X | - | √  |  |
 | glm-4v-9b            | √ | - | - | -  |  |
 
-* ‘√’代表测试通过，‘X’代表不支持，‘-’代表未测试
+‘√’代表测试通过，‘X’代表不支持，‘-’代表未测试
 
 ### 使用LMDeploy
 
