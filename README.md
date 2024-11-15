@@ -75,18 +75,22 @@ pip install dlinfer-ascend
 
 ## LMDeploy
 
-|  | 华为Atlas 800T A2(bf16, w4a16) | 沐曦C500 | 寒武纪云端智能加速卡（开发中） |
-| --- | --- | --- | --- |
-| InternLM2.5-7B/20B   | √,√ | √  |  |
-| InternLM2-7B/20B     | √,√ | √  |  |
-| InternVL2-2B         | √,√ | √  |  |
-| InternVL1-5          | √,√ | √  |  |
-| Llama3-8B            | √,√ | √  |  |
-| Mixtral8x7B          | √,X | √  |  |
-| Qwen2-7B             | √,X | √  |  |
-| Qwen2-57B-A14B       | √,X | √  |  |
-| CogVLM               | √,X | √  |  |
-| CogVLM2              | √,X | √  |  |
+|  | |华为Atlas 800T A2 | |沐曦C500 | 寒武纪云端智能加速卡（开发中） |
+| --- | --- | --- | --- | --- | --- |
+|  | bf16(eager) | w4a16(eager) | bf16(graph) |   |   |
+| InternLM2.5-7B/20B   | √ | √ | √ | √  |  |
+| InternLM2-7B/20B     | √ | √ | √ | √  |  |
+| InternVL2-2B         | √ | √ | √ | √  |  |
+| InternVL1-5          | √ | √ | - | √  |  |
+| Llama3(.1)-8B        | √ | √ | √ | √  |  |
+| Mixtral8x7B          | √ | X | √ | √  |  |
+| Qwen2(.5)-7B         | √ | X | √ | √  |  |
+| Qwen2-57B-A14B       | √ | X | - | √  |  |
+| CogVLM               | √ | X | - | √  |  |
+| CogVLM2              | √ | X | - | √  |  |
+| glm-4v-9b            | √ | - | - | -  |  |
+
+‘√’代表测试通过，‘X’代表不支持，‘-’代表未测试
 
 ### 使用LMDeploy
 
@@ -113,7 +117,7 @@ if __name__ == "__main__":
 ```
 
 > [!TIP]
-> 图模式已经支持了Atlas 800T A2。目前，单卡下的LLaMa3-8B/LLaMa2-7B/Qwen2-7B已经通过测试。
+> 图模式已经支持了Atlas 800T A2。
 > 用户可以在离线模式下设定`PytorchEngineConfig`中的`eager_mode=False`来开启图模式，或者设定`eager_mode=True`来关闭图模式。
 > 在线模式下默认开启图模式，请添加`--eager-mode`来关闭图模式。
 > (启动图模式需要事先`source /usr/local/Ascend/nnal/atb/set_env.sh`)  
