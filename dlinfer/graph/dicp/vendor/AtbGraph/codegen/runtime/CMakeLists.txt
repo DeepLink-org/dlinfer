@@ -8,6 +8,7 @@ set(THIRD_PARTY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party)
 file(GLOB_RECURSE SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/ops/*.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/ops/aclnn_ops/*.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/ops/custom_ops/*.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/utils/*.cpp
 )

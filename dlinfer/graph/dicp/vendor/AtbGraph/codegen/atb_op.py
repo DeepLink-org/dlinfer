@@ -8,12 +8,8 @@ from torch._inductor.utils import IndentedBuffer
 from dlinfer.graph.dicp.vendor.AtbGraph.codegen import atb_infer_param as infer_param
 from dlinfer.graph.dicp.vendor.AtbGraph.codegen.atb_graph import (
     Operation,
-    SqueezeOperation,
     GetItemOperation,
     GraphOpearation,
-    UnsqueezeOperation,
-    InplaceOperation,
-    ViewOperation,
     TupleOperation,
 )
 from dlinfer.graph.dicp.vendor.AtbGraph.codegen.utils import get_acl_dtype
@@ -304,15 +300,6 @@ class AtbOverrides:
         op.set_output([f"{name}__0", f"{name}__1"])
         return op
 
-    def Inplace(name, input, target, input_index=-1, target_index=-1):
-        op = InplaceOperation(name)
-        op.input_index = input_index
-        op.target_index = target_index
-        op.target = target
-        op.set_input([input])
-        op.set_output([name])
-        return op
-
     def SelfAttentionPAEncoder(
         name, query, key, value, seqlen, mask, q_head_num, kv_head_num
     ):
@@ -401,18 +388,6 @@ class AtbOverrides:
         op.set_param(param)
         op.set_input([x])
         op.set_output([name])
-        return op
-
-    def View(name, input, size):
-        op = ViewOperation(name)
-        op.add_input(input)
-        op.add_output(name)
-        op.target_shape = size
-        op.target_reshape_info = {
-            "reshapeType": "view",
-            "dimNum": len(size),
-            "dims": size,
-        }
         return op
 
     def Tuple(name, *args, **kwargs):
@@ -519,28 +494,6 @@ class AtbOverrides:
         op.set_output([name])
         return op
 
-    def Unsqueeze(name, input, dim):
-        op = UnsqueezeOperation(name)
-        op.add_input(input)
-        op.add_output(name)
-        op.dim = [dim]
-        op.target_reshape_info = {
-            "reshapeType": "unsqueeze",
-            "dim": [dim],
-        }
-        return op
-
-    def Squeeze(name, input, dim):
-        op = SqueezeOperation(name)
-        op.add_input(input)
-        op.add_output(name)
-        op.dim = [dim]
-        op.target_reshape_info = {
-            "reshapeType": "squeeze",
-            "dim": [dim],
-        }
-        return op
-
     def Gather(name, x1, x2, axis):
         op = Operation(name, "GatherOperation")
         param = infer_param.GatherParam()
@@ -608,4 +561,43 @@ class AtbOverrides:
         op.set_input([x, index])
         op.set_param(param)
         op.set_output([name])
+        return op
+
+    def View(name, x, size):
+        op = Operation(name, "CustomViewOperation")
+        param = infer_param.ViewParam()
+        param.viewShape = size
+
+        op.set_input([x])
+        op.set_param(param)
+        op.set_output([name])
+        op.has_inplace_output = True
+        op.add_inplace_output(0, 0)
+        op.is_reshape_op = True
+        return op
+
+    def Unsqueeze(name, x, dim):
+        op = Operation(name, "CustomUnsqueezeOperation")
+        param = infer_param.UnsqueezeParam()
+        param.unsqueezeDim = [dim]
+
+        op.set_input([x])
+        op.set_param(param)
+        op.set_output([name])
+        op.has_inplace_output = True
+        op.add_inplace_output(0, 0)
+        op.is_reshape_op = True
+        return op
+
+    def Squeeze(name, x, dim):
+        op = Operation(name, "CustomSqueezeOperation")
+        param = infer_param.SqueezeParam()
+        param.squeezeDim = [dim]
+
+        op.set_input([x])
+        op.set_param(param)
+        op.set_output([name])
+        op.has_inplace_output = True
+        op.add_inplace_output(0, 0)
+        op.is_reshape_op = True
         return op

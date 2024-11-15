@@ -49,6 +49,9 @@ static std::map<std::string, OperationCreateFunc> g_funcMap = {
     {"AclNnSoftmaxOperation", &AclNnSoftmaxOperationCreate},
     {"AllReduceOperation", &AllReduceOperationCreate},
     {"AclNnTopkOperation", &AclNnTopkOperationCreate},
+    {"CustomViewOperation", &CustomViewOperationCreate},
+    {"CustomUnsqueezeOperation", &CustomUnsqueezeOperationCreate},
+    {"CustomSqueezeOperation", &CustomSqueezeOperationCreate},
 };
 
 atb::Operation* CreateOperation(const std::string& opName, const nlohmann::json& paramJson);
