@@ -1,4 +1,4 @@
-#include "scalar.h"
+#include "utils/scalar.h"
 
 #include <algorithm>
 #include <cctype>
@@ -17,6 +17,7 @@ DICPScalar::ValueType DICPScalar::parseValueType(std::string_view dtype) {
     if (dtype_upper == "INT32") return ValueType::INT32;
     if (dtype_upper == "FLOAT") return ValueType::FLOAT;
     if (dtype_upper == "FLOAT16") return ValueType::FLOAT16;
+    if (dtype_upper == "BF16") return ValueType::BF16;
 
     throw std::invalid_argument("Unsupported dtype: " + std::string(dtype));
 }
@@ -31,6 +32,8 @@ aclDataType DICPScalar::getAclDataTypeFromValueType(ValueType vtype) {
             return ACL_FLOAT;
         case ValueType::FLOAT16:
             return ACL_FLOAT16;
+        case ValueType::BF16:
+            return ACL_BF16;
         default:
             throw std::invalid_argument("Invalid ValueType");
     }
@@ -53,6 +56,9 @@ DICPScalar::DICPScalar(float value, std::string_view dtype) {
         case ValueType::FLOAT16:
             this->value.halfValue = half_float::half(value);
             break;
+        case ValueType::BF16:
+            this->value.halfValue = op::bfloat16(value);
+            break;
         default:
             throw std::invalid_argument("Invalid target type");
     }
@@ -65,6 +71,8 @@ bool DICPScalar::isInt32() const { return currentType == ValueType::INT32; }
 bool DICPScalar::isFloat() const { return currentType == ValueType::FLOAT; }
 
 bool DICPScalar::isFloat16() const { return currentType == ValueType::FLOAT16; }
+
+bool DICPScalar::isBF16() const { return currentType == ValueType::BF16; }
 
 aclDataType DICPScalar::getDataType() const { return dataType; }
 
@@ -82,6 +90,8 @@ std::string DICPScalar::getTypeString() const {
             return "FLOAT";
         case ValueType::FLOAT16:
             return "FLOAT16";
+        case ValueType::BF16:
+            return "BF16";
         default:
             return "UNKNOWN";
     }

@@ -1,9 +1,9 @@
-#include "config.h"
+#include "utils/config.h"
 
 #include <cstdlib>
 #include <string>
 
-#include "log.h"
+#include "utils/log.h"
 
 namespace dicp {
 

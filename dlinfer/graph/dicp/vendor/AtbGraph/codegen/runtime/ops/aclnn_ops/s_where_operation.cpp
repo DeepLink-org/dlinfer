@@ -1,8 +1,10 @@
 #include "s_where_operation.h"
 
+#include <algorithm>
+
 #include "aclnnop/aclnn_s_where.h"
-#include "common.h"
-#include "log.h"
+#include "utils/common.h"
+#include "utils/log.h"
 
 namespace dicp {
 
@@ -14,12 +16,17 @@ AclNnSWhereOperation::AclNnSWhereOperation(const std::string& name) : AclNnOpera
 AclNnSWhereOperation::~AclNnSWhereOperation() {}
 
 atb::Status AclNnSWhereOperation::InferShape(const atb::SVector<atb::TensorDesc>& inTensorDescs, atb::SVector<atb::TensorDesc>& outTensorDescs) const {
-    DICP_LOG(INFO) << opName_ << " infer shape start";
     outTensorDescs.at(0).format = inTensorDescs.at(1).format;
-    outTensorDescs.at(0).shape.dimNum = inTensorDescs.at(1).shape.dimNum;
     outTensorDescs.at(0).dtype = inTensorDescs.at(1).dtype;
+    auto dimNum0 = inTensorDescs.at(0).shape.dimNum;
+    auto dimNum1 = inTensorDescs.at(1).shape.dimNum;
+    auto dimNum2 = inTensorDescs.at(2).shape.dimNum;
+    outTensorDescs.at(0).shape.dimNum = std::max({dimNum0, dimNum1, dimNum2});
     for (size_t i = 0; i < outTensorDescs.at(0).shape.dimNum; ++i) {
-        outTensorDescs.at(0).shape.dims[i] = inTensorDescs.at(1).shape.dims[i];
+        auto dim0 = i < inTensorDescs.at(0).shape.dimNum ? inTensorDescs.at(0).shape.dims[i] : -1;
+        auto dim1 = i < inTensorDescs.at(1).shape.dimNum ? inTensorDescs.at(1).shape.dims[i] : -1;
+        auto dim2 = i < inTensorDescs.at(2).shape.dimNum ? inTensorDescs.at(2).shape.dims[i] : -1;
+        outTensorDescs.at(0).shape.dims[i] = std::max({dim0, dim1, dim2});
     }
     DICP_LOG(INFO) << opName_ << " infer shape end";
     return 0;

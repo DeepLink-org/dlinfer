@@ -5,11 +5,11 @@
 #include <algorithm>
 #include <fstream>
 
-#include "config.h"
-#include "log.h"
-#include "operation_creator.h"
-#include "tensor_utils.h"
-#include "workspace.h"
+#include "ops/operation_creator.h"
+#include "utils/config.h"
+#include "utils/log.h"
+#include "utils/tensor_utils.h"
+#include "utils/workspace.h"
 
 namespace dicp {
 
@@ -109,7 +109,6 @@ atb::Tensor Model::CreateInternalTensorFromDesc(const atb::TensorDesc& tensorDes
 Model::Model(const std::string& modelId, const std::string& modelPath) : modelId_(modelId), modelPath_(modelPath) {
     auto st = BuildGraph();
     DICP_LOG_IF(st != atb::NO_ERROR, ERROR) << modelId_ << " init graph:\n" << graph_.ToString();
-
     graph_.Init();
     DICP_LOG(INFO) << modelId_ << " init graph:\n" << graph_.ToString();
 }
@@ -249,7 +248,6 @@ void Model::BuildNodeVariantPack(int nodeId) {
         if (needReshape) {
             node.inTensorReshapeFuncs.at(i)(node.inTensors.at(i)->desc.shape, inTensorDescs.at(i).shape);
             node.variantPack.inTensors.at(i).desc.shape = inTensorDescs.at(i).shape;
-            node.inTensors.at(i)->desc.shape = inTensorDescs.at(i).shape;
         }
         DICP_LOG(INFO) << modelId_ << " nodes[" << nodeId << "] inTensors[" << i << "]:" << tensor_utils::TensorToString(node.variantPack.inTensors.at(i));
     }
@@ -265,7 +263,7 @@ void Model::BuildNodeVariantPack(int nodeId) {
     for (size_t i = 0; i < node.outTensors.size(); ++i) {
         if (hasInplaceOutputs && node.inplaceIndices.count(i) > 0) {
             auto inputIdx = node.inplaceIndices[i];
-            node.variantPack.outTensors.at(i) = *node.inTensors.at(inputIdx);
+            node.variantPack.outTensors.at(i) = node.variantPack.inTensors.at(inputIdx);
             *node.outTensors.at(i) = node.variantPack.outTensors.at(i);
             continue;
         }
@@ -494,7 +492,8 @@ void Model::SetupUnsqueezeReshape(const nlohmann::json& reshapeInput, atb::Resha
     func = [=](const atb::Dims& oldShape, atb::Dims& newShape) {
         std::vector<int64_t> dimValues(oldShape.dims, oldShape.dims + oldShape.dimNum);
         for (const auto& d : dims) {
-            dimValues.insert(dimValues.begin() + d, 1);
+            int offset = d < 0 ? d + oldShape.dimNum + 1 : d;
+            dimValues.insert(dimValues.begin() + offset, 1);
         }
         newShape.dimNum = dimValues.size();
         std::copy(dimValues.begin(), dimValues.end(), newShape.dims);
@@ -506,7 +505,8 @@ void Model::SetupSqueezeReshape(const nlohmann::json& reshapeInput, atb::Reshape
     func = [=](const atb::Dims& oldShape, atb::Dims& newShape) {
         std::vector<int64_t> dimValues(oldShape.dims, oldShape.dims + oldShape.dimNum);
         for (const auto& d : dims) {
-            dimValues.erase(dimValues.begin() + d);
+            int offset = d < 0 ? d + oldShape.dimNum : d;
+            dimValues.erase(dimValues.begin() + offset);
         }
         newShape.dimNum = dimValues.size();
         std::copy(dimValues.begin(), dimValues.end(), newShape.dims);

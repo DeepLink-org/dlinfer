@@ -8,7 +8,7 @@ inline atb::Operation* RopeOperationCreate(const nlohmann::json& paramJson) {
     if (paramJson.contains("rotaryCoeff")) {
         param.rotaryCoeff = paramJson["rotaryCoeff"].get<int32_t>();
     }
-    if (paramJson.contains("cosFormat ")) {
+    if (paramJson.contains("cosFormat")) {
         param.cosFormat = paramJson["cosFormat"].get<int32_t>();
     }
     DICP_LOG(INFO) << "RopeParam: rotaryCoeff:" << param.rotaryCoeff << ", cosFormat:" << param.cosFormat;

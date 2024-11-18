@@ -1,8 +1,8 @@
 #include "gt_scalar_operation.h"
 
 #include "aclnnop/aclnn_gt_scalar.h"
-#include "log.h"
-#include "utils.h"
+#include "utils/log.h"
+#include "utils/misc.h"
 
 namespace dicp {
 
@@ -22,9 +22,11 @@ AclNnGtScalarOperation::~AclNnGtScalarOperation() {
 atb::Status AclNnGtScalarOperation::InferShape(const atb::SVector<atb::TensorDesc>& inTensorDescs, atb::SVector<atb::TensorDesc>& outTensorDescs) const {
     DICP_LOG(INFO) << opName_ << " infer shape start";
     outTensorDescs.at(0).format = inTensorDescs.at(0).format;
-    outTensorDescs.at(0).shape.dimNum = NUM1;
-    outTensorDescs.at(0).shape.dims[0] = 1;
+    outTensorDescs.at(0).shape.dimNum = inTensorDescs.at(0).shape.dimNum;
     outTensorDescs.at(0).dtype = aclDataType::ACL_BOOL;
+    for (size_t i = 0; i < outTensorDescs.at(0).shape.dimNum; ++i) {
+        outTensorDescs.at(0).shape.dims[i] = inTensorDescs.at(0).shape.dims[i];
+    }
     DICP_LOG(INFO) << opName_ << " infer shape end";
     return 0;
 }

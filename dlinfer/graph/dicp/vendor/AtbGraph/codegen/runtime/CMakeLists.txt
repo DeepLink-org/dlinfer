@@ -1,54 +1,9 @@
 cmake_minimum_required(VERSION 3.18)
-project(dlinfer LANGUAGES CXX)
+project(dicp_model LANGUAGES CXX)
 
-execute_process(
-    COMMAND python3 -c "import torch; print(torch.__path__[0])"
-    OUTPUT_VARIABLE TORCH_PATH
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-)
-
-execute_process(
-    COMMAND python3 -c "import torch_npu; print(torch_npu.__path__[0])"
-    OUTPUT_VARIABLE TORCH_NPU_PATH
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-)
-
-message(STATUS "Torch path: ${TORCH_PATH}")
-message(STATUS "Torch NPU path: ${TORCH_NPU_PATH}")
-
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)
-
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-
-set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
+include(ascend)
 
 set(THIRD_PARTY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party)
-
-include_directories(
-    $ENV{PYTHON_INCLUDE_PATH}
-    ${THIRD_PARTY_DIR}/json/single_include
-    ${THIRD_PARTY_DIR}/spdlog/include
-    ${THIRD_PARTY_DIR}/half/include
-    ${TORCH_PATH}/include
-    ${TORCH_PATH}/include/torch/csrc/api/include
-    ${TORCH_NPU_PATH}/include
-    $ENV{ATB_HOME_PATH}/include
-    $ENV{ASCEND_HOME_PATH}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/ops
-    ${CMAKE_CURRENT_SOURCE_DIR}/ops/aclnn_ops
-    ${CMAKE_CURRENT_SOURCE_DIR}/
-    ${CMAKE_CURRENT_SOURCE_DIR}/utils
-)
-
-link_directories(
-    $ENV{ASCEND_HOME_PATH}/lib64
-    $ENV{ATB_HOME_PATH}/lib
-    $ENV{ASCEND_TOOLKIT_HOME}/lib64
-    ${TORCH_PATH}/lib
-    ${TORCH_NPU_PATH}/lib
-)
 
 file(GLOB_RECURSE SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/ops/*.cpp
@@ -69,10 +24,27 @@ set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O2")
 
 add_library(dicp_model SHARED ${SOURCES})
 
+target_include_directories(
+    dicp_model PUBLIC
+    ${THIRD_PARTY_DIR}/json/single_include
+    ${THIRD_PARTY_DIR}/spdlog/include
+    ${THIRD_PARTY_DIR}/half/include
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${TORCH_NPU_INCLUDE_DIRS}
+    ${CANN_INCLUDE_DIRS}
+    ${CANN_INCLUDE_DIRS}/aclnn
+    ${ATB_INCLUDE_DIRS}
+)
+
 target_compile_options(dicp_model PRIVATE ${COMPILE_OPTIONS})
 
-target_link_libraries(dicp_model PRIVATE
-    atb torch c10 torch_cpu torch_python torch_npu opapi)
+target_link_libraries(dicp_model PUBLIC
+    Python::Python
+    torch
+    ${TORCH_NPU_LIBRARY}
+    ${CANN_LIBRARY}
+    ${ATB_LIBRARY}
+)
 
 file(RELATIVE_PATH OUTPUT_LIB_RELATIVE_PATH "${CMAKE_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../")
 install(

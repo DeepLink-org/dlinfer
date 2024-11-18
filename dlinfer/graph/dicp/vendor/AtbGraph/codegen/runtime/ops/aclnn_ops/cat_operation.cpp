@@ -13,7 +13,7 @@
 
 #include "acl/acl.h"
 #include "aclnnop/aclnn_cat.h"
-#include "log.h"
+#include "utils/log.h"
 
 namespace dicp {
 const int DIM0 = 0;

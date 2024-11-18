@@ -41,6 +41,14 @@ static std::map<std::string, OperationCreateFunc> g_funcMap = {
     {"AclNnSWhereOperation", &AclNnSWhereOperationCreate},
     {"AclNnArangeOperation", &AclNnArangeOperationCreate},
     {"LinearParallelOperation", &LinearParallelOperationCreate},
+    {"SoftmaxOperation", &SoftmaxOperationCreate},
+    {"SortOperation", &SortOperationCreate},
+    {"SliceOperation", &SliceOperationCreate},
+    {"AclNnIndexSelectOperation", &AclNnIndexSelectOperationCreate},
+    {"AclNnSliceOperation", &AclNnSliceOperationCreate},
+    {"AclNnSoftmaxOperation", &AclNnSoftmaxOperationCreate},
+    {"AllReduceOperation", &AllReduceOperationCreate},
+    {"AclNnTopkOperation", &AclNnTopkOperationCreate},
 };
 
 atb::Operation* CreateOperation(const std::string& opName, const nlohmann::json& paramJson);
