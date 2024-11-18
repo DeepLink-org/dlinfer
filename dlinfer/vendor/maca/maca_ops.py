@@ -71,11 +71,9 @@ def apply_rotary_pos_emb(
 ) -> Tuple[Tensor, Tensor]:
     position_ids_1d = torch.arange(0, query.size(1), device=query.device)
     head_size = query.size(-1)
-    rot_dim = cos.size(-1) // 2
     query = query.flatten(-2, -1)
     key = key.flatten(-2, -1)
-    cos = cos[..., :rot_dim]
-    sin = sin[..., :rot_dim]
+    rot_dim = cos.size(-1)
 
     maca_ext_ops.rotary_embedding(
         position_ids_1d,
