@@ -24,6 +24,7 @@ __all__ = [
     "silu_and_mul",
     "moe_gating_topk_softmax",
     "linear",
+    "weight_quant_matmul",
 ]
 
 
@@ -388,3 +389,28 @@ def linear(
     if all_reduce:
         dist.all_reduce(out)
     return out
+
+
+# Quantification of W4A16 is currently supported and tested.
+@register_ops(vendor_ops_registry)
+def weight_quant_matmul(
+    x: Tensor,
+    qweight: Tensor,
+    scale: Tensor,
+    offset: Optional[Tensor] = None,
+    bias: Optional[Tensor] = None,
+    all_reduce: Optional[bool] = False,
+    group_size: Optional[int] = 0,
+):
+    offset = None if (offset is None or offset.numel() == 0) else offset
+    try:
+        from maca_ext_ops import awq_gemm
+
+        output = maca_ext_ops.awq_gemm(x, qweight, scale, offset, group_size)
+    except ImportError:
+        raise ImportError(
+            "awq_gemm is not supported in maca_ext_ops, you can try vllm._custom_ops.awq_gemm instead if latest vllm(>=0.5.4) is available."
+        )
+        # import vllm
+        # output = vllm._custom_ops.awq_gemm(x, qweight, scale, offset, group_size)
+    return output
