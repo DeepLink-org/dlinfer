@@ -371,7 +371,12 @@ def weight_quant_matmul(
 ) -> Tensor:
     offset = None if (offset is None or offset.numel() == 0) else offset
     return torch.ops.npu.npu_weight_quant_batchmatmul(
-        x, qweight, scale, antiquant_offset=offset, antiquant_group_size=group_size
+        x,
+        qweight,
+        scale,
+        antiquant_offset=offset,
+        antiquant_group_size=group_size,
+        bias=bias,
     )
 
 
