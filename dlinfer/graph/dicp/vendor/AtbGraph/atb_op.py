@@ -45,6 +45,38 @@ class AllReduce(Operator):
         return torch.ops._c10d_functional.all_reduce.default(x, reduce_type, "0")
 
 
+class AclNnAdd(Operator):
+    def __init__(self):
+        super().__init__("AclNnAdd")
+
+    def infer_result(self, a, b):
+        return a + b
+
+
+class AclNnSub(Operator):
+    def __init__(self):
+        super().__init__("AclNnSub")
+
+    def infer_result(self, a, b):
+        return a - b
+
+
+class AclNnDiv(Operator):
+    def __init__(self):
+        super().__init__("AclNnDiv")
+
+    def infer_result(self, a, b):
+        return a / b
+
+
+class AclNnMul(Operator):
+    def __init__(self):
+        super().__init__("AclNnMul")
+
+    def infer_result(self, a, b):
+        return a * b
+
+
 class Add(Operator):
     def __init__(self):
         super().__init__("Add")
@@ -88,6 +120,14 @@ class Div(Operator):
 class Divs(Operator):
     def __init__(self):
         super().__init__("Divs")
+
+    def infer_result(self, a, b):
+        return a / b
+
+
+class InplaceDiv(Operator):
+    def __init__(self):
+        super().__init__("InplaceDiv")
 
     def infer_result(self, a, b):
         return a / b
@@ -147,6 +187,14 @@ class GtScalar(Operator):
 
     def infer_result(self, x, y, dtype="FLOAT"):
         return torch.ops.aten.gt.Scalar(x, y)
+
+
+class GeScalar(Operator):
+    def __init__(self):
+        super().__init__("GeScalar")
+
+    def infer_result(self, x, y, dtype="FLOAT"):
+        return torch.ops.aten.ge.Scalar(x, y)
 
 
 class Where(Operator):
@@ -414,3 +462,27 @@ class Expand(Operator):
 
     def infer_result(self, x, size):
         return x.expand(size)
+
+
+class InplaceScatter(Operator):
+    def __init__(self):
+        super().__init__("InplaceScatter")
+
+    def infer_result(self, x, dim, index, src):
+        return x
+
+
+class AclNnGather(Operator):
+    def __init__(self):
+        super().__init__("AclNnGather")
+
+    def infer_result(self, x, dim, index):
+        return index
+
+
+class ScalarTensor(Operator):
+    def __init__(self):
+        super().__init__("ScalarTensor")
+
+    def infer_result(self, x, dtype):
+        return torch.empty(1, dtype=dtype, device="npu")
