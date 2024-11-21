@@ -541,6 +541,29 @@ class SqueezeParam:
 class AclNnExpandParam:
     name: str = ""
     size: list[int] = field(default_factory=list)
+class OnlyNameParam:
+    name: str = ""
+
+
+@dataclass
+class ScatterParam:
+    name: str = ""
+    dim: int = 0
+    reduceType: int = 0
+
+
+@dataclass
+class AclNnGatherParam:
+    name: str = ""
+    dim: int = 0
+
+
+@dataclass
+class ScalarTensorParam:
+    name: str = ""
+    value: float = 1.0
+    valueStr: str = ""
+    dtype: str = "FLOAT"
 
 
 @dataclass
