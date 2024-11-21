@@ -601,3 +601,14 @@ class AtbOverrides:
         op.add_inplace_output(0, 0)
         op.is_reshape_op = True
         return op
+
+    def AclNnExpand(name, x, size):
+        op = Operation(name, "AclNnExpandOperation")
+        param = infer_param.AclNnExpandParam()
+        param.name = name
+        param.size = size
+
+        op.set_input([x])
+        op.set_param(param)
+        op.set_output([name])
+        return op

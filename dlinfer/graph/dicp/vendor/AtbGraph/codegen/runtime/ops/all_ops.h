@@ -7,6 +7,7 @@
 #include "aclnn_ops/cast_operation.h"
 #include "aclnn_ops/cat_operation.h"
 #include "aclnn_ops/divs_operation.h"
+#include "aclnn_ops/expand_operation.h"
 #include "aclnn_ops/gt_scalar_operation.h"
 #include "aclnn_ops/index_select_operation.h"
 #include "aclnn_ops/max_operation.h"
