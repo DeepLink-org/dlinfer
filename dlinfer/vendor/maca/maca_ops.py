@@ -406,11 +406,11 @@ def weight_quant_matmul(
     try:
         from maca_ext_ops import awq_gemm
 
-        output = maca_ext_ops.awq_gemm(x, qweight, scale, offset, group_size)
+        output = maca_ext_ops.awq_gemm(x, qweight, scale, offset, group_size, bias=bias)
     except ImportError:
         raise ImportError(
             "awq_gemm is not supported in maca_ext_ops, you can try vllm._custom_ops.awq_gemm instead if latest vllm(>=0.5.4) is available."
         )
         # import vllm
-        # output = vllm._custom_ops.awq_gemm(x, qweight, scale, offset, group_size)
+        # output = vllm._custom_ops.awq_gemm(x, qweight, scale, offset, group_size, bias=bias)
     return output
