@@ -108,16 +108,16 @@ __global__ void rotary_embedding_kernel(
     scalar_t* __restrict__ key,  // [batch_size, seq_len, num_kv_heads,
                                  // head_size] or [num_tokens, num_kv_heads,
                                  // head_size]
-    const scalar_t* __restrict__ cos_cache,  // [max_position, 1, embed_dim]
-    const scalar_t* __restrict__ sin_cache,  // [max_position, 1, embed_dim]
+    const scalar_t* __restrict__ cos_cache,  // [max_position, 2 * embed_dim]
+    const scalar_t* __restrict__ sin_cache,  // [max_position, 2 * embed_dim]
 
     const int embed_dim, const int64_t query_stride, const int64_t key_stride,
     const int num_heads, const int num_kv_heads, const int head_size) {
   // Each thread block is responsible for one token.
   const int token_idx = blockIdx.x;
   int64_t pos = positions[token_idx];
-  const scalar_t* cos_cache_ptr = cos_cache + pos * embed_dim;
-  const scalar_t* sin_cache_ptr = sin_cache + pos * embed_dim;
+  const scalar_t* cos_cache_ptr = cos_cache + pos * 2 * embed_dim;
+  const scalar_t* sin_cache_ptr = sin_cache + pos * 2 * embed_dim;
 
   apply_rotary_embedding<scalar_t, IS_NEOX>(
       query, key, cos_cache_ptr, sin_cache_ptr, head_size, num_heads, num_kv_heads, embed_dim,
@@ -161,11 +161,11 @@ void rotary_embedding(
     torch::Tensor& key,    // [batch_size, seq_len, num_kv_heads * head_size] or
                            // [num_tokens, num_kv_heads * head_size]
     int64_t head_size,
-    torch::Tensor& cos,  // [max_position, embed_dim]
-    torch::Tensor& sin,  // [max_position, embed_dim]
+    torch::Tensor& cos,  // [max_position, 2 * embed_dim]
+    torch::Tensor& sin,  // [max_position, 2 * embed_dim]
     bool is_neox) {
   int64_t num_tokens = query.numel() / query.size(-1);
-  int embed_dim = cos.size(-1);
+  int embed_dim = cos.size(-1) / 2;
   int num_heads = query.size(-1) / head_size;
   int num_kv_heads = key.size(-1) / head_size;
   int64_t query_stride = query.stride(-2);
