@@ -44,7 +44,7 @@ public:
 
 private:
     static void initLogger() {
-        spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%n] [%l] %v");
+        spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%n] [%l] [%s:%#] %v");
         auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
 
         std::vector<spdlog::sink_ptr> sinks{console_sink};
@@ -84,9 +84,11 @@ private:
 
 class LogMessage {
 public:
-    LogMessage(LogLevel level) : level_(level) {}
+    LogMessage(LogLevel level, const char* file, int line) : level_(level), file_(file), line_(line) {}
+
     ~LogMessage() noexcept(false) {
-        spdlog::log(levelMap.at(level_), stream_.str());
+        spdlog::source_loc loc{file_, line_, ""};
+        spdlog::log(loc, levelMap.at(level_), stream_.str());
         if (level_ == LogLevel::FATAL) {
             throw std::runtime_error("Fatal error occurred: " + stream_.str());
         }
@@ -101,6 +103,8 @@ public:
 private:
     LogLevel level_;
     std::ostringstream stream_;
+    const char* file_;
+    int line_;
 };
 
 static LoggerInitializer loggerInitializer;
@@ -108,7 +112,7 @@ static LoggerInitializer loggerInitializer;
 }  // namespace dicp
 
 #define DICP_LOG(LEVEL) \
-    if (dicp::LoggerInitializer::getCachedLogLevel() <= dicp::LogLevel::LEVEL) dicp::LogMessage(dicp::LogLevel::LEVEL)
+    if (dicp::LoggerInitializer::getCachedLogLevel() <= dicp::LogLevel::LEVEL) dicp::LogMessage(dicp::LogLevel::LEVEL, __FILE__, __LINE__)
 
 #define DICP_LOG_IF(condition, LEVEL) \
-    if ((condition) && dicp::LoggerInitializer::getCachedLogLevel() <= dicp::LogLevel::LEVEL) dicp::LogMessage(dicp::LogLevel::LEVEL)
+    if ((condition) && dicp::LoggerInitializer::getCachedLogLevel() <= dicp::LogLevel::LEVEL) dicp::LogMessage(dicp::LogLevel::LEVEL, __FILE__, __LINE__)
