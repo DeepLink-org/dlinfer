@@ -264,6 +264,9 @@ void Model::BuildNodeVariantPack(int nodeId) {
         if (hasInplaceOutputs && node.inplaceIndices.count(i) > 0) {
             auto inputIdx = node.inplaceIndices[i];
             node.variantPack.outTensors.at(i) = node.variantPack.inTensors.at(inputIdx);
+            // For reshape ops, the tensor descriptor of inTensor might differ from that of outTensor.
+            // Therefore, we need to reassign the descriptor here to ensure correctness.
+            node.variantPack.outTensors.at(i).desc = outTensorDescs.at(i);
             *node.outTensors.at(i) = node.variantPack.outTensors.at(i);
             continue;
         }

@@ -49,4 +49,26 @@ std::string svectorToString(const atb::SVector<T>& vec, const std::string& delim
     return oss.str();
 }
 
+template <typename T>
+std::string vectorToString(const std::vector<T>& vec, const std::string& delimiter = ", ", const std::string& prefix = "[", const std::string& suffix = "]") {
+    if (vec.empty()) {
+        return prefix + suffix;
+    }
+
+    std::ostringstream oss;
+    oss << prefix;
+
+    for (size_t i = 0; i < vec.size(); ++i) {
+        if (i > 0) {
+            oss << delimiter;
+        }
+        oss << vec[i];
+    }
+
+    oss << suffix;
+    return oss.str();
+}
+
+std::string atbDimsToString(const atb::Dims& d);
+
 }  // namespace dicp

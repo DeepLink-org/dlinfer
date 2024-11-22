@@ -38,3 +38,6 @@
 #include "atb_ops/sort.h"
 #include "atb_ops/split.h"
 #include "atb_ops/transpose.h"
+#include "custom_ops/squeeze_operation.h"
+#include "custom_ops/unsqueeze_operation.h"
+#include "custom_ops/view_operation.h"
