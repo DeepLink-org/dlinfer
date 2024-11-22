@@ -49,7 +49,7 @@ class AclNnAdd(Operator):
     def __init__(self):
         super().__init__("AclNnAdd")
 
-    def infer_result(self, a, b):
+    def infer_result(self, a, b, dtype="FLOAT"):
         return a + b
 
 
@@ -57,7 +57,7 @@ class AclNnSub(Operator):
     def __init__(self):
         super().__init__("AclNnSub")
 
-    def infer_result(self, a, b):
+    def infer_result(self, a, b, dtype="FLOAT"):
         return a - b
 
 
@@ -65,7 +65,7 @@ class AclNnDiv(Operator):
     def __init__(self):
         super().__init__("AclNnDiv")
 
-    def infer_result(self, a, b):
+    def infer_result(self, a, b, dtype="FLOAT"):
         return a / b
 
 
@@ -73,7 +73,7 @@ class AclNnMul(Operator):
     def __init__(self):
         super().__init__("AclNnMul")
 
-    def infer_result(self, a, b):
+    def infer_result(self, a, b, dtype="FLOAT"):
         return a * b
 
 

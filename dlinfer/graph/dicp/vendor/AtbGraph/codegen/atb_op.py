@@ -653,7 +653,7 @@ class AtbOverrides:
         op.add_inplace_output(0, 0)
         return op
 
-    def AclNnDiv(name, x, y):
+    def AclNnDiv(name, x, y, dtype="FLOAT"):
         op = Operation(name, "AclNnDivOperation")
         param = infer_param.OnlyNameParam()
         param.name = name
@@ -663,7 +663,7 @@ class AtbOverrides:
         op.set_output([name])
         return op
 
-    def AclNnMul(name, x, y):
+    def AclNnMul(name, x, y, dtype="FLOAT"):
         op = Operation(name, "AclNnMulOperation")
         param = infer_param.OnlyNameParam()
         param.name = name

@@ -258,7 +258,8 @@ class AtenToAtbTransformer(SingleOpTransformer):
                         if out_dtype in atb_supported_dtype:
                             return self.get_proxy(tensor_op, (x, y))
                         else:
-                            return self.get_proxy(aclnn_op, (x, y))
+                            dtype = get_ascend_dtype(out_dtype)
+                            return self.get_proxy(aclnn_op, (x, y, dtype))
                     else:
                         dtype = get_ascend_dtype(out_dtype)
                         return self.get_proxy(scalar_op, (x, y, dtype))
