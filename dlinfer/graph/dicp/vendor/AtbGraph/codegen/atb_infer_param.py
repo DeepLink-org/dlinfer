@@ -498,6 +498,24 @@ class IndexSelectParam:
     dim: int = 0
 
 
+@dataclass
+class ViewParam:
+    name: str = ""
+    viewShape: list[int] = field(default_factory=list)
+
+
+@dataclass
+class UnsqueezeParam:
+    name: str = ""
+    unsqueezeDim: list[int] = field(default_factory=list)
+
+
+@dataclass
+class SqueezeParam:
+    name: str = ""
+    squeezeDim: list[int] = field(default_factory=list)
+
+
 def custom_asdict_factory(data):
     def convert_value(obj):
         if isinstance(obj, IntEnum):

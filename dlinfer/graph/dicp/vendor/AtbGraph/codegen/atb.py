@@ -176,9 +176,7 @@ class AtbCodegen(torch.fx.Interpreter):
         graph_output_names = self.atb_graph.outputs
 
         for output in graph_output_names:
-            param = self.output_tensor_descs["param"][output]
-            create_info = self.output_tensor_descs["create"][output]
-            # call_body.writeline(f'''output_tensor_descs["outputTensorDescs"].append({param})''')
+            create_info = self.output_tensor_descs[output]
             if create_info["input"] is None:
                 device = "npu"
                 dtype = create_info["dtype"]
