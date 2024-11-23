@@ -580,6 +580,15 @@ class AtenToAtbTransformer(SingleOpTransformer):
         routing_weights = self.get_proxy(atb_op.Softmax, (router_logits, -1))
         return self.get_proxy(atb_op.Sort, (routing_weights, top_k))
 
+    @register_conversion(torch.ops.aten.expand.default)
+    def aten_expand_default(self, x, size):
+        x_shape = x.node.meta["val"].shape
+        size = [
+            x_shape[i] if size[i] == -1 and isinstance(x_shape[i], int) else size[i]
+            for i in range(len(size))
+        ]
+        return self.get_proxy(atb_op.Expand, (x, size))
+
 
 class ViewSymIntTransformer(torch.fx.Transformer):
     def call_function(self, target, args, kwargs):

@@ -516,6 +516,12 @@ class SqueezeParam:
     squeezeDim: list[int] = field(default_factory=list)
 
 
+@dataclass
+class AclNnExpandParam:
+    name: str = ""
+    size: list[int] = field(default_factory=list)
+
+
 def custom_asdict_factory(data):
     def convert_value(obj):
         if isinstance(obj, IntEnum):
