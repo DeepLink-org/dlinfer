@@ -406,3 +406,11 @@ class IndexSelect(Operator):
         indices = [None] * len(x.shape)
         indices[dim] = index
         return torch.ops.aten.index.Tensor(x, indices)
+
+
+class Expand(Operator):
+    def __init__(self):
+        super().__init__("AclNnExpand")
+
+    def infer_result(self, x, size):
+        return x.expand(size)
