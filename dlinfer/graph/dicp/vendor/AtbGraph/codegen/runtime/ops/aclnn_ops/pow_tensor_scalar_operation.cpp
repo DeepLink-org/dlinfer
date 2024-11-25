@@ -52,4 +52,24 @@ int AclNnPowTensorScalarOperation::CallAclExecute(uint8_t* workspace, uint64_t w
     return ret;
 }
 
+atb::Operation* AclNnPowTensorScalarOperationCreate(const nlohmann::json& paramJson) {
+    std::string opName;
+    float exponent;
+    std::string dtype;
+    if (paramJson.contains("name")) {
+        opName = paramJson["name"].get<std::string>();
+    }
+    if (paramJson.contains("exponent")) {
+        exponent = paramJson["exponent"].get<float>();
+    }
+    if (paramJson.contains("dtype")) {
+        dtype = paramJson["dtype"].get<std::string>();
+    }
+    DICP_LOG(INFO) << "AclNnPowTensorScalarOperation: name: " << opName << " exponent:" << exponent << " dtype:" << dtype;
+    atb::Operation* op = new AclNnPowTensorScalarOperation(opName, exponent, dtype);
+    return op;
+}
+
+REGISTER_OPERATION(AclNnPowTensorScalarOperation, AclNnPowTensorScalarOperationCreate);
+
 }  // namespace dicp

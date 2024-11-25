@@ -1,9 +1,8 @@
-#pragma once
 #include "atb_ops.h"
 
 namespace dicp {
 
-inline atb::Operation* ElewiseOperationCreate(const nlohmann::json& paramJson) {
+atb::Operation* ElewiseOperationCreate(const nlohmann::json& paramJson) {
     atb::infer::ElewiseParam param;
     if (paramJson.contains("elewiseType")) {
         auto tmp = paramJson["elewiseType"].get<int32_t>();
@@ -38,5 +37,7 @@ inline atb::Operation* ElewiseOperationCreate(const nlohmann::json& paramJson) {
     CREATE_OPERATION_NO_RETURN(param, &op);
     return op;
 }
+
+REGISTER_ATB_OPERATION("ElewiseOperation", ElewiseOperationCreate);
 
 }  // namespace dicp

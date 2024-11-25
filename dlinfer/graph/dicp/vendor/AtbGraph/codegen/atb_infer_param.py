@@ -541,6 +541,8 @@ class SqueezeParam:
 class AclNnExpandParam:
     name: str = ""
     size: list[int] = field(default_factory=list)
+
+
 class OnlyNameParam:
     name: str = ""
 

@@ -61,4 +61,20 @@ int AclNnPermuteOperation::CallAclExecute(uint8_t* workspace, uint64_t workspace
     return ret;
 }
 
+atb::Operation* AclNnPermuteOperationCreate(const nlohmann::json& paramJson) {
+    std::string opName;
+    std::vector<int64_t> dims;
+    if (paramJson.contains("name")) {
+        opName = paramJson["name"].get<std::string>();
+    }
+    if (paramJson.contains("perm")) {
+        dims = paramJson["perm"].get<std::vector<int64_t>>();
+    }
+    DICP_LOG(INFO) << "AclNnPermuteOperation: name: " << opName;
+    atb::Operation* op = new AclNnPermuteOperation(opName, dims);
+    return op;
+}
+
+REGISTER_OPERATION(AclNnPermuteOperation, AclNnPermuteOperationCreate);
+
 }  // namespace dicp

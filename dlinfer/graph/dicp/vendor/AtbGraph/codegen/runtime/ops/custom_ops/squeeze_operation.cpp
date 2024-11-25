@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <iterator>
 
+#include "ops/operation_creator.h"
+
 namespace dicp {
 
 SqueezeOperation::SqueezeOperation(const std::string& name, std::vector<int64_t> squeezeDim) : ReshapeOperation(name), squeezeDim_(std::move(squeezeDim)) {}
@@ -24,5 +26,21 @@ atb::Status SqueezeOperation::InferShape(const atb::SVector<atb::TensorDesc>& in
     DICP_LOG(INFO) << "SqueezeOperation: " << opName_ << " infer shape end, out shape: " << atbDimsToString(outTensorDescs.at(0).shape);
     return atb::NO_ERROR;
 }
+
+atb::Operation* CustomSqueezeOperationCreate(const nlohmann::json& paramJson) {
+    std::string opName;
+    std::vector<int64_t> squeezeDim;
+    if (paramJson.contains("name")) {
+        opName = paramJson["name"].get<std::string>();
+    }
+    if (paramJson.contains("squeezeDim")) {
+        squeezeDim = std::move(paramJson["squeezeDim"].get<std::vector<int64_t>>());
+    }
+    DICP_LOG(INFO) << "CustomSqueezeOperation: name: " << opName << " squeezeDim:" << vectorToString<int64_t>(squeezeDim);
+    atb::Operation* op = new SqueezeOperation(opName, squeezeDim);
+    return op;
+}
+
+REGISTER_OPERATION(CustomSqueezeOperation, CustomSqueezeOperationCreate);
 
 }  // namespace dicp

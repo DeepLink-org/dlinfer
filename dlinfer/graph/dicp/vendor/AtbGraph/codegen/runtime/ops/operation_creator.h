@@ -3,8 +3,8 @@
 #include <nlohmann/json.hpp>
 
 #include <iostream>
-#include <unordered_map>
 #include <string>
+#include <unordered_map>
 
 #include "atb/operation.h"
 
@@ -15,14 +15,15 @@ using OperationCreateFunc = std::function<atb::Operation*(const nlohmann::json& 
 std::unordered_map<std::string, OperationCreateFunc>& getGlobalFuncMap();
 
 struct RegisterOp {
-    RegisterOp(const std::string& name, OperationCreateFunc func) {
-        std::cout << "################# in RegisterOp: name: " << name << std::endl;
-        getGlobalFuncMap()[name] = func;
-    }
+    RegisterOp(const std::string& name, OperationCreateFunc func) { getGlobalFuncMap()[name] = func; }
 };
 
-#define REGISTER_OPERATION(OpName, CreateFunc) \
-    static RegisterOp reg##OpName(#OpName, CreateFunc);
+#define CONCATENATE_DETAIL(x, y) x##y
+#define CONCATENATE(x, y) CONCATENATE_DETAIL(x, y)
+#define MAKE_UNIQUE_NAME(prefix) CONCATENATE(prefix, __COUNTER__)
+
+#define REGISTER_OPERATION(OpName, CreateFunc) static RegisterOp reg##OpName(#OpName, CreateFunc);
+#define REGISTER_ATB_OPERATION(OpNameStr, CreateFunc) static RegisterOp MAKE_UNIQUE_NAME(reg_)(OpNameStr, CreateFunc);
 
 atb::Operation* CreateOperation(const std::string& opName, const nlohmann::json& paramJson);
 
