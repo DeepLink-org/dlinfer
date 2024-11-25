@@ -1,9 +1,8 @@
-#pragma once
 #include "atb_ops.h"
 
 namespace dicp {
 
-inline atb::Operation* ActivationOperationCreate(const nlohmann::json& paramJson) {
+atb::Operation* ActivationOperationCreate(const nlohmann::json& paramJson) {
     atb::infer::ActivationParam param;
     if (paramJson.contains("activationType")) {
         auto value = paramJson["activationType"].get<int32_t>();
@@ -20,5 +19,7 @@ inline atb::Operation* ActivationOperationCreate(const nlohmann::json& paramJson
     CREATE_OPERATION_NO_RETURN(param, &op);
     return op;
 }
+
+REGISTER_ATB_OPERATION("ActivationOperation", ActivationOperationCreate);
 
 }  // namespace dicp

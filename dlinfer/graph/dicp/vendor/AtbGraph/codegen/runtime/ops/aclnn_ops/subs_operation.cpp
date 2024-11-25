@@ -56,4 +56,28 @@ int AclNnSubsOperation::CallAclExecute(uint8_t* workspace, uint64_t workspaceSiz
     return ret;
 }
 
+atb::Operation* AclNnSubsOperationCreate(const nlohmann::json& paramJson) {
+    std::string opName;
+    float value;
+    float alpha;
+    std::string dtype;
+    if (paramJson.contains("name")) {
+        opName = paramJson["name"].get<std::string>();
+    }
+    if (paramJson.contains("value")) {
+        value = paramJson["value"].get<float>();
+    }
+    if (paramJson.contains("alpha")) {
+        alpha = paramJson["alpha"].get<float>();
+    }
+    if (paramJson.contains("dtype")) {
+        dtype = paramJson["dtype"].get<std::string>();
+    }
+    DICP_LOG(INFO) << "AclNnSubsOperation: name: " << opName << " value:" << value << " alpha:" << alpha << " dtype:" << dtype;
+    atb::Operation* op = new AclNnSubsOperation(opName, value, alpha, dtype);
+    return op;
+}
+
+REGISTER_OPERATION(AclNnSubsOperation, AclNnSubsOperationCreate);
+
 }  // namespace dicp

@@ -1,9 +1,8 @@
-#pragma once
 #include "atb_ops.h"
 
 namespace dicp {
 
-inline atb::Operation* SortOperationCreate(const nlohmann::json& paramJson) {
+atb::Operation* SortOperationCreate(const nlohmann::json& paramJson) {
     atb::infer::SortParam param;
     if (paramJson.contains("num")) {
         auto tmp = paramJson["num"].get<int32_t>();
@@ -15,5 +14,7 @@ inline atb::Operation* SortOperationCreate(const nlohmann::json& paramJson) {
     CREATE_OPERATION_NO_RETURN(param, &op);
     return op;
 }
+
+REGISTER_ATB_OPERATION("SortOperation", SortOperationCreate);
 
 }  // namespace dicp

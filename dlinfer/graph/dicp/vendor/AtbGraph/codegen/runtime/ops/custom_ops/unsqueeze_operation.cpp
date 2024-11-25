@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <iterator>
 
+#include "ops/operation_creator.h"
+
 namespace dicp {
 
 UnsqueezeOperation::UnsqueezeOperation(const std::string& name, std::vector<int64_t> unsqueezeDim)
@@ -25,5 +27,21 @@ atb::Status UnsqueezeOperation::InferShape(const atb::SVector<atb::TensorDesc>& 
     DICP_LOG(INFO) << "UnsqueezeOperation: " << opName_ << " infer shape end, out shape: " << atbDimsToString(outTensorDescs.at(0).shape);
     return atb::NO_ERROR;
 }
+
+atb::Operation* CustomUnsqueezeOperationCreate(const nlohmann::json& paramJson) {
+    std::string opName;
+    std::vector<int64_t> unsqueezeDim;
+    if (paramJson.contains("name")) {
+        opName = paramJson["name"].get<std::string>();
+    }
+    if (paramJson.contains("unsqueezeDim")) {
+        unsqueezeDim = std::move(paramJson["unsqueezeDim"].get<std::vector<int64_t>>());
+    }
+    DICP_LOG(INFO) << "CustomUnsqueezeOperation: name: " << opName << " unsqueezeDim:" << vectorToString<int64_t>(unsqueezeDim);
+    atb::Operation* op = new UnsqueezeOperation(opName, unsqueezeDim);
+    return op;
+}
+
+REGISTER_OPERATION(CustomUnsqueezeOperation, CustomUnsqueezeOperationCreate);
 
 }  // namespace dicp
