@@ -1,9 +1,8 @@
-#pragma once
 #include "atb_ops.h"
 
 namespace dicp {
 
-inline atb::Operation* SoftmaxOperationCreate(const nlohmann::json& paramJson) {
+atb::Operation* SoftmaxOperationCreate(const nlohmann::json& paramJson) {
     atb::infer::SoftmaxParam param;
     if (paramJson.contains("axes")) {
         auto tmp = paramJson["axes"].get<std::vector<int64_t>>();
@@ -17,5 +16,7 @@ inline atb::Operation* SoftmaxOperationCreate(const nlohmann::json& paramJson) {
     CREATE_OPERATION_NO_RETURN(param, &op);
     return op;
 }
+
+REGISTER_ATB_OPERATION("SoftmaxOperation", SoftmaxOperationCreate);
 
 }  // namespace dicp

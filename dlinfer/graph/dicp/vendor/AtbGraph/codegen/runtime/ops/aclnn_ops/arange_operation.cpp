@@ -61,4 +61,28 @@ int AclNnArangeOperation::CallAclExecute(uint8_t* workspace, uint64_t workspaceS
     return ret;
 }
 
+atb::Operation* AclNnArangeOperationCreate(const nlohmann::json& paramJson) {
+    std::string opName;
+    int64_t start = 0;
+    int64_t end = 0;
+    int64_t step = 0;
+    if (paramJson.contains("name")) {
+        opName = paramJson["name"].get<std::string>();
+    }
+    if (paramJson.contains("start")) {
+        start = paramJson["start"].get<int64_t>();
+    }
+    if (paramJson.contains("end")) {
+        end = paramJson["end"].get<int64_t>();
+    }
+    if (paramJson.contains("step")) {
+        step = paramJson["step"].get<int64_t>();
+    }
+    DICP_LOG(INFO) << "AclNnArangeOperation: name: " << opName << " start:" << start << " end:" << end << " step:" << step;
+    atb::Operation* op = new AclNnArangeOperation(opName, start, end, step);
+    return op;
+}
+
+REGISTER_OPERATION(AclNnArangeOperation, AclNnArangeOperationCreate);
+
 }  // namespace dicp

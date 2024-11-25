@@ -16,18 +16,4 @@ private:
     int CallAclExecute(uint8_t* workspace, uint64_t workspaceSize, aclOpExecutor* aclExecutor, aclrtStream stream) override;
 };
 
-inline atb::Operation* AclNnCastOperationCreate(const nlohmann::json& paramJson) {
-    std::string opName;
-    aclDataType dataType = aclDataType::ACL_DT_UNDEFINED;
-    if (paramJson.contains("name")) {
-        opName = paramJson["name"].get<std::string>();
-    }
-    if (paramJson.contains("outTensorType")) {
-        dataType = static_cast<aclDataType>(paramJson["outTensorType"].get<int32_t>());
-    }
-    DICP_LOG(INFO) << "AclNnCastOperation name: " << opName << " datatype: " << dataType;
-    atb::Operation* op = new AclNnCastOperation(opName, dataType);
-    return op;
-}
-
 }  // namespace dicp

@@ -44,4 +44,22 @@ int AclNnSoftmaxOperation::CallAclExecute(uint8_t* workspace, uint64_t workspace
     return ret;
 }
 
+atb::Operation* AclNnSoftmaxOperationCreate(const nlohmann::json& paramJson) {
+    std::string opName;
+    int64_t dim;
+    std::string dtype;
+    if (paramJson.contains("name")) {
+        opName = paramJson["name"].get<std::string>();
+    }
+    if (paramJson.contains("axes")) {
+        auto tmp = paramJson["axes"].get<std::vector<int64_t>>();
+        dim = tmp[0];
+    }
+    DICP_LOG(INFO) << "AclNnSoftmaxOperation: name: " << opName << " dim:" << dim;
+    atb::Operation* op = new AclNnSoftmaxOperation(opName, dim);
+    return op;
+}
+
+REGISTER_OPERATION(AclNnSoftmaxOperation, AclNnSoftmaxOperationCreate);
+
 }  // namespace dicp

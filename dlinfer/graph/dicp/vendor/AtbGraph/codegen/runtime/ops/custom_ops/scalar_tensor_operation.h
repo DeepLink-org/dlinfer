@@ -40,33 +40,4 @@ private:
     atb::SVector<AclNnTensor> aclOutTensors_;
 };
 
-inline atb::Operation* CustomScalarTensorOperationCreate(const nlohmann::json& paramJson) {
-    std::string opName;
-    float value;
-    std::string dtype;
-    if (paramJson.contains("name")) {
-        opName = paramJson["name"].get<std::string>();
-    }
-    if (paramJson.contains("value") && paramJson.contains("valueStr")) {
-        std::string valueStr = paramJson["valueStr"].get<std::string>();
-        if (valueStr == "") {
-            value = paramJson["value"].get<float>();
-        } else {
-            if (valueStr == "inf") {
-                value = std::numeric_limits<float>::infinity();
-            } else if (valueStr == "-inf") {
-                value = -std::numeric_limits<float>::infinity();
-            } else {
-                throw std::runtime_error("invalid valueStr: " + valueStr);
-            }
-        }
-    }
-    if (paramJson.contains("dtype")) {
-        dtype = paramJson["dtype"].get<std::string>();
-    }
-    DICP_LOG(INFO) << "CustomScalarTensorOperation: name: " << opName << " value:" << value << " dtype:" << dtype;
-    atb::Operation* op = new ScalarTensorOperation(opName, value, dtype);
-    return op;
-}
-
 }  // namespace dicp

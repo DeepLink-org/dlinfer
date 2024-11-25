@@ -1,9 +1,8 @@
-#pragma once
 #include "atb_ops.h"
 
 namespace dicp {
 
-inline atb::Operation* LinearOperationCreate(const nlohmann::json& paramJson) {
+atb::Operation* LinearOperationCreate(const nlohmann::json& paramJson) {
     atb::infer::LinearParam param;
     if (paramJson.contains("transposeA")) {
         param.transposeA = paramJson["transposeA"].get<bool>();
@@ -24,5 +23,7 @@ inline atb::Operation* LinearOperationCreate(const nlohmann::json& paramJson) {
     CREATE_OPERATION_NO_RETURN(param, &op);
     return op;
 }
+
+REGISTER_ATB_OPERATION("LinearOperation", LinearOperationCreate);
 
 }  // namespace dicp

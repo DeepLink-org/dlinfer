@@ -40,4 +40,17 @@ int AclNnMaxOperation::CallAclExecute(uint8_t* workspace, uint64_t workspaceSize
     return ret;
 }
 
+atb::Operation* AclNnMaxOperationCreate(const nlohmann::json& paramJson) {
+    std::string opName;
+    aclDataType dataType = aclDataType::ACL_DT_UNDEFINED;
+    if (paramJson.contains("name")) {
+        opName = paramJson["name"].get<std::string>();
+    }
+    DICP_LOG(INFO) << "AclNnMaxOperation name: " << opName;
+    atb::Operation* op = new AclNnMaxOperation(opName);
+    return op;
+}
+
+REGISTER_OPERATION(AclNnMaxOperation, AclNnMaxOperationCreate);
+
 }  // namespace dicp

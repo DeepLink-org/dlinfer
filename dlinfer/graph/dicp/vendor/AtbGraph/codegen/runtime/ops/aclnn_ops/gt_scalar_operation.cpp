@@ -51,4 +51,24 @@ int AclNnGtScalarOperation::CallAclExecute(uint8_t* workspace, uint64_t workspac
     return ret;
 }
 
+atb::Operation* AclNnGtScalarOperationCreate(const nlohmann::json& paramJson) {
+    std::string opName;
+    float value;
+    std::string dtype;
+    if (paramJson.contains("name")) {
+        opName = paramJson["name"].get<std::string>();
+    }
+    if (paramJson.contains("value")) {
+        value = paramJson["value"].get<float>();
+    }
+    if (paramJson.contains("dtype")) {
+        dtype = paramJson["dtype"].get<std::string>();
+    }
+    DICP_LOG(INFO) << "AclNnGtScalarOperation: name: " << opName << " value:" << value << " dtype:" << dtype;
+    atb::Operation* op = new AclNnGtScalarOperation(opName, value, dtype);
+    return op;
+}
+
+REGISTER_OPERATION(AclNnGtScalarOperation, AclNnGtScalarOperationCreate);
+
 }  // namespace dicp
