@@ -543,6 +543,7 @@ class AclNnExpandParam:
     size: list[int] = field(default_factory=list)
 
 
+@dataclass
 class OnlyNameParam:
     name: str = ""
 
