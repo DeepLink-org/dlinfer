@@ -569,32 +569,6 @@ class ScalarTensorParam:
     dtype: str = "FLOAT"
 
 
-@dataclass
-class OnlyNameParam:
-    name: str = ""
-
-
-@dataclass
-class ScatterParam:
-    name: str = ""
-    dim: int = 0
-    reduceType: int = 0
-
-
-@dataclass
-class AclNnGatherParam:
-    name: str = ""
-    dim: int = 0
-
-
-@dataclass
-class ScalarTensorParam:
-    name: str = ""
-    value: float = 1.0
-    valueStr: str = ""
-    dtype: str = "FLOAT"
-
-
 def custom_asdict_factory(data):
     def convert_value(obj):
         if isinstance(obj, IntEnum):
