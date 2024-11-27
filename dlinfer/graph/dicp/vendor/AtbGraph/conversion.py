@@ -129,6 +129,10 @@ class AtenToAtbTransformer(SingleOpTransformer):
             out = self.get_proxy(atb_op.Tuple, (out_q, out_k))
         return out
 
+    @register_conversion("torch.ops.atb.inplace_div.default")
+    def inplace_div(self, x, other):
+        return self.get_proxy(atb_op.InplaceDiv, (x, other))
+
     @register_conversion("torch.ops.dlinfer.fill_kv_cache.default")
     def fill_kv_cache(self, key, value, key_cache, value_cache, kv_indices):
         key_cache_shape = key_cache.node.meta["val"].shape
@@ -218,32 +222,51 @@ class AtenToAtbTransformer(SingleOpTransformer):
 
     def _register_binary_ops(self):
         binary_ops = {
-            (torch.ops.aten.add.Tensor, "add"): (atb_op.Add, atb_op.Adds),
-            (torch.ops.aten.sub.Tensor, "sub"): (atb_op.Sub, atb_op.Subs),
-            (torch.ops.aten.mul.Tensor, "mul"): (atb_op.Mul, atb_op.Muls),
-            (torch.ops.aten.div.Tensor, "div"): (atb_op.Div, atb_op.Divs),
+            (torch.ops.aten.add.Tensor, "add"): (
+                atb_op.Add,
+                atb_op.Adds,
+                atb_op.AclNnAdd,
+            ),
+            (torch.ops.aten.sub.Tensor, "sub"): (
+                atb_op.Sub,
+                atb_op.Subs,
+                atb_op.AclNnSub,
+            ),
+            (torch.ops.aten.mul.Tensor, "mul"): (
+                atb_op.Mul,
+                atb_op.Muls,
+                atb_op.AclNnMul,
+            ),
+            (torch.ops.aten.div.Tensor, "div"): (
+                atb_op.Div,
+                atb_op.Divs,
+                atb_op.AclNnDiv,
+            ),
         }
 
-        for (aten_op, op_name), (tensor_op, scalar_op) in binary_ops.items():
+        for (aten_op, op_name), (tensor_op, scalar_op, aclnn_op) in binary_ops.items():
 
-            def make_handler(tensor_op, scalar_op):
+            def make_handler(tensor_op, scalar_op, aclnn_op):
                 def handler(self, x, y):
+                    atb_supported_dtype = [torch.float16, torch.bfloat16]
                     out_dtype = fx_traceback.get_current_meta()["val"].dtype
-
                     if x.node.meta["val"].dtype != out_dtype:
                         x = self.get_proxy(atb_op.Cast, (x, out_dtype))
-
                     if isinstance(y, torch.fx.Proxy):
                         if y.node.meta["val"].dtype != out_dtype:
                             y = self.get_proxy(atb_op.Cast, (y, out_dtype))
-                        return self.get_proxy(tensor_op, (x, y))
+                        if out_dtype in atb_supported_dtype:
+                            return self.get_proxy(tensor_op, (x, y))
+                        else:
+                            dtype = get_ascend_dtype(out_dtype)
+                            return self.get_proxy(aclnn_op, (x, y, dtype))
                     else:
                         dtype = get_ascend_dtype(out_dtype)
                         return self.get_proxy(scalar_op, (x, y, dtype))
 
                 return handler
 
-            register_conversion(aten_op)(make_handler(tensor_op, scalar_op))
+            register_conversion(aten_op)(make_handler(tensor_op, scalar_op, aclnn_op))
 
     @register_conversion(torch.ops.aten.pow.Tensor_Scalar)
     def aten_pow_tensor_scalar(self, x, y):
@@ -260,6 +283,13 @@ class AtenToAtbTransformer(SingleOpTransformer):
         if len(x.node.meta["val"].shape) == 0:
             x = self.get_proxy(atb_op.View, (x, [1]))
         return self.get_proxy(atb_op.GtScalar, (x, y, dtype))
+
+    @register_conversion(torch.ops.aten.ge.Scalar)
+    def aten_ge_scalar(self, x, y):
+        dtype = get_ascend_dtype(x.node.meta["val"].dtype)
+        if len(x.node.meta["val"].shape) == 0:
+            x = self.get_proxy(atb_op.View, (x, [1]))
+        return self.get_proxy(atb_op.GeScalar, (x, y, dtype))
 
     @register_conversion(torch.ops.aten.max.default)
     def aten_max(self, x):
@@ -477,13 +507,15 @@ class AtenToAtbTransformer(SingleOpTransformer):
         dtype = fx_traceback.get_current_meta()["val"].dtype
         if dtype == torch.int64 or step != 1:
             return self.get_proxy(atb_op.AclNnSlice, (x, dim, start, end, step))
-
         x_shape = x.node.meta["val"].shape
         offsets = [0] * len(x_shape)
         size = [-1] * len(x_shape)
 
         offsets[dim] = start
-        size[dim] = end - start
+        if end >= 9223372036854775807:
+            size[dim] = -1
+        else:
+            size[dim] = end - start
 
         return self.get_proxy(atb_op.Slice, (x, dim, offsets, size))
 
@@ -588,6 +620,18 @@ class AtenToAtbTransformer(SingleOpTransformer):
             for i in range(len(size))
         ]
         return self.get_proxy(atb_op.Expand, (x, size))
+
+    @register_conversion(torch.ops.aten.gather.default)
+    def aten_gather_default(self, x, dim, indices):
+        return self.get_proxy(atb_op.AclNnGather, (x, dim, indices))
+
+    @register_conversion("torch.ops.atb.inplace_scatter.default")
+    def inplace_scatter(self, x, dim, index, src):
+        return self.get_proxy(atb_op.InplaceScatter, (x, dim, index, src))
+
+    @register_conversion(torch.ops.aten.scalar_tensor.default)
+    def aten_scalar_tensor(self, x, dtype, layout, device):
+        return self.get_proxy(atb_op.ScalarTensor, (float(x), dtype))
 
 
 class ViewSymIntTransformer(torch.fx.Transformer):

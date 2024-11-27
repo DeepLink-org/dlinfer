@@ -73,3 +73,29 @@ class TorchAllreduce(BackendPatternBase):
     @staticmethod
     def replacement(x, group):
         return torch.ops.atb.allreduce.default(x, "sum")
+
+
+@register_torch_pattern_1
+class TorchInplaceDivTensor(BackendPatternBase):
+    @staticmethod
+    def pattern(x, other):
+        div = torch.ops.aten.div.Tensor(x, other)
+        copy = torch.ops.aten.copy_.default(x, div)
+        return copy
+
+    @staticmethod
+    def replacement(x, other):
+        return torch.ops.atb.inplace_div.default(x, other)
+
+
+@register_torch_pattern_1
+class TorchInplaceScatterTensor(BackendPatternBase):
+    @staticmethod
+    def pattern(x, dim, index, src):
+        scatter = torch.ops.aten.scatter.src(x, dim, index, src)
+        copy = torch.ops.aten.copy_.default(x, scatter)
+        return copy
+
+    @staticmethod
+    def replacement(x, dim, index, src):
+        return torch.ops.atb.inplace_scatter.default(x, dim, index, src)

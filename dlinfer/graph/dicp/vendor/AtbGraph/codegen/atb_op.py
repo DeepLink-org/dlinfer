@@ -12,7 +12,10 @@ from dlinfer.graph.dicp.vendor.AtbGraph.codegen.atb_graph import (
     GraphOpearation,
     TupleOperation,
 )
-from dlinfer.graph.dicp.vendor.AtbGraph.codegen.utils import get_acl_dtype
+from dlinfer.graph.dicp.vendor.AtbGraph.codegen.utils import (
+    get_acl_dtype,
+    get_ascend_dtype,
+)
 
 
 class AtbOverrides:
@@ -139,6 +142,18 @@ class AtbOverrides:
         op.set_output([name])
         return op
 
+    def InplaceDiv(name, x, y):
+        op = Operation(name, "AclNnInplaceDivOperation")
+        param = infer_param.OnlyNameParam()
+        param.name = name
+
+        op.set_input([x, y])
+        op.set_param(param)
+        op.set_output([name])
+        op.has_inplace_output = True
+        op.add_inplace_output(0, 0)
+        return op
+
     def Mul(name, x, y):
         op = Operation(name, "ElewiseOperation")
         param = infer_param.ElewiseParam()
@@ -228,6 +243,18 @@ class AtbOverrides:
     def GtScalar(name, x, y, dtype="FLOAT"):
         op = Operation(name, "AclNnGtScalarOperation")
         param = infer_param.GtScalarParam()
+        param.name = name
+        param.value = float(y)
+        param.dtype = dtype
+
+        op.set_input([x])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def GeScalar(name, x, y, dtype="FLOAT"):
+        op = Operation(name, "AclNnGeScalarOperation")
+        param = infer_param.GeScalarParam()
         param.name = name
         param.value = float(y)
         param.dtype = dtype
@@ -609,6 +636,88 @@ class AtbOverrides:
         param.size = size
 
         op.set_input([x])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def InplaceScatter(name, x, dim, index, src):
+        op = Operation(name, "AclNnInplaceScatterOperation")
+        param = infer_param.ScatterParam()
+        param.name = name
+        param.dim = dim
+
+        op.set_input([x, index, src])
+        op.set_param(param)
+        op.set_output([name])
+        op.has_inplace_output = True
+        op.add_inplace_output(0, 0)
+        return op
+
+    def AclNnDiv(name, x, y, dtype="FLOAT"):
+        op = Operation(name, "AclNnDivOperation")
+        param = infer_param.OnlyNameParam()
+        param.name = name
+
+        op.set_input([x, y])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def AclNnMul(name, x, y, dtype="FLOAT"):
+        op = Operation(name, "AclNnMulOperation")
+        param = infer_param.OnlyNameParam()
+        param.name = name
+
+        op.set_input([x, y])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def AclNnSub(name, x, y, dtype="FLOAT"):
+        op = Operation(name, "AclNnSubOperation")
+        param = infer_param.SubParam()
+        param.name = name
+        param.dtype = dtype
+
+        op.set_input([x, y])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def AclNnAdd(name, x, y, dtype="FLOAT"):
+        op = Operation(name, "AclNnAddOperation")
+        param = infer_param.AddParam()
+        param.name = name
+        param.dtype = dtype
+
+        op.set_input([x, y])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def AclNnGather(name, x, dim, index):
+        op = Operation(name, "AclNnGatherOperation")
+        param = infer_param.AclNnGatherParam()
+        param.name = name
+        param.dim = dim
+
+        op.set_input([x, index])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def ScalarTensor(name, x, dtype):
+        op = Operation(name, "CustomScalarTensorOperation")
+        param = infer_param.ScalarTensorParam()
+        param.name = name
+        if x in [math.inf, -math.inf]:
+            param.valueStr = str(x)
+            param.value = 0
+        else:
+            param.value = x
+        param.dtype = get_ascend_dtype(dtype)
+
+        op.set_input([])
         op.set_param(param)
         op.set_output([name])
         return op

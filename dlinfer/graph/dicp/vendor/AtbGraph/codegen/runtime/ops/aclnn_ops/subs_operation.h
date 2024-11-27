@@ -14,12 +14,14 @@ public:
     uint32_t GetOutputNum() const override;
 
 private:
+    int SetAclNnWorkspaceExecutor(uint64_t& workspaceSize) override;
+    int CallAclExecute(uint8_t* workspace, uint64_t workspaceSize, aclOpExecutor* aclExecutor, aclrtStream stream) override;
+
+private:
     DICPScalar other_;
     DICPScalar alpha_;
     aclScalar* aclOther_ = nullptr;
     aclScalar* aclAlpha_ = nullptr;
-    int SetAclNnWorkspaceExecutor(uint64_t& workspaceSize) override;
-    int CallAclExecute(uint8_t* workspace, uint64_t workspaceSize, aclOpExecutor* aclExecutor, aclrtStream stream) override;
 };
 
 inline atb::Operation* AclNnSubsOperationCreate(const nlohmann::json& paramJson) {
