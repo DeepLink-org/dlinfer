@@ -1,3 +1,4 @@
+import os
 import math
 import torch
 import torch.distributed as dist
@@ -375,7 +376,12 @@ def linear(
     bias: Optional[Tensor],
     all_reduce: Optional[bool],
 ) -> Tensor:
-    out = torch.nn.functional.linear(x, weight, bias)
+    if os.getenv("MACA_USE_NN_LAYOUT", "True").lower() == "true":
+        out = torch.matmul(x, weight)
+        if bias is not None:
+            out += bias
+    else:
+        out = torch.nn.functional.linear(x, weight, bias)
     if all_reduce:
         dist.all_reduce(out)
     return out
