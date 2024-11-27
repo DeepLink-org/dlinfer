@@ -364,6 +364,20 @@ class DivsParam:
 
 
 @dataclass
+class AddParam:
+    name: str = ""
+    alpha: float = 1.0
+    dtype: str = "FLOAT"
+
+
+@dataclass
+class SubParam:
+    name: str = ""
+    alpha: float = 1.0
+    dtype: str = "FLOAT"
+
+
+@dataclass
 class PowTensorScalarParam:
     name: str = ""
     exponent: float = 1.0
@@ -392,6 +406,13 @@ class WhereParam:
 
 @dataclass
 class GtScalarParam:
+    name: str = ""
+    value: float = 1.0
+    dtype: str = "FLOAT"
+
+
+@dataclass
+class GeScalarParam:
     name: str = ""
     value: float = 1.0
     dtype: str = "FLOAT"
@@ -520,6 +541,32 @@ class SqueezeParam:
 class AclNnExpandParam:
     name: str = ""
     size: list[int] = field(default_factory=list)
+
+
+@dataclass
+class OnlyNameParam:
+    name: str = ""
+
+
+@dataclass
+class ScatterParam:
+    name: str = ""
+    dim: int = 0
+    reduceType: int = 0
+
+
+@dataclass
+class AclNnGatherParam:
+    name: str = ""
+    dim: int = 0
+
+
+@dataclass
+class ScalarTensorParam:
+    name: str = ""
+    value: float = 1.0
+    valueStr: str = ""
+    dtype: str = "FLOAT"
 
 
 def custom_asdict_factory(data):
