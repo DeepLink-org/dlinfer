@@ -12,7 +12,7 @@ on:
 env:
   CI_PATH: '/data2/wugeshui/GitHub/${{ github.repository }}/${GITHUB_RUN_NUMBER}'
   LMDEPLOY_PATH: '/data2/wugeshui/GitHub/lmdeploy'
-  LMDEPLOY_COMMIT_OR_BRANCH: 'ascend_kv_int8'
+  LMDEPLOY_COMMIT_OR_BRANCH: 'main'
   REPORT_DIR: /data2/wugeshui/GitHub/ci_log/test_reports
 
 concurrency:
