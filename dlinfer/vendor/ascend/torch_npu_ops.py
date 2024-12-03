@@ -209,6 +209,8 @@ def paged_decode_attention(
 @register_ops(vendor_ops_registry)
 def paged_prefill_attention(
     query: Tensor,
+    key: Tensor,
+    value: Tensor,
     key_cache: Tensor,
     value_cache: Tensor,
     block_table: Tensor,
@@ -216,6 +218,7 @@ def paged_prefill_attention(
     q_start_loc: Tensor,
     q_seq_len: Tensor,
     kv_seq_len: Tensor,
+    max_q_seq_len: int,
     num_q_heads: int,
     num_kv_heads: int,
     attn_mask: Sequence[Optional[Tensor]],

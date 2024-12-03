@@ -215,7 +215,7 @@ __global__ void reshape_and_cache_kernel_layout(
     const int64_t* __restrict__ slot_mapping,  // [num_tokens]
     const int key_stride, const int value_stride, const int num_heads,
     const int head_size, const int block_size, const int x,
-    const float kv_scale, bool is_deepseek) {
+    const float kv_scale) {
   const int64_t token_idx = blockIdx.x;
   const int64_t slot_idx = slot_mapping[token_idx];
   if (slot_idx < 0) {
@@ -235,18 +235,12 @@ __global__ void reshape_and_cache_kernel_layout(
     const int head_offset = i % head_size;
 
     int64_t tgt_key_idx = 0;
-    if (is_deepseek) {
-      const int x_idx = head_offset / x;
-      const int x_offset = head_offset % x;
-      tgt_key_idx =
-        block_idx * num_heads * head_size * block_size +
-        head_idx * head_size * block_size + x_idx * block_size * x +
-        block_offset * x + x_offset;
-    } else {
-      tgt_key_idx = block_idx * num_heads * head_size * block_size +
-      head_idx * head_size * block_size + block_offset * head_size +
-      head_offset;
-    }
+    const int x_idx = head_offset / x;
+    const int x_offset = head_offset % x;
+    tgt_key_idx =
+      block_idx * num_heads * head_size * block_size +
+      head_idx * head_size * block_size + x_idx * block_size * x +
+      block_offset * x + x_offset;
 
     const int64_t tgt_value_idx =
         block_idx * num_heads * head_size * block_size +
@@ -276,7 +270,7 @@ __global__ void reshape_and_cache_kernel_layout_opt(
     const int64_t* __restrict__ slot_mapping,  // [num_tokens]
     const int key_stride, const int value_stride, const int num_heads,
     const int head_size, const int block_size, const int x,
-    const float kv_scale, bool is_deepseek) {
+    const float kv_scale) {
   const int64_t token_idx = blockIdx.x;
   const int64_t slot_idx = slot_mapping[token_idx];
   if (slot_idx < 0) {
@@ -296,18 +290,12 @@ __global__ void reshape_and_cache_kernel_layout_opt(
     const int head_offset = i % head_size;
 
     int64_t tgt_key_idx = 0;
-    if (is_deepseek) {
-      const int x_idx = head_offset / x;
-      const int x_offset = head_offset % x;
-      tgt_key_idx =
-        block_idx * num_heads * head_size * block_size +
-        head_idx * head_size * block_size + x_idx * block_size * x +
-        block_offset * x + x_offset;
-    } else {
-      tgt_key_idx = block_idx * num_heads * head_size * block_size +
-      head_idx * head_size * block_size + block_offset * head_size +
-      head_offset;
-    }
+    const int x_idx = head_offset / x;
+    const int x_offset = head_offset % x;
+    tgt_key_idx =
+      block_idx * num_heads * head_size * block_size +
+      head_idx * head_size * block_size + x_idx * block_size * x +
+      block_offset * x + x_offset;
 
     const int64_t tgt_value_idx =
         block_idx * num_heads * head_size * block_size +
@@ -427,7 +415,7 @@ void reshape_and_cache(
           reinterpret_cast<CACHE_T*>(key_cache.data_ptr()),           \
           reinterpret_cast<CACHE_T*>(value_cache.data_ptr()),         \
           slot_mapping.data_ptr<int64_t>(), key_stride, value_stride, \
-          num_heads, head_size, block_size, x, kv_scale, is_deepseek);
+          num_heads, head_size, block_size, x, kv_scale);
 
 #define CALL_RESHAPE_AND_CACHE_LAYOUT_OPT(KV_T, CACHE_T, KV_DTYPE)               \
   vllm::reshape_and_cache_kernel_layout_opt<KV_T, CACHE_T, KV_DTYPE>             \
@@ -437,7 +425,7 @@ void reshape_and_cache(
           reinterpret_cast<CACHE_T*>(key_cache.data_ptr()),           \
           reinterpret_cast<CACHE_T*>(value_cache.data_ptr()),         \
           slot_mapping.data_ptr<int64_t>(), key_stride, value_stride, \
-          num_heads, head_size, block_size, x, kv_scale, is_deepseek);
+          num_heads, head_size, block_size, x, kv_scale);
 void reshape_and_cache_new(
     torch::Tensor& key,    // [num_tokens, num_heads, head_size]
     torch::Tensor& value,  // [num_tokens, num_heads, head_size]
@@ -453,16 +441,8 @@ void reshape_and_cache_new(
 
   int x;
   int block_size;
-  bool is_deepseek = value_cache.size(-1) == 576;
-  if (is_deepseek) {
-    // [num_blocks, num_heads, head_size / 16, block_size, 16]
-    x = key_cache.size(4);
-    block_size = key_cache.size(3);
-  } else {
-    // [num_blocks, num_heads, block_size, head_size]
-    x = 16;
-    block_size = key_cache.size(2);
-  }
+  x = key_cache.size(4);
+  block_size = key_cache.size(3);
 
   int key_stride = key.stride(0);
   int value_stride = value.stride(0);
