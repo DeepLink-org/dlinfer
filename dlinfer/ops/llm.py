@@ -287,6 +287,8 @@ def paged_decode_attention(
 )
 def paged_prefill_attention(
     query: Tensor,
+    key: Tensor,
+    value: Tensor,
     key_cache: Tensor,
     value_cache: Tensor,
     block_table: Tensor,
@@ -294,6 +296,7 @@ def paged_prefill_attention(
     q_start_loc: Tensor,
     q_seq_len: Tensor,
     kv_seq_len: Tensor,
+    max_q_seq_len: Tensor,
     num_q_heads: int,
     num_kv_heads: int,
     attn_mask: Sequence[Optional[Tensor]],
@@ -333,6 +336,8 @@ def paged_prefill_attention(
     """
     return vendor_ops_registry["paged_prefill_attention"](
         query,
+        key,
+        value,
         key_cache,
         value_cache,
         block_table,
@@ -340,6 +345,7 @@ def paged_prefill_attention(
         q_start_loc,
         q_seq_len,
         kv_seq_len,
+        max_q_seq_len,
         num_q_heads,
         num_kv_heads,
         attn_mask,

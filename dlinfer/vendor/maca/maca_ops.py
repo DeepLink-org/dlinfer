@@ -4,7 +4,7 @@ import torch
 import torch.distributed as dist
 
 from flash_attn import flash_attn_varlen_func
-from flash_attn import flash_attn_with_kvcache
+from vllm.attention.ops.prefix_prefill import context_attention_fwd
 
 from dlinfer.vendor import vendor_ops_registry
 from dlinfer.utils.registry import register_ops
@@ -212,55 +212,42 @@ def paged_decode_attention(
 ) -> Tensor:
     if alibi_slopes is not None:
         raise RuntimeError("paged_decode_attention does not support alibi_slopes yet")
-
-    dim = query.size(-1)
-    num_kv_heads = value_cache.size(1)
-    block_size = value_cache.size(2)
-    batch_size = block_table.size(0)
-
-    key_cache_t = key_cache.transpose(1, 2)
-    value_cache_t = value_cache.transpose(1, 2)
-
     if softmax_scale is None:
         softmax_scale = float(1 / math.sqrt(query.size(-1)))
 
-    block_table = block_table.to(torch.int32)
-    kv_seq_len = kv_seq_len.to(torch.int32).to(query.device)
-
-    # for deepseek v2 lite.
-    if query.shape[-1] == 576:
-        attn_output = torch.empty_like(query)
-        maca_ext_ops.paged_attention_v1(
-            attn_output,
-            query,
-            key_cache,
-            value_cache,
-            num_kv_heads,
-            softmax_scale,
-            block_table,
-            kv_seq_len,
-            block_size,
-            max_kv_seq_len,
-            None,
-            "auto",
-        )
-        return attn_output[..., :512].contiguous()
-
-    output = flash_attn_with_kvcache(
-        query.view(batch_size, -1, num_q_heads, dim),
-        key_cache_t,
-        value_cache_t,
-        cache_seqlens=kv_seq_len,
-        block_table=block_table,
-        softmax_scale=softmax_scale,
-        causal=True,
+    num_kv_heads = value_cache.size(1)
+    block_size = value_cache.size(2)
+    output = torch.empty_like(query)
+    maca_ext_ops.paged_attention_v1(
+        output,
+        query,
+        key_cache,
+        value_cache,
+        num_kv_heads,
+        softmax_scale,
+        block_table,
+        kv_seq_len,
+        block_size,
+        max_kv_seq_len,
+        None,  # alibi_slopes
+        "auto",  # kv_cache_dtype
+        1.0,  # k_scale
+        1.0,  # v_scale
+        torch.cuda.current_device(),  # tp_rank
+        0,  # blocksparse_local_blocks
+        1,  # blocksparse_vert_stride
+        1,  # blocksparse_block_size
+        1,  # blocksparse_head_sliding_step
     )
+
     return output
 
 
 @register_ops(vendor_ops_registry)
 def paged_prefill_attention(
     query: Tensor,
+    key: Tensor,
+    value: Tensor,
     key_cache: Tensor,
     value_cache: Tensor,
     block_table: Tensor,
@@ -268,6 +255,7 @@ def paged_prefill_attention(
     q_start_loc: Tensor,
     q_seq_len: Tensor,
     kv_seq_len: Tensor,
+    max_q_seq_len: int,
     num_q_heads: int,
     num_kv_heads: int,
     attn_mask: Sequence[Optional[Tensor]],
@@ -278,23 +266,29 @@ def paged_prefill_attention(
     kv_zeros: Optional[Tensor],
     quant_bits: Optional[int],
 ) -> Tensor:
-    dim = query.size(-1)
-    batch_size = block_table.size(0)
-
-    key_cache_t = key_cache.transpose(1, 2)
-    value_cache_t = value_cache.transpose(1, 2)
-
     if softmax_scale is None:
         softmax_scale = float(1 / math.sqrt(query.size(-1)))
-    output = flash_attn_with_kvcache(
-        query.view(batch_size, -1, num_q_heads, dim),
-        key_cache_t,
-        value_cache_t,
-        cache_seqlens=kv_seq_len.to(torch.int32).to(query.device),
-        block_table=block_table.to(torch.int32),
-        softmax_scale=softmax_scale,
-        causal=True,
+
+    value_cache = value_cache.permute(0, 1, 3, 2)
+    context_lens = kv_seq_len - q_seq_len
+
+    output = torch.empty_like(query)
+    context_attention_fwd(
+        query,
+        key,
+        value,
+        output,
+        key_cache,
+        value_cache,
+        b_loc=block_table,
+        b_start_loc=q_start_loc,
+        b_seq_len=kv_seq_len,
+        b_ctx_len=context_lens,
+        max_input_len=max_q_seq_len,
+        alibi_slopes=alibi_slopes,
     )
+    value_cache = value_cache.permute(0, 1, 3, 2)
+
     return output
 
 
