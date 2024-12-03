@@ -151,13 +151,24 @@ def prefill_attention(
     )
 
 
-@register_custom_op("dlinfer::fill_kv_cache", ["key_cache", "value_cache"])
+@register_custom_op(
+    "dlinfer::fill_kv_cache",
+    ["key_cache", "value_cache"],
+    default_value={
+        "k_scales_zeros": tuple(),
+        "v_scales_zeros": tuple(),
+        "quant_bits": 0,
+    },
+)
 def fill_kv_cache(
     key: Tensor,
     value: Tensor,
     key_cache: Tensor,
     value_cache: Tensor,
     kv_indices: Tensor,
+    k_scales_zeros: Sequence[Optional[Tensor]],
+    v_scales_zeros: Sequence[Optional[Tensor]],
+    quant_bits: int,
 ) -> Tuple[Tensor, Tensor]:
     """
     Fills the key-value cache with the provided key and value tensors.
@@ -168,6 +179,9 @@ def fill_kv_cache(
         key_cache (Tensor): The existing key cache tensor.
         value_cache (Tensor): The existing value cache tensor.
         kv_indices (Tensor): The indices specifying where to store the key and value in the cache.
+        k_scales_zeros (Sequence[Optional[Tensor]]): The scales and zeros used to quantify key.
+        v_scales_zeros (Sequence[Optional[Tensor]]): The scales and zeros used to quantify value.
+        quant_bits (int): The bits which k/v is quantized into.
 
     Returns:
         Tuple[Tensor, Tensor]:
@@ -180,6 +194,9 @@ def fill_kv_cache(
         key_cache,
         value_cache,
         kv_indices,
+        k_scales_zeros,
+        v_scales_zeros,
+        quant_bits,
     )
 
 
@@ -190,6 +207,9 @@ def fill_kv_cache(
         "softmax_scale": None,
         "alibi_slopes": None,
         "attn_output": None,
+        "kv_scales": None,
+        "kv_zeros": None,
+        "quant_bits": 0,
     },
 )
 def paged_decode_attention(
@@ -205,6 +225,9 @@ def paged_decode_attention(
     softmax_scale: Optional[float],
     alibi_slopes: Optional[Sequence[float]],
     attn_output: Optional[Tensor],
+    kv_scales: Optional[Tensor],
+    kv_zeros: Optional[Tensor],
+    quant_bits: Optional[int],
 ) -> Tensor:
     """
     Computes the multi-head attention over the query, key, and value tensors.
@@ -224,6 +247,9 @@ def paged_decode_attention(
         softmax_scale (Optional[float]): The scale factor to apply to the attention logits before the softmax.
         alibi_slopes (Optional[Sequence[float]]): The slopes for the ALiBi attention bias, one for each head.
         attn_output (Optional[Tensor]): The computed attention output tensor.
+        kv_scales (Optional[Tensor]): The quantization factors for key and value.
+        kv_zeros (Optional[Tensor]): The quantization offset for key and value.
+        quant_bits (Optional[int]): The bits which k/v is quantized into.
 
     Returns:
         Tensor: The computed attention output tensor, alias of attn_output.
@@ -241,6 +267,9 @@ def paged_decode_attention(
         softmax_scale,
         alibi_slopes,
         attn_output,
+        kv_scales,
+        kv_zeros,
+        quant_bits,
     )
 
 
@@ -251,6 +280,9 @@ def paged_decode_attention(
         "softmax_scale": None,
         "alibi_slopes": None,
         "attn_output": None,
+        "kv_scales": None,
+        "kv_zeros": None,
+        "quant_bits": 0,
     },
 )
 def paged_prefill_attention(
@@ -268,6 +300,9 @@ def paged_prefill_attention(
     softmax_scale: Optional[float],
     alibi_slopes: Optional[Sequence[float]],
     attn_output: Optional[Tensor],
+    kv_scales: Tensor,
+    kv_zeros: Tensor,
+    quant_bits: int,
 ) -> Tensor:
     """
     Computes the multi-head attention over the query, key, and value tensors.
@@ -289,6 +324,9 @@ def paged_prefill_attention(
         softmax_scale (Optional[float]): The scale factor to apply to the attention logits before the softmax.
         alibi_slopes (Optional[Sequence[float]]): The slopes for the ALiBi attention bias, one for each head.
         attn_output (Optional[Tensor]): The computed attention output tensor.
+        kv_scales (Optional[Tensor]): The quantization factors for key and value.
+        kv_zeros (Optional[Tensor]): The quantization offset for key and value.
+        quant_bits (Optional[int]): The bits which k/v is quantized into.
 
     Returns:
         Tensor: The computed attention output tensor, alias of attn_output.
@@ -308,6 +346,9 @@ def paged_prefill_attention(
         softmax_scale,
         alibi_slopes,
         attn_output,
+        kv_scales,
+        kv_zeros,
+        quant_bits,
     )
 
 
