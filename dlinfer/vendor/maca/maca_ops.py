@@ -376,7 +376,7 @@ def linear(
     bias: Optional[Tensor],
     all_reduce: Optional[bool],
 ) -> Tensor:
-    if os.getenv("MACA_USE_NN_LAYOUT", "True").lower() == "true":
+    if os.getenv("DLINER_LINEAR_USE_NN_LAYOUT", "0") == "1":
         out = torch.matmul(x, weight)
         if bias is not None:
             out += bias
