@@ -121,8 +121,11 @@ def fill_kv_cache(
     key_cache: Tensor,
     value_cache: Tensor,
     kv_indices: Tensor,
+    k_scales_zeros: Sequence[Optional[Tensor]],
+    v_scales_zeros: Sequence[Optional[Tensor]],
+    quant_bits: int,
 ) -> Tuple[Tensor, Tensor]:
-    head, dim = key.shape[1:]
+    _, head, dim = key.shape
     block_num, block_size = key_cache.shape[:2]
     block_total = block_num * block_size
 
@@ -130,6 +133,17 @@ def fill_kv_cache(
     key = key.contiguous()
     value = value.contiguous()
     kv_indices = kv_indices.view(-1, 1)
+
+    if quant_bits == 8:
+
+        def quant_int8(x, x_scale, x_offset):
+            quantized = (
+                ((x / x_scale) - x_offset).round().clamp(-128, 127).to(torch.int8)
+            )
+            return quantized
+
+        key = quant_int8(key, k_scales_zeros[0], k_scales_zeros[1])
+        value = quant_int8(value, v_scales_zeros[0], v_scales_zeros[1])
 
     key_cache_reshaped = key_cache.view(block_total, head, dim)
     value_cache_reshaped = value_cache.view(block_total, head, dim)
@@ -166,6 +180,9 @@ def paged_decode_attention(
     softmax_scale: Optional[float],
     alibi_slopes: Optional[Sequence[float]],
     attn_output: Optional[Tensor],
+    kv_scales: Optional[Tensor],
+    kv_zeros: Optional[Tensor],
+    quant_bits: Optional[int],
 ) -> Tensor:
     if alibi_slopes is not None:
         raise RuntimeError(
@@ -188,8 +205,8 @@ def paged_decode_attention(
         padding_mask=None,
         atten_mask=None,
         actual_seq_lengths=kv_seq_len.tolist(),
-        antiquant_scale=None,
-        antiquant_offset=None,
+        antiquant_scale=kv_scales,
+        antiquant_offset=kv_zeros,
         block_table=block_table,
         dequant_scale1=None,
         quant_scale1=None,
@@ -222,6 +239,9 @@ def paged_prefill_attention(
     softmax_scale: Optional[float],
     alibi_slopes: Optional[Sequence[float]],
     attn_output: Optional[Tensor],
+    kv_scales: Optional[Tensor],
+    kv_zeros: Optional[Tensor],
+    quant_bits: Optional[int],
 ) -> Tensor:
     if alibi_slopes is not None:
         raise RuntimeError(
@@ -245,8 +265,8 @@ def paged_prefill_attention(
         padding_mask=None,
         atten_mask=attn_mask[0],
         actual_seq_lengths=kv_seq_len_list,
-        antiquant_scale=None,
-        antiquant_offset=None,
+        antiquant_scale=kv_scales,
+        antiquant_offset=kv_zeros,
         block_table=block_table,
         dequant_scale1=None,
         quant_scale1=None,
