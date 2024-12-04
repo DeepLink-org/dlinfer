@@ -4,6 +4,7 @@ import torch
 import torch.distributed as dist
 
 from flash_attn import flash_attn_varlen_func
+from vllm._custom_ops import awq_gemm
 from vllm.attention.ops.prefix_prefill import context_attention_fwd
 
 from dlinfer.vendor import vendor_ops_registry
@@ -403,14 +404,7 @@ def weight_quant_matmul(
     group_size: Optional[int] = 0,
 ):
     offset = None if (offset is None or offset.numel() == 0) else offset
-    try:
-        from maca_ext_ops import awq_gemm
-
-        output = maca_ext_ops.awq_gemm(x, qweight, scale, offset, group_size, bias=bias)
-    except ImportError:
-        raise ImportError(
-            "awq_gemm is not supported in maca_ext_ops, you can try vllm._custom_ops.awq_gemm instead if latest vllm(>=0.5.4) is available."
-        )
-        # import vllm
-        # output = vllm._custom_ops.awq_gemm(x, qweight, scale, offset, group_size, bias=bias)
+    output = awq_gemm(x, qweight, scale, offset, group_size)
+    if bias is not None:
+        output += bias
     return output
