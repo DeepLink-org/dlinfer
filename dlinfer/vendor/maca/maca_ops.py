@@ -4,6 +4,7 @@ import torch
 import torch.distributed as dist
 
 from flash_attn import flash_attn_varlen_func
+from vllm._custom_ops import awq_gemm
 from vllm.attention.ops.prefix_prefill import context_attention_fwd
 
 from dlinfer.vendor import vendor_ops_registry
@@ -24,6 +25,7 @@ __all__ = [
     "silu_and_mul",
     "moe_gating_topk_softmax",
     "linear",
+    "weight_quant_matmul",
 ]
 
 
@@ -388,3 +390,21 @@ def linear(
     if all_reduce:
         dist.all_reduce(out)
     return out
+
+
+# Quantification of W4A16 is currently supported and tested.
+@register_ops(vendor_ops_registry)
+def weight_quant_matmul(
+    x: Tensor,
+    qweight: Tensor,
+    scale: Tensor,
+    offset: Optional[Tensor] = None,
+    bias: Optional[Tensor] = None,
+    all_reduce: Optional[bool] = False,
+    group_size: Optional[int] = 0,
+):
+    offset = None if (offset is None or offset.numel() == 0) else offset
+    output = awq_gemm(x, qweight, scale, offset, group_size)
+    if bias is not None:
+        output += bias
+    return output
