@@ -28,9 +28,14 @@ def get_torch_model_list(
 
 
 def get_config():
+    model_path = os.getenv("TEST_LMDEPLOY_E2E_MODEL_PATH", None)
+    log_path = os.getenv("TEST_LMDEPLOY_E2E_LOG_PATH", None)
+    assert (model_path is not None) and (log_path is not None)
     config_path = os.path.join(TEST_DIR + "/test_lmdeploy/e2e/config.yaml")
     with open(config_path) as f:
         config = yaml.load(f.read(), Loader=yaml.SafeLoader)
+    config['model_path'] = model_path
+    config['log_path'] = log_path
     return config
 
 
