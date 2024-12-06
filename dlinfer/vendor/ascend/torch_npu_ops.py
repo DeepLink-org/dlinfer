@@ -448,7 +448,11 @@ def linear(
             x.device
         ).get_hccl_comm_name(x.device.index)
         out = torch.ops.npu.npu_mm_all_reduce_base(
-            x, weight.transpose(0, 1), hcomm_info, reduce_op="sum", bias=bias
+            x.contiguous(),
+            weight.transpose(0, 1),
+            hcomm_info,
+            reduce_op="sum",
+            bias=bias,
         )
     else:
         out = torch.nn.functional.linear(x, weight, bias)
