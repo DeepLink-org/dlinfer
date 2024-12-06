@@ -17,15 +17,4 @@ private:
     int CallAclExecute(uint8_t* workspace, uint64_t workspaceSize, aclOpExecutor* aclExecutor, aclrtStream stream) override;
 };
 
-inline atb::Operation* AclNnInplaceDivOperationCreate(const nlohmann::json& paramJson) {
-    std::string opName;
-    float divisor;
-    if (paramJson.contains("name")) {
-        opName = paramJson["name"].get<std::string>();
-    }
-    DICP_LOG(INFO) << "AclNnInplaceDivOperation: name: " << opName;
-    atb::Operation* op = new AclNnInplaceDivOperation(opName);
-    return op;
-}
-
 }  // namespace dicp

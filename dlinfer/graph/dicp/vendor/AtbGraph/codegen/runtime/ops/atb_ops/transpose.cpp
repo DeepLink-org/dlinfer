@@ -1,9 +1,8 @@
-#pragma once
 #include "atb_ops.h"
 
 namespace dicp {
 
-inline atb::Operation* TransposeOperationCreate(const nlohmann::json& paramJson) {
+atb::Operation* TransposeOperationCreate(const nlohmann::json& paramJson) {
     atb::infer::TransposeParam param;
     if (paramJson.contains("perm")) {
         auto tmp = paramJson["perm"].get<std::vector<int32_t>>();
@@ -17,5 +16,7 @@ inline atb::Operation* TransposeOperationCreate(const nlohmann::json& paramJson)
     CREATE_OPERATION_NO_RETURN(param, &op);
     return op;
 }
+
+REGISTER_ATB_OPERATION("TransposeOperation", TransposeOperationCreate);
 
 }  // namespace dicp

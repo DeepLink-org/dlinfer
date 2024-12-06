@@ -51,4 +51,16 @@ int AclNnSWhereOperation::CallAclExecute(uint8_t* workspace, uint64_t workspaceS
     return ret;
 }
 
+atb::Operation* AclNnSWhereOperationCreate(const nlohmann::json& paramJson) {
+    std::string opName;
+    if (paramJson.contains("name")) {
+        opName = paramJson["name"].get<std::string>();
+    }
+    DICP_LOG(INFO) << "AclNnSWhereOperation: name: " << opName;
+    atb::Operation* op = new AclNnSWhereOperation(opName);
+    return op;
+}
+
+REGISTER_OPERATION(AclNnSWhereOperation, AclNnSWhereOperationCreate);
+
 }  // namespace dicp

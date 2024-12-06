@@ -50,4 +50,16 @@ int AclNnDivOperation::CallAclExecute(uint8_t* workspace, uint64_t workspaceSize
     return ret;
 }
 
+atb::Operation* AclNnDivOperationCreate(const nlohmann::json& paramJson) {
+    std::string opName;
+    if (paramJson.contains("name")) {
+        opName = paramJson["name"].get<std::string>();
+    }
+    DICP_LOG(INFO) << "AclNnDivOperation: name: " << opName;
+    atb::Operation* op = new AclNnDivOperation(opName);
+    return op;
+}
+
+REGISTER_OPERATION(AclNnDivOperation, AclNnDivOperationCreate);
+
 }  // namespace dicp

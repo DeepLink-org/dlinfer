@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <iterator>
 
+#include "ops/operation_creator.h"
 #include "reshape_operation.h"
 
 namespace dicp {
@@ -44,5 +45,21 @@ atb::Status ViewOperation::InferShape(const atb::SVector<atb::TensorDesc>& inTen
     DICP_LOG(INFO) << "ViewOperation: " << opName_ << " infer shape end, out shape: " << atbDimsToString(outTensorDescs.at(0).shape);
     return atb::NO_ERROR;
 }
+
+atb::Operation* CustomViewOperationCreate(const nlohmann::json& paramJson) {
+    std::string opName;
+    std::vector<int64_t> shape;
+    if (paramJson.contains("name")) {
+        opName = paramJson["name"].get<std::string>();
+    }
+    if (paramJson.contains("viewShape")) {
+        shape = std::move(paramJson["viewShape"].get<std::vector<int64_t>>());
+    }
+    DICP_LOG(INFO) << "CustomViewOperation: name: " << opName << " viewShape:" << vectorToString<int64_t>(shape);
+    atb::Operation* op = new ViewOperation(opName, shape);
+    return op;
+}
+
+REGISTER_OPERATION(CustomViewOperation, CustomViewOperationCreate);
 
 }  // namespace dicp
