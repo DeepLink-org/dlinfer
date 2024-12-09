@@ -280,6 +280,7 @@ def paged_prefill_attention(
         key,
         value,
         output,
+        "auto",
         key_cache,
         value_cache,
         b_loc=block_table,
