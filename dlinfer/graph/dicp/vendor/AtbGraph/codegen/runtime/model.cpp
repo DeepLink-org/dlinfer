@@ -25,6 +25,16 @@ static bool IsTensorDescEqual(const atb::TensorDesc& tensorDesc, const atb::Tens
     return std::equal(shape1.dims, shape1.dims + shape1.dimNum, shape2.dims);
 }
 
+static bool checkInplaceOutput(const atb::Tensor& tensor, const Node& node, int& outTensorIdx) {
+    for (auto it : node.inplaceIndices) {
+        if (node.inTensors.at(it.second) == &tensor) {
+            outTensorIdx = it.first;
+            return true;
+        }
+    }
+    return false;
+}
+
 std::string Graph::ToString() const {
     std::stringstream ss;
     for (size_t i = 0; i < inTensors.size(); ++i) {
@@ -77,25 +87,47 @@ bool Graph::IsInternalTensor(const atb::Tensor* tensor) {
     return std::any_of(internalTensors.begin(), internalTensors.end(), [tensor](const atb::Tensor& internalTensor) { return &internalTensor == tensor; });
 }
 
+uint64_t Graph::findMaxUsedNodeId(const atb::Tensor& tensor, uint64_t startNodeId) {
+    auto cacheIt = maxNodeIdCache_.find(&tensor);
+    if (cacheIt != maxNodeIdCache_.end()) {
+        return cacheIt->second;
+    }
+
+    uint64_t maxNodeId = startNodeId;
+    std::vector<std::pair<const atb::Tensor*, int>> inplaceTensorsToCheck;
+
+    for (size_t nodeId = startNodeId; nodeId < nodes.size(); ++nodeId) {
+        const auto& node = nodes[nodeId];
+
+        for (const auto* inTensor : node.inTensors) {
+            if (&tensor == inTensor) {
+                maxNodeId = nodeId;
+
+                int outTensorIdx = -1;
+                if (checkInplaceOutput(tensor, node, outTensorIdx)) {
+                    inplaceTensorsToCheck.push_back(std::make_pair(node.outTensors[outTensorIdx], nodeId));
+                }
+                break;
+            }
+        }
+    }
+
+    for (const auto& inplaceTensorInfo : inplaceTensorsToCheck) {
+        maxNodeId = std::max(maxNodeId, findMaxUsedNodeId(*inplaceTensorInfo.first, inplaceTensorInfo.second + 1));
+    }
+
+    maxNodeIdCache_[&tensor] = maxNodeId;
+    return maxNodeId;
+}
+
 void Graph::InitTensorMaxNodeMap() {
     std::map<atb::Tensor*, uint64_t> tensorMaxNodeIdMap;
     maxNodeIdTensorMap.clear();
 
     for (size_t i = 0; i < internalTensors.size(); ++i) {
         atb::Tensor& internalTensor = internalTensors[i];
-        uint64_t maxNodeId = 0;
-        uint64_t dependNodeCount = 0;
-        for (size_t nodeId = 0; nodeId < nodes.size(); ++nodeId) {
-            auto& node = nodes.at(nodeId);
-            for (auto inTensorIt : node.inTensors) {
-                if (&internalTensor == inTensorIt) {
-                    maxNodeId = nodeId;
-                    dependNodeCount++;
-                }
-            }
-        }
+        uint64_t maxNodeId = findMaxUsedNodeId(internalTensor, 0);
         tensorMaxNodeIdMap[&internalTensor] = maxNodeId;
-        DICP_LOG_IF(dependNodeCount == 0, INFO) << "runner graph internal tensor[" << i << "] dependNodeCount is 0.";
         maxNodeIdTensorMap[maxNodeId].insert(&internalTensor);
     }
 }
@@ -281,6 +313,7 @@ void Model::BuildNodeVariantPack(int nodeId) {
     auto it = graph_.maxNodeIdTensorMap.find(nodeId);
     if (it != graph_.maxNodeIdTensorMap.end()) {
         for (auto tensorIt : it->second) {
+            DICP_LOG(INFO) << "free internal tensor: " << tensorIt->deviceData << " nodeId:" << nodeId;
             FreeInternalTensor(tensorIt->deviceData);
         }
     }
@@ -528,7 +561,7 @@ atb::Tensor Model::GetInternalTensor(atb::Tensor* outTensor, size_t nodeId, size
 
     if (it != internalTensors_.end()) {
         it->second = true;
-        DICP_LOG(INFO) << modelId_ << " use old internal tensor";
+        DICP_LOG(INFO) << modelId_ << " use old internal tensor, nodeId: " << nodeId << ", tensorData: " << it->first.deviceData;
         return it->first;
     }
 
