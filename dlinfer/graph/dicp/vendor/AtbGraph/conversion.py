@@ -85,6 +85,10 @@ class AtenToAtbTransformer(SingleOpTransformer):
     def linear(self, a, b, bias, trans_a, trans_b):
         return self.get_proxy(atb_op.Linear, (a, b, bias, trans_a, trans_b))
 
+    @register_conversion(torch.ops.atb.allreduce.default)
+    def allreduce(self, x, reduce_type):
+        return self.get_proxy(atb_op.AllReduce, (x, reduce_type))
+
     @register_conversion(operator.getitem)
     def identity(self, x, idx):
         return self.get_proxy(atb_op.GetItem, (x, idx))
@@ -125,8 +129,22 @@ class AtenToAtbTransformer(SingleOpTransformer):
             out = self.get_proxy(atb_op.Tuple, (out_q, out_k))
         return out
 
+    @register_conversion("torch.ops.atb.inplace_div.default")
+    def inplace_div(self, x, other):
+        return self.get_proxy(atb_op.InplaceDiv, (x, other))
+
     @register_conversion("torch.ops.dlinfer.fill_kv_cache.default")
-    def fill_kv_cache(self, key, value, key_cache, value_cache, kv_indices):
+    def fill_kv_cache(
+        self,
+        key,
+        value,
+        key_cache,
+        value_cache,
+        kv_indices,
+        k_scales_zeros,
+        v_scales_zeros,
+        quant_bits,
+    ):
         key_cache_shape = key_cache.node.meta["val"].shape
         key_shape = key.node.meta["val"].shape
         key_cache_reshaped = self.get_proxy(
@@ -171,6 +189,9 @@ class AtenToAtbTransformer(SingleOpTransformer):
         softmax_scale,
         alibi_slopes,
         attn_output,
+        kv_scales,
+        kv_zeros,
+        quant_bits,
     ):
         q_head_num = num_q_heads
         kv_head_num = num_kv_heads
@@ -214,32 +235,51 @@ class AtenToAtbTransformer(SingleOpTransformer):
 
     def _register_binary_ops(self):
         binary_ops = {
-            (torch.ops.aten.add.Tensor, "add"): (atb_op.Add, atb_op.Adds),
-            (torch.ops.aten.sub.Tensor, "sub"): (atb_op.Sub, atb_op.Subs),
-            (torch.ops.aten.mul.Tensor, "mul"): (atb_op.Mul, atb_op.Muls),
-            (torch.ops.aten.div.Tensor, "div"): (atb_op.Div, atb_op.Divs),
+            (torch.ops.aten.add.Tensor, "add"): (
+                atb_op.Add,
+                atb_op.Adds,
+                atb_op.AclNnAdd,
+            ),
+            (torch.ops.aten.sub.Tensor, "sub"): (
+                atb_op.Sub,
+                atb_op.Subs,
+                atb_op.AclNnSub,
+            ),
+            (torch.ops.aten.mul.Tensor, "mul"): (
+                atb_op.Mul,
+                atb_op.Muls,
+                atb_op.AclNnMul,
+            ),
+            (torch.ops.aten.div.Tensor, "div"): (
+                atb_op.Div,
+                atb_op.Divs,
+                atb_op.AclNnDiv,
+            ),
         }
 
-        for (aten_op, op_name), (tensor_op, scalar_op) in binary_ops.items():
+        for (aten_op, op_name), (tensor_op, scalar_op, aclnn_op) in binary_ops.items():
 
-            def make_handler(tensor_op, scalar_op):
+            def make_handler(tensor_op, scalar_op, aclnn_op):
                 def handler(self, x, y):
+                    atb_supported_dtype = [torch.float16, torch.bfloat16]
                     out_dtype = fx_traceback.get_current_meta()["val"].dtype
-
                     if x.node.meta["val"].dtype != out_dtype:
                         x = self.get_proxy(atb_op.Cast, (x, out_dtype))
-
                     if isinstance(y, torch.fx.Proxy):
                         if y.node.meta["val"].dtype != out_dtype:
                             y = self.get_proxy(atb_op.Cast, (y, out_dtype))
-                        return self.get_proxy(tensor_op, (x, y))
+                        if out_dtype in atb_supported_dtype:
+                            return self.get_proxy(tensor_op, (x, y))
+                        else:
+                            dtype = get_ascend_dtype(out_dtype)
+                            return self.get_proxy(aclnn_op, (x, y, dtype))
                     else:
                         dtype = get_ascend_dtype(out_dtype)
                         return self.get_proxy(scalar_op, (x, y, dtype))
 
                 return handler
 
-            register_conversion(aten_op)(make_handler(tensor_op, scalar_op))
+            register_conversion(aten_op)(make_handler(tensor_op, scalar_op, aclnn_op))
 
     @register_conversion(torch.ops.aten.pow.Tensor_Scalar)
     def aten_pow_tensor_scalar(self, x, y):
@@ -256,6 +296,13 @@ class AtenToAtbTransformer(SingleOpTransformer):
         if len(x.node.meta["val"].shape) == 0:
             x = self.get_proxy(atb_op.View, (x, [1]))
         return self.get_proxy(atb_op.GtScalar, (x, y, dtype))
+
+    @register_conversion(torch.ops.aten.ge.Scalar)
+    def aten_ge_scalar(self, x, y):
+        dtype = get_ascend_dtype(x.node.meta["val"].dtype)
+        if len(x.node.meta["val"].shape) == 0:
+            x = self.get_proxy(atb_op.View, (x, [1]))
+        return self.get_proxy(atb_op.GeScalar, (x, y, dtype))
 
     @register_conversion(torch.ops.aten.max.default)
     def aten_max(self, x):
@@ -321,6 +368,14 @@ class AtenToAtbTransformer(SingleOpTransformer):
             return self.get_proxy(atb_op.Cast, (x, dtype))
         raise RuntimeError("not support yet!")
 
+    @register_conversion("torch.ops.npu.npu_dtype_cast.default")
+    def npu_dtype_cast(self, x, dtype=None, layout=None, device=None):
+        assert layout is None
+        assert device is None
+        if dtype is not None:
+            return self.get_proxy(atb_op.Cast, (x, dtype))
+        raise RuntimeError("not support yet!")
+
     @register_conversion(torch.ops.aten.sin.default)
     def sin(self, x):
         return self.get_proxy(atb_op.Sin, (x,))
@@ -335,8 +390,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
 
     @register_conversion(torch.ops.aten.bmm.default)
     def bmm(self, x1, x2):
-        out = self.get_proxy(atb_op.BatchMatMul, (x1, x2))
-        return out
+        return self.get_proxy(atb_op.BatchMatMul, (x1, x2))
 
     @register_conversion(torch.ops.aten.transpose.int)
     def transpose_int(self, input, dim_1, dim_2):
@@ -370,6 +424,9 @@ class AtenToAtbTransformer(SingleOpTransformer):
         block_size,
         mask,
         is_unpaged_prefill,
+        kv_scales,
+        kv_zeros,
+        quant_bits,
     ):
         # k_cache = self.get_proxy(atb_op.View, (k_cache, [-1, block_size, num_kv_heads, kv_head_size]))
         # v_cache = self.get_proxy(atb_op.View, (v_cache, [-1, block_size, num_kv_heads, kv_head_size]))
@@ -461,6 +518,23 @@ class AtenToAtbTransformer(SingleOpTransformer):
             pass
         raise RuntimeError(f"torch.ops.aten.select.int not support {dim} {index} yet!")
 
+    @register_conversion(torch.ops.aten.slice.Tensor)
+    def slice_tensor(self, x, dim, start, end, step=1):
+        dtype = fx_traceback.get_current_meta()["val"].dtype
+        if dtype == torch.int64 or step != 1:
+            return self.get_proxy(atb_op.AclNnSlice, (x, dim, start, end, step))
+        x_shape = x.node.meta["val"].shape
+        offsets = [0] * len(x_shape)
+        size = [-1] * len(x_shape)
+
+        offsets[dim] = start
+        if end >= 9223372036854775807:
+            size[dim] = -1
+        else:
+            size[dim] = end - start
+
+        return self.get_proxy(atb_op.Slice, (x, dim, offsets, size))
+
     @register_conversion(torch.ops.aten.alias.default)
     def alias(self, x):
         # lowering through view
@@ -472,6 +546,108 @@ class AtenToAtbTransformer(SingleOpTransformer):
         if all_reduce == False:
             return self.get_proxy(atb_op.Linear, (x, weight, bias, False, True))
         return self.get_proxy(atb_op.LinearAllReduce, (x, weight, bias))
+
+    @register_conversion(torch.ops.aten.index.Tensor)
+    def index_tensor(self, x, indices):
+        dim = 0
+        for index in indices:
+            if index is None:
+                continue
+            x = self.get_proxy(atb_op.IndexSelect, (x, dim, index))
+            dim += 1
+        return x
+
+    @register_conversion("torch.ops.dlinfer.fused_moe.default")
+    def dlinfer_fused_moe(
+        self,
+        hidden_states,
+        top_k,
+        topk_ids,
+        topk_weights,
+        gate_up_weights,
+        down_weights,
+    ):
+        hidden_states_dtype = hidden_states.node.meta["val"].dtype
+        hidden_states_shape = hidden_states.node.meta["val"].shape
+        hidden_states_unsqueeze_shape = [
+            -1 if isinstance(x, torch.SymInt) else x for x in hidden_states_shape
+        ]
+        hidden_states_unsqueeze_shape.append(1)
+        hidden_states_unsqueeze = self.get_proxy(
+            atb_op.View, (hidden_states, hidden_states_unsqueeze_shape)
+        )
+
+        moe_out = self.get_proxy(
+            atb_op.Muls, (hidden_states, 0, get_ascend_dtype(hidden_states_dtype))
+        )
+
+        topk_weights_dtype = topk_weights.node.meta["val"].dtype
+        if topk_weights_dtype != hidden_states_dtype:
+            topk_weights = self.get_proxy(
+                atb_op.Cast, (topk_weights, hidden_states_dtype)
+            )
+
+        topk_ids_shape = topk_ids.node.meta["val"].shape
+        squeeze_shape = [
+            -1 if isinstance(x, torch.SymInt) else x for x in topk_ids_shape
+        ]
+        squeeze_shape = squeeze_shape[:-1]
+        for k in range(top_k):
+            expert_ids = self.get_proxy(atb_op.AclNnSlice, (topk_ids, 1, k, k + 1, 1))
+            weights = self.get_proxy(atb_op.AclNnSlice, (topk_weights, 1, k, k + 1, 1))
+
+            expert_ids_squeeze = self.get_proxy(
+                atb_op.View, (expert_ids, squeeze_shape)
+            )
+            up_weights = self.get_proxy(
+                atb_op.IndexSelect, (gate_up_weights, 0, expert_ids_squeeze)
+            )
+            down_weights_selected = self.get_proxy(
+                atb_op.IndexSelect, (down_weights, 0, expert_ids_squeeze)
+            )
+
+            up_proj = self.get_proxy(
+                atb_op.BatchMatMul, (up_weights, hidden_states_unsqueeze)
+            )
+            up_proj = self.get_proxy(atb_op.Squeeze, (up_proj, -1))
+
+            silu_and_mul = self.silu_and_mul(up_proj, -1)
+            silu_and_mul = self.get_proxy(atb_op.Unsqueeze, (silu_and_mul, -1))
+
+            down_proj = self.get_proxy(
+                atb_op.BatchMatMul, (down_weights_selected, silu_and_mul)
+            )
+            down_proj = self.get_proxy(atb_op.Squeeze, (down_proj, -1))
+
+            mul = self.get_proxy(atb_op.Mul, (weights, down_proj))
+            moe_out = self.get_proxy(atb_op.Add, (moe_out, mul))
+        return moe_out
+
+    @register_conversion("torch.ops.dlinfer.moe_gating_topk_softmax.default")
+    def dlinfer_moe_gating_topk_softmax(self, router_logits, top_k):
+        routing_weights = self.get_proxy(atb_op.Softmax, (router_logits, -1))
+        return self.get_proxy(atb_op.Sort, (routing_weights, top_k))
+
+    @register_conversion(torch.ops.aten.expand.default)
+    def aten_expand_default(self, x, size):
+        x_shape = x.node.meta["val"].shape
+        size = [
+            x_shape[i] if size[i] == -1 and isinstance(x_shape[i], int) else size[i]
+            for i in range(len(size))
+        ]
+        return self.get_proxy(atb_op.Expand, (x, size))
+
+    @register_conversion(torch.ops.aten.gather.default)
+    def aten_gather_default(self, x, dim, indices):
+        return self.get_proxy(atb_op.AclNnGather, (x, dim, indices))
+
+    @register_conversion("torch.ops.atb.inplace_scatter.default")
+    def inplace_scatter(self, x, dim, index, src):
+        return self.get_proxy(atb_op.InplaceScatter, (x, dim, index, src))
+
+    @register_conversion(torch.ops.aten.scalar_tensor.default)
+    def aten_scalar_tensor(self, x, dtype, layout, device):
+        return self.get_proxy(atb_op.ScalarTensor, (float(x), dtype))
 
 
 class ViewSymIntTransformer(torch.fx.Transformer):

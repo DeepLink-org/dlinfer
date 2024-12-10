@@ -1,8 +1,8 @@
 #include "subs_operation.h"
 
 #include "aclnnop/aclnn_sub.h"
-#include "log.h"
-#include "utils.h"
+#include "utils/log.h"
+#include "utils/misc.h"
 
 namespace dicp {
 

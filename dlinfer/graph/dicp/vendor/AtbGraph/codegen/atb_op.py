@@ -8,15 +8,14 @@ from torch._inductor.utils import IndentedBuffer
 from dlinfer.graph.dicp.vendor.AtbGraph.codegen import atb_infer_param as infer_param
 from dlinfer.graph.dicp.vendor.AtbGraph.codegen.atb_graph import (
     Operation,
-    SqueezeOperation,
     GetItemOperation,
     GraphOpearation,
-    UnsqueezeOperation,
-    InplaceOperation,
-    ViewOperation,
     TupleOperation,
 )
-from dlinfer.graph.dicp.vendor.AtbGraph.codegen.utils import get_acl_dtype
+from dlinfer.graph.dicp.vendor.AtbGraph.codegen.utils import (
+    get_acl_dtype,
+    get_ascend_dtype,
+)
 
 
 class AtbOverrides:
@@ -54,6 +53,7 @@ class AtbOverrides:
         param.rankRoot = 0
         param.hasResidual = False
         param.parallelType = infer_param.ParallelType.LINEAR_ALL_REDUCE
+        param.backend = "lccl"
 
         if bias:
             op.set_input([x, weight, bias])
@@ -63,7 +63,19 @@ class AtbOverrides:
         op.set_output([name])
         return op
 
-    @staticmethod
+    def AllReduce(name, x, reduce_type):
+        op = Operation(name, "AllReduceOperation")
+        param = infer_param.AllReduceParam()
+        param.rank = dist.get_rank()
+        param.rankSize = dist.get_world_size()
+        param.rankRoot = 0
+        param.allReduceType = reduce_type
+        param.backend = "lccl"
+        op.set_input([x])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
     def Add(name, x, y):
         op = Operation(name, "ElewiseOperation")
         param = infer_param.ElewiseParam()
@@ -128,6 +140,18 @@ class AtbOverrides:
         op.set_input([x])
         op.set_param(param)
         op.set_output([name])
+        return op
+
+    def InplaceDiv(name, x, y):
+        op = Operation(name, "AclNnInplaceDivOperation")
+        param = infer_param.OnlyNameParam()
+        param.name = name
+
+        op.set_input([x, y])
+        op.set_param(param)
+        op.set_output([name])
+        op.has_inplace_output = True
+        op.add_inplace_output(0, 0)
         return op
 
     def Mul(name, x, y):
@@ -228,6 +252,18 @@ class AtbOverrides:
         op.set_output([name])
         return op
 
+    def GeScalar(name, x, y, dtype="FLOAT"):
+        op = Operation(name, "AclNnGeScalarOperation")
+        param = infer_param.GeScalarParam()
+        param.name = name
+        param.value = float(y)
+        param.dtype = dtype
+
+        op.set_input([x])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
     def Graph(name, *args, **kwargs):
         outputs = kwargs["output"]
         if not isinstance(outputs, list):
@@ -289,15 +325,6 @@ class AtbOverrides:
         op.set_input([query, key, cos, sin, seqlen])
         op.set_param(param)
         op.set_output([f"{name}__0", f"{name}__1"])
-        return op
-
-    def Inplace(name, input, target, input_index=-1, target_index=-1):
-        op = InplaceOperation(name)
-        op.input_index = input_index
-        op.target_index = target_index
-        op.target = target
-        op.set_input([input])
-        op.set_output([name])
         return op
 
     def SelfAttentionPAEncoder(
@@ -388,18 +415,6 @@ class AtbOverrides:
         op.set_param(param)
         op.set_input([x])
         op.set_output([name])
-        return op
-
-    def View(name, input, size):
-        op = ViewOperation(name)
-        op.add_input(input)
-        op.add_output(name)
-        op.target_shape = size
-        op.target_reshape_info = {
-            "reshapeType": "view",
-            "dimNum": len(size),
-            "dims": size,
-        }
         return op
 
     def Tuple(name, *args, **kwargs):
@@ -506,34 +521,203 @@ class AtbOverrides:
         op.set_output([name])
         return op
 
-    def Unsqueeze(name, input, dim):
-        op = UnsqueezeOperation(name)
-        op.add_input(input)
-        op.add_output(name)
-        op.dim = [dim]
-        op.target_reshape_info = {
-            "reshapeType": "unsqueeze",
-            "dim": [dim],
-        }
-        return op
-
-    def Squeeze(name, input, dim):
-        op = SqueezeOperation(name)
-        op.add_input(input)
-        op.add_output(name)
-        op.dim = [dim]
-        op.target_reshape_info = {
-            "reshapeType": "squeeze",
-            "dim": [dim],
-        }
-        return op
-
     def Gather(name, x1, x2, axis):
         op = Operation(name, "GatherOperation")
         param = infer_param.GatherParam()
         param.axis = axis
 
         op.set_input([x1, x2])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def Softmax(name, x, dim):
+        op = Operation(name, "AclNnSoftmaxOperation")
+        param = infer_param.SoftmaxParam()
+        param.name = name
+        if not isinstance(dim, list):
+            dim = [dim]
+        param.axes = dim
+
+        op.set_input([x])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def Sort(name, x, topk):
+        op = Operation(name, "AclNnTopkOperation")
+        param = infer_param.SortParam()
+        param.num = topk
+
+        op.set_input([x])
+        op.set_param(param)
+        op.set_output([f"{name}__0", f"{name}__1"])
+        return op
+
+    def Slice(name, x, dim, offsets, size):
+        op = Operation(name, "SliceOperation")
+        param = infer_param.SliceParam()
+        param.offsets = offsets
+        param.size = size
+
+        op.set_input([x])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def AclNnSlice(name, x, dim, start, end, step):
+        op = Operation(name, "AclNnSliceOperation")
+        param = infer_param.AclNnSliceParam()
+        param.name = name
+        param.dim = dim
+        param.start = start
+        param.end = end
+        param.step = step
+
+        op.set_input([x])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def IndexSelect(name, x, dim, index):
+        op = Operation(name, "AclNnIndexSelectOperation")
+        param = infer_param.IndexSelectParam()
+        param.name = name
+        param.dim = dim
+
+        op.set_input([x, index])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def View(name, x, size):
+        op = Operation(name, "CustomViewOperation")
+        param = infer_param.ViewParam()
+        param.viewShape = size
+
+        op.set_input([x])
+        op.set_param(param)
+        op.set_output([name])
+        op.has_inplace_output = True
+        op.add_inplace_output(0, 0)
+        op.is_reshape_op = True
+        return op
+
+    def Unsqueeze(name, x, dim):
+        op = Operation(name, "CustomUnsqueezeOperation")
+        param = infer_param.UnsqueezeParam()
+        param.unsqueezeDim = [dim]
+
+        op.set_input([x])
+        op.set_param(param)
+        op.set_output([name])
+        op.has_inplace_output = True
+        op.add_inplace_output(0, 0)
+        op.is_reshape_op = True
+        return op
+
+    def Squeeze(name, x, dim):
+        op = Operation(name, "CustomSqueezeOperation")
+        param = infer_param.SqueezeParam()
+        param.squeezeDim = [dim]
+
+        op.set_input([x])
+        op.set_param(param)
+        op.set_output([name])
+        op.has_inplace_output = True
+        op.add_inplace_output(0, 0)
+        op.is_reshape_op = True
+        return op
+
+    def AclNnExpand(name, x, size):
+        op = Operation(name, "AclNnExpandOperation")
+        param = infer_param.AclNnExpandParam()
+        param.name = name
+        param.size = size
+
+        op.set_input([x])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def InplaceScatter(name, x, dim, index, src):
+        op = Operation(name, "AclNnInplaceScatterOperation")
+        param = infer_param.ScatterParam()
+        param.name = name
+        param.dim = dim
+
+        op.set_input([x, index, src])
+        op.set_param(param)
+        op.set_output([name])
+        op.has_inplace_output = True
+        op.add_inplace_output(0, 0)
+        return op
+
+    def AclNnDiv(name, x, y, dtype="FLOAT"):
+        op = Operation(name, "AclNnDivOperation")
+        param = infer_param.OnlyNameParam()
+        param.name = name
+
+        op.set_input([x, y])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def AclNnMul(name, x, y, dtype="FLOAT"):
+        op = Operation(name, "AclNnMulOperation")
+        param = infer_param.OnlyNameParam()
+        param.name = name
+
+        op.set_input([x, y])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def AclNnSub(name, x, y, dtype="FLOAT"):
+        op = Operation(name, "AclNnSubOperation")
+        param = infer_param.SubParam()
+        param.name = name
+        param.dtype = dtype
+
+        op.set_input([x, y])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def AclNnAdd(name, x, y, dtype="FLOAT"):
+        op = Operation(name, "AclNnAddOperation")
+        param = infer_param.AddParam()
+        param.name = name
+        param.dtype = dtype
+
+        op.set_input([x, y])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def AclNnGather(name, x, dim, index):
+        op = Operation(name, "AclNnGatherOperation")
+        param = infer_param.AclNnGatherParam()
+        param.name = name
+        param.dim = dim
+
+        op.set_input([x, index])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def ScalarTensor(name, x, dtype):
+        op = Operation(name, "CustomScalarTensorOperation")
+        param = infer_param.ScalarTensorParam()
+        param.name = name
+        if x in [math.inf, -math.inf]:
+            param.valueStr = str(x)
+            param.value = 0
+        else:
+            param.value = x
+        param.dtype = get_ascend_dtype(dtype)
+
+        op.set_input([])
         op.set_param(param)
         op.set_output([name])
         return op

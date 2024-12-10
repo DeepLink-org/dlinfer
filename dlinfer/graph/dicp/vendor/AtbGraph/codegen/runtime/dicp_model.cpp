@@ -6,10 +6,10 @@
 #include <atb/utils.h>
 #include <torch/torch.h>
 
-#include "log.h"
 #include "model.h"
-#include "tensor_utils.h"
-#include "utils.h"
+#include "utils/log.h"
+#include "utils/misc.h"
+#include "utils/tensor_utils.h"
 
 using namespace dicp;
 

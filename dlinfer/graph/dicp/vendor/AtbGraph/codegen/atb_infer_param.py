@@ -364,6 +364,20 @@ class DivsParam:
 
 
 @dataclass
+class AddParam:
+    name: str = ""
+    alpha: float = 1.0
+    dtype: str = "FLOAT"
+
+
+@dataclass
+class SubParam:
+    name: str = ""
+    alpha: float = 1.0
+    dtype: str = "FLOAT"
+
+
+@dataclass
 class PowTensorScalarParam:
     name: str = ""
     exponent: float = 1.0
@@ -392,6 +406,13 @@ class WhereParam:
 
 @dataclass
 class GtScalarParam:
+    name: str = ""
+    value: float = 1.0
+    dtype: str = "FLOAT"
+
+
+@dataclass
+class GeScalarParam:
     name: str = ""
     value: float = 1.0
     dtype: str = "FLOAT"
@@ -435,7 +456,7 @@ class LinearParallelParam:
     rankSize: int = 0
     rankRoot: int = 0
     hasResidual: bool = False
-    backend: str = "hccl"
+    backend: str = "lccl"
     commMode: CommMode = CommMode.COMM_MULTI_PROCESS
     rankTableFile: str = ""
     parallelType: ParallelType = ParallelType.LINEAR_ALL_REDUCE
@@ -444,6 +465,108 @@ class LinearParallelParam:
     quantGroupSize: int = 0
     outDataType: AclDataType = AclDataType.ACL_DT_UNDEFINED
     commDomain: str = ""
+
+
+class AllReducQuantType(IntEnum):
+    QUANT_TYPE_UNDEFINED = 0
+    QUANT_TYPE_PER_TENSOR = 1
+    QUANT_TYPE_PER_CHANNEL = 2
+    QUANT_TYPE_MAX = 3
+
+
+@dataclass
+class AllReduceParam:
+    rank: int = 0
+    rankSize: int = 0
+    rankRoot: int = 0
+    allReduceType: str = "sum"
+    backend: str = "lccl"
+    quantType: QuantType = AllReducQuantType.QUANT_TYPE_UNDEFINED
+    rankTableFile: str = ""
+    outDataType: AclDataType = AclDataType.ACL_DT_UNDEFINED
+    commMode: CommMode = CommMode.COMM_MULTI_PROCESS
+    commDomain = ""
+
+
+@dataclass
+class SortParam:
+    num: int = 0
+
+
+@dataclass
+class SoftmaxParam:
+    axes: list[int] = field(default_factory=list)
+
+
+@dataclass
+class SliceParam:
+    offsets: list[int] = field(default_factory=list)
+    size: list[int] = field(default_factory=list)
+
+
+@dataclass
+class AclNnSliceParam:
+    name: str = ""
+    dim: int = 0
+    start: int = 0
+    end: int = 0
+    step: int = 0
+
+
+@dataclass
+class IndexSelectParam:
+    name: str = ""
+    dim: int = 0
+
+
+@dataclass
+class ViewParam:
+    name: str = ""
+    viewShape: list[int] = field(default_factory=list)
+
+
+@dataclass
+class UnsqueezeParam:
+    name: str = ""
+    unsqueezeDim: list[int] = field(default_factory=list)
+
+
+@dataclass
+class SqueezeParam:
+    name: str = ""
+    squeezeDim: list[int] = field(default_factory=list)
+
+
+@dataclass
+class AclNnExpandParam:
+    name: str = ""
+    size: list[int] = field(default_factory=list)
+
+
+@dataclass
+class OnlyNameParam:
+    name: str = ""
+
+
+@dataclass
+class ScatterParam:
+    name: str = ""
+    dim: int = 0
+    reduceType: int = 0
+
+
+@dataclass
+class AclNnGatherParam:
+    name: str = ""
+    dim: int = 0
+
+
+@dataclass
+class ScalarTensorParam:
+    name: str = ""
+    value: float = 1.0
+    valueStr: str = ""
+    dtype: str = "FLOAT"
 
 
 def custom_asdict_factory(data):

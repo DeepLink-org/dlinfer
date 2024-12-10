@@ -1,7 +1,6 @@
 # Copyright (c) 2024, DeepLink. All rights reserved.
 import math
 import torch
-import torch_npu
 
 from dlinfer.vendor import vendor_ops_registry
 from dlinfer.utils.registry import register_ops
@@ -122,8 +121,11 @@ def fill_kv_cache(
     key_cache: Tensor,
     value_cache: Tensor,
     kv_indices: Tensor,
+    k_scales_zeros: Sequence[Optional[Tensor]],
+    v_scales_zeros: Sequence[Optional[Tensor]],
+    quant_bits: int,
 ) -> Tuple[Tensor, Tensor]:
-    head, dim = key.shape[1:]
+    _, head, dim = key.shape
     block_num, block_size = key_cache.shape[:2]
     block_total = block_num * block_size
 
@@ -131,6 +133,17 @@ def fill_kv_cache(
     key = key.contiguous()
     value = value.contiguous()
     kv_indices = kv_indices.view(-1, 1)
+
+    if quant_bits == 8:
+
+        def quant_int8(x, x_scale, x_offset):
+            quantized = (
+                ((x / x_scale) - x_offset).round().clamp(-128, 127).to(torch.int8)
+            )
+            return quantized
+
+        key = quant_int8(key, k_scales_zeros[0], k_scales_zeros[1])
+        value = quant_int8(value, v_scales_zeros[0], v_scales_zeros[1])
 
     key_cache_reshaped = key_cache.view(block_total, head, dim)
     value_cache_reshaped = value_cache.view(block_total, head, dim)
@@ -167,6 +180,9 @@ def paged_decode_attention(
     softmax_scale: Optional[float],
     alibi_slopes: Optional[Sequence[float]],
     attn_output: Optional[Tensor],
+    kv_scales: Optional[Tensor],
+    kv_zeros: Optional[Tensor],
+    quant_bits: Optional[int],
 ) -> Tensor:
     if alibi_slopes is not None:
         raise RuntimeError(
@@ -177,6 +193,7 @@ def paged_decode_attention(
 
     bs, _, dim = query.shape
     query = query.contiguous()
+    attn_output = attn_output.contiguous()
     query = query.view(bs, 1, num_q_heads * dim)
     scale_value = 1.0 / math.sqrt(dim)
 
@@ -188,8 +205,8 @@ def paged_decode_attention(
         padding_mask=None,
         atten_mask=None,
         actual_seq_lengths=kv_seq_len.tolist(),
-        antiquant_scale=None,
-        antiquant_offset=None,
+        antiquant_scale=kv_scales,
+        antiquant_offset=kv_zeros,
         block_table=block_table,
         dequant_scale1=None,
         quant_scale1=None,
@@ -209,6 +226,8 @@ def paged_decode_attention(
 @register_ops(vendor_ops_registry)
 def paged_prefill_attention(
     query: Tensor,
+    key: Tensor,
+    value: Tensor,
     key_cache: Tensor,
     value_cache: Tensor,
     block_table: Tensor,
@@ -216,12 +235,16 @@ def paged_prefill_attention(
     q_start_loc: Tensor,
     q_seq_len: Tensor,
     kv_seq_len: Tensor,
+    max_q_seq_len: int,
     num_q_heads: int,
     num_kv_heads: int,
     attn_mask: Sequence[Optional[Tensor]],
     softmax_scale: Optional[float],
     alibi_slopes: Optional[Sequence[float]],
     attn_output: Optional[Tensor],
+    kv_scales: Optional[Tensor],
+    kv_zeros: Optional[Tensor],
+    quant_bits: Optional[int],
 ) -> Tensor:
     if alibi_slopes is not None:
         raise RuntimeError(
@@ -245,8 +268,8 @@ def paged_prefill_attention(
         padding_mask=None,
         atten_mask=attn_mask[0],
         actual_seq_lengths=kv_seq_len_list,
-        antiquant_scale=None,
-        antiquant_offset=None,
+        antiquant_scale=kv_scales,
+        antiquant_offset=kv_zeros,
         block_table=block_table,
         dequant_scale1=None,
         quant_scale1=None,
@@ -281,9 +304,10 @@ def moe_gating_topk_softmax(router_logits: Tensor, topk: int) -> Tuple[Tensor, T
         (*router_logits.shape[:-1], topk), dtype=torch.int32
     )
     selected_idx = torch.empty_like(selected_experts)
-    return torch.ops.npu_ext.npu_moe_gating_topk_softmax(
+    routing_weights, selected_idx = torch.ops.npu_ext.npu_moe_gating_topk_softmax(
         router_logits, None, topk, routing_weights, selected_experts, selected_idx
     )
+    return routing_weights, selected_idx.to(torch.int64)
 
 
 # TODO only for internlm in transformers lib.
@@ -370,7 +394,12 @@ def weight_quant_matmul(
 ) -> Tensor:
     offset = None if (offset is None or offset.numel() == 0) else offset
     return torch.ops.npu.npu_weight_quant_batchmatmul(
-        x, qweight, scale, antiquant_offset=offset, antiquant_group_size=group_size
+        x,
+        qweight,
+        scale,
+        antiquant_offset=offset,
+        antiquant_group_size=group_size,
+        bias=bias,
     )
 
 
@@ -404,7 +433,6 @@ def fused_moe(
             down_proj = torch.matmul(down_weight, gate_cache)
 
             moe_output[i] += weight * down_proj
-
     return moe_output
 
 
@@ -420,7 +448,11 @@ def linear(
             x.device
         ).get_hccl_comm_name(x.device.index)
         out = torch.ops.npu.npu_mm_all_reduce_base(
-            x, weight.transpose(0, 1), hcomm_info, reduce_op="sum", bias=bias
+            x.contiguous(),
+            weight.transpose(0, 1),
+            hcomm_info,
+            reduce_op="sum",
+            bias=bias,
         )
     else:
         out = torch.nn.functional.linear(x, weight, bias)

@@ -37,6 +37,46 @@ class LinearAllReduce(Operator):
         return out
 
 
+class AllReduce(Operator):
+    def __init__(self):
+        super().__init__("AllReduce")
+
+    def infer_result(self, x, reduce_type):
+        return torch.ops._c10d_functional.all_reduce.default(x, reduce_type, "0")
+
+
+class AclNnAdd(Operator):
+    def __init__(self):
+        super().__init__("AclNnAdd")
+
+    def infer_result(self, a, b, dtype="FLOAT"):
+        return a + b
+
+
+class AclNnSub(Operator):
+    def __init__(self):
+        super().__init__("AclNnSub")
+
+    def infer_result(self, a, b, dtype="FLOAT"):
+        return a - b
+
+
+class AclNnDiv(Operator):
+    def __init__(self):
+        super().__init__("AclNnDiv")
+
+    def infer_result(self, a, b, dtype="FLOAT"):
+        return a / b
+
+
+class AclNnMul(Operator):
+    def __init__(self):
+        super().__init__("AclNnMul")
+
+    def infer_result(self, a, b, dtype="FLOAT"):
+        return a * b
+
+
 class Add(Operator):
     def __init__(self):
         super().__init__("Add")
@@ -80,6 +120,14 @@ class Div(Operator):
 class Divs(Operator):
     def __init__(self):
         super().__init__("Divs")
+
+    def infer_result(self, a, b):
+        return a / b
+
+
+class InplaceDiv(Operator):
+    def __init__(self):
+        super().__init__("InplaceDiv")
 
     def infer_result(self, a, b):
         return a / b
@@ -139,6 +187,14 @@ class GtScalar(Operator):
 
     def infer_result(self, x, y, dtype="FLOAT"):
         return torch.ops.aten.gt.Scalar(x, y)
+
+
+class GeScalar(Operator):
+    def __init__(self):
+        super().__init__("GeScalar")
+
+    def infer_result(self, x, y, dtype="FLOAT"):
+        return torch.ops.aten.ge.Scalar(x, y)
 
 
 class Where(Operator):
@@ -353,3 +409,80 @@ class Gather(Operator):
 
     def infer_result(self, x1, x2, axis):
         return torch.ops.aten.embedding.default(x1, x2, axis)
+
+
+class Softmax(Operator):
+    def __init__(self):
+        super().__init__("Softmax")
+
+    def infer_result(self, x, dim):
+        return torch.softmax(x, dim=self.dim)
+
+
+class Sort(Operator):
+    def __init__(self):
+        super().__init__("Sort")
+
+    def infer_result(self, x, topk):
+        value, index = torch.topk(x, topk)
+        return value, index
+
+
+class Slice(Operator):
+    def __init__(self):
+        super().__init__("Slice")
+
+    def infer_result(self, x, dim, offsets, size):
+        return torch.ops.aten.slice.Tensor(
+            x, dim, offsets[dim], offsets[dim] + size[dim], 1
+        )
+
+
+class AclNnSlice(Operator):
+    def __init__(self):
+        super().__init__("AclNnSlice")
+
+    def infer_result(self, x, dim, start, end, step):
+        return torch.ops.aten.slice.Tensor(x, dim, start, end, step)
+
+
+class IndexSelect(Operator):
+    def __init__(self):
+        super().__init__("IndexSelect")
+
+    def infer_result(self, x, dim, index):
+        indices = [None] * len(x.shape)
+        indices[dim] = index
+        return torch.ops.aten.index.Tensor(x, indices)
+
+
+class Expand(Operator):
+    def __init__(self):
+        super().__init__("AclNnExpand")
+
+    def infer_result(self, x, size):
+        return x.expand(size)
+
+
+class InplaceScatter(Operator):
+    def __init__(self):
+        super().__init__("InplaceScatter")
+
+    def infer_result(self, x, dim, index, src):
+        return x
+
+
+class AclNnGather(Operator):
+    def __init__(self):
+        super().__init__("AclNnGather")
+
+    def infer_result(self, x, dim, index):
+        return index
+
+
+class ScalarTensor(Operator):
+    def __init__(self):
+        super().__init__("ScalarTensor")
+
+    def infer_result(self, x, dtype):
+        return torch.empty(1, dtype=dtype, device="npu")

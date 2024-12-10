@@ -59,3 +59,43 @@ class TorchLinearWithBias(BackendPatternBase):
     @staticmethod
     def replacement(bias, x_input, weight):
         return torch.ops.atb.linear.default(x_input, weight, bias, False, True)
+
+
+@register_torch_pattern_1
+class TorchAllreduce(BackendPatternBase):
+    @staticmethod
+    def pattern(x, group):
+        all_reduce = torch.ops._c10d_functional.all_reduce.default(x, "sum", group)
+        wait_tensor = torch.ops._c10d_functional.wait_tensor.default(all_reduce)
+        copy = torch.ops.aten.copy.default(x, wait_tensor)
+        return copy
+
+    @staticmethod
+    def replacement(x, group):
+        return torch.ops.atb.allreduce.default(x, "sum")
+
+
+@register_torch_pattern_1
+class TorchInplaceDivTensor(BackendPatternBase):
+    @staticmethod
+    def pattern(x, other):
+        div = torch.ops.aten.div.Tensor(x, other)
+        copy = torch.ops.aten.copy_.default(x, div)
+        return copy
+
+    @staticmethod
+    def replacement(x, other):
+        return torch.ops.atb.inplace_div.default(x, other)
+
+
+@register_torch_pattern_1
+class TorchInplaceScatterTensor(BackendPatternBase):
+    @staticmethod
+    def pattern(x, dim, index, src):
+        scatter = torch.ops.aten.scatter.src(x, dim, index, src)
+        copy = torch.ops.aten.copy_.default(x, scatter)
+        return copy
+
+    @staticmethod
+    def replacement(x, dim, index, src):
+        return torch.ops.atb.inplace_scatter.default(x, dim, index, src)
