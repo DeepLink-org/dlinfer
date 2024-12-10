@@ -350,14 +350,15 @@ class AtenToAtbTransformer(SingleOpTransformer):
     def dlinfer_add_rms_norm(self, x1, x2, gamma, epsilon):
         add = self.get_proxy(atb_op.Add, (x1, x2))
         norm = self.get_proxy(atb_op.RmsNorm, (add, gamma, epsilon))
-        graph = self.get_proxy(
-            atb_op.Graph,
-            (add, norm),
-            {
-                "output": [norm, add],
-                "infer_shape": {"type": "equal", "value": [(0, 0), (0, 0)]},
-            },
-        )
+        # FIXME(tangzhiyi11): Temporarily disable graph op for MOE precision issues
+        # graph = self.get_proxy(
+        #     atb_op.Graph,
+        #     (add, norm),
+        #     {
+        #         "output": [norm, add],
+        #         "infer_shape": {"type": "equal", "value": [(0, 0), (0, 0)]},
+        #     },
+        # )
         return self.get_proxy(atb_op.Tuple, (norm, add))
 
     @register_conversion(torch.ops.aten._to_copy.default)
