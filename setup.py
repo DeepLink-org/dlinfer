@@ -10,7 +10,7 @@ VERSION = "0.1.3"
 vendor_dispatch_key_map = {
     "ascend": "PrivateUse1",
     "maca": "CUDA",
-    "camb":"PrivateUse1",
+    "camb": "PrivateUse1",
 }
 
 

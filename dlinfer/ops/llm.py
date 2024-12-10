@@ -1,7 +1,7 @@
 # Copyright (c) 2024, DeepLink. All rights reserved.
 import torch
 from dlinfer.vendor import vendor_ops_registry
-from dlinfer.utils.type_annotation import Tensor, Optional, Sequence, Tuple
+from dlinfer.utils.type_annotation import Tensor, Optional, Sequence, Tuple, Union
 from dlinfer.graph.custom_op import register_custom_op
 
 
@@ -107,6 +107,8 @@ def prefill_attention(
     q_start_loc: Tensor,
     q_seq_len: Tensor,
     max_q_seq_len: int,
+    num_q_heads: int,
+    num_kv_heads: int,
     attn_mask: Sequence[Optional[Tensor]],
     softmax_scale: Optional[float],
     alibi_slopes: Optional[Sequence[float]],
@@ -123,6 +125,8 @@ def prefill_attention(
         q_start_loc (Tensor): The start location of each query sequence.
         q_seq_len (Tensor): The length of each query sequence.
         max_q_seq_len (int): The maximum length of any query sequence.
+        num_q_heads (int): The number of query heads.
+        num_kv_heads (int): The number of key/value heads.
         attn_mask (Sequence[Optional[Tensor]]): A sequence of optional attention masks, one for each batch.
         softmax_scale (Optional[float]): The scale factor to apply to the attention logits before the softmax.
         alibi_slopes (Optional[Sequence[float]]): The slopes for the ALiBi attention bias, one for each head.
@@ -138,6 +142,8 @@ def prefill_attention(
         q_start_loc,
         q_seq_len,
         max_q_seq_len,
+        num_q_heads,
+        num_kv_heads,
         attn_mask,
         softmax_scale,
         alibi_slopes,
@@ -214,6 +220,8 @@ def paged_decode_attention(
     block_size: int,
     kv_seq_len: Tensor,
     max_kv_seq_len: int,
+    num_q_heads: int,
+    num_kv_heads: int,
     softmax_scale: Optional[float],
     alibi_slopes: Optional[Sequence[float]],
     attn_output: Optional[Tensor],
@@ -234,6 +242,8 @@ def paged_decode_attention(
         block_size (int): The size of each block in the input sequence.
         kv_seq_len (Tensor): The length of each key/value sequence.
         max_kv_seq_len (int): The maximum length of any key/value sequence.
+        num_q_heads (int): The number of query heads.
+        num_kv_heads (int): The number of key/value heads.
         softmax_scale (Optional[float]): The scale factor to apply to the attention logits before the softmax.
         alibi_slopes (Optional[Sequence[float]]): The slopes for the ALiBi attention bias, one for each head.
         attn_output (Optional[Tensor]): The computed attention output tensor.
@@ -252,6 +262,8 @@ def paged_decode_attention(
         block_size,
         kv_seq_len,
         max_kv_seq_len,
+        num_q_heads,
+        num_kv_heads,
         softmax_scale,
         alibi_slopes,
         attn_output,
@@ -282,9 +294,11 @@ def paged_prefill_attention(
     block_table: Tensor,
     block_size: int,
     q_start_loc: Tensor,
+    cu_seq_lens_kv: Tensor,
     q_seq_len: Tensor,
     kv_seq_len: Tensor,
-    max_q_seq_len: Tensor,
+    max_q_seq_len: Union[int, Tensor],
+    max_kv_seq_len: int,
     num_q_heads: int,
     num_kv_heads: int,
     attn_mask: Sequence[Optional[Tensor]],
@@ -307,8 +321,11 @@ def paged_prefill_attention(
                               block in the key/value cache.
         block_size (int): The size of each block in the input sequence.
         q_start_loc (Tensor): The start location of each query sequence.
+        cu_seq_lens_kv (Tensor): The cumulative sequence lengths of the key/value sequences.
         q_seq_len (Tensor): The length of each query sequence.
         kv_seq_len (Tensor): The length of each key/value sequence.
+        max_q_seq_len (int): The maximum length of any query sequence.
+        max_kv_seq_len (int): The maximum length of any key/value sequence.
         num_q_heads (int): The number of query heads.
         num_kv_heads (int): The number of key/value heads.
         attn_mask (Sequence[Optional[Tensor]]): A sequence of optional attention masks, one for each batch.
@@ -331,9 +348,11 @@ def paged_prefill_attention(
         block_table,
         block_size,
         q_start_loc,
+        cu_seq_lens_kv,
         q_seq_len,
         kv_seq_len,
         max_q_seq_len,
+        max_kv_seq_len,
         num_q_heads,
         num_kv_heads,
         attn_mask,
@@ -523,6 +542,7 @@ def weight_quant_matmul(
 def fused_moe(
     hidden_states: Tensor,
     top_k: int,
+    num_experts: int,
     topk_ids: Tensor,
     topk_weights: Tensor,
     gate_up_weights: Tensor,
@@ -534,6 +554,7 @@ def fused_moe(
     Args:
         hidden_states (Tensor): The hidden_states tensor.
         top_k (int): The number of top K experts selected among multiple experts.
+        num_experts (int): The number of experts.
         topk_ids (Tensor): The IDs of the top K selected experts.
         topk_weights (Tensor): The topk_weights tensor corresponds to the weight of experts in topk_ids.
         gate_up_weights (Tensor): The gate_up_weights tensor used to upsample.
@@ -544,7 +565,13 @@ def fused_moe(
 
     """
     return vendor_ops_registry["fused_moe"](
-        hidden_states, top_k, topk_ids, topk_weights, gate_up_weights, down_weights
+        hidden_states,
+        top_k,
+        num_experts,
+        topk_ids,
+        topk_weights,
+        gate_up_weights,
+        down_weights,
     )
 
 
