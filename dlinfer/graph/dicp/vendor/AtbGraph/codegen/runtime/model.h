@@ -62,6 +62,10 @@ private:
     void InitTensorType();
     bool IsInternalTensor(const atb::Tensor* tensor);
     void InitTensorMaxNodeMap();
+    uint64_t findMaxUsedNodeId(const atb::Tensor& tensor, uint64_t startNodeId);
+
+private:
+    std::unordered_map<const atb::Tensor*, uint64_t> maxNodeIdCache_;
 };
 
 class Model {
