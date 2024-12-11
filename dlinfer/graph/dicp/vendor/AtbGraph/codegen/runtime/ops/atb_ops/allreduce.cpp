@@ -1,8 +1,7 @@
-#pragma once
 #include "atb_ops.h"
 namespace dicp {
 
-inline atb::Operation* AllReduceOperationCreate(const nlohmann::json& paramJson) {
+atb::Operation* AllReduceOperationCreate(const nlohmann::json& paramJson) {
     atb::infer::AllReduceParam param;
     if (paramJson.contains("rank")) {
         param.rank = paramJson["rank"].get<int32_t>();
@@ -33,5 +32,7 @@ inline atb::Operation* AllReduceOperationCreate(const nlohmann::json& paramJson)
     CREATE_OPERATION_NO_RETURN(param, &op);
     return op;
 }
+
+REGISTER_ATB_OPERATION("AllReduceOperation", AllReduceOperationCreate);
 
 }  // namespace dicp
