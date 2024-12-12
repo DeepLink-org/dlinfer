@@ -409,7 +409,6 @@ def weight_quant_matmul(
 def fused_moe(
     hidden_states: Tensor,
     top_k: int,
-    num_experts: int,
     topk_ids: Tensor,
     topk_weights: Tensor,
     gate_up_weights: Tensor,

@@ -352,7 +352,6 @@ def silu_and_mul(x: Tensor, dim: int = -1) -> Tensor:
 def fused_moe(
     hidden_states: torch.Tensor,
     top_k: int,
-    num_experts: int,
     topk_ids: torch.LongTensor,
     topk_weights: torch.Tensor,
     gate_up_weights: torch.Tensor,
