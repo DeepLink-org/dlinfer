@@ -398,7 +398,22 @@ def linear(
     bias: Optional[Tensor],
     all_reduce: Optional[bool],
 ) -> Tensor:
-    out = F.linear(x, weight, bias)
-    if all_reduce:
-        dist.all_reduce(out)
+    if x.dim() == 2:
+        if all_reduce:
+            cncl_comm = torch.distributed.distributed_c10d._world.default_pg._get_backend(
+                x.device
+            ).get_cncl_comm(x.device.index)
+            out = tmo.matmul_allreduce(cncl_comm, x, weight, bias)
+        else:
+            out = tmo.matmul(x, weight, bias)
+    elif x.dim() == 3:
+        assert x.size(0) == 1, "batch size must be 1"
+        x_reshaped = x.squeeze(0)
+        if all_reduce:
+            cncl_comm = torch.distributed.distributed_c10d._world.default_pg._get_backend(
+                x.device
+            ).get_cncl_comm(x.device.index)
+            out = tmo.matmul_allreduce(cncl_comm, x_reshaped, weight, bias).unsqueeze(0)
+        else:
+            out = tmo.matmul(x_reshaped, weight, bias).unsqueeze(0)  
     return out
