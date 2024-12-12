@@ -326,12 +326,12 @@ def moe_gating_topk_softmax(router_logits: Tensor, topk: int) -> Tuple[Tensor, T
 def fused_moe(
     hidden_states: Tensor,
     top_k: int,
-    num_experts: int,
     topk_ids: Tensor,
     topk_weights: Tensor,
     gate_up_weights: Tensor,
     down_weights: Tensor,
 ) -> Tensor:
+    num_experts = gate_up_weights.shape[0]
     start_expert_id = 0
     (
         gather_expand_idx,

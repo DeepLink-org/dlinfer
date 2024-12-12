@@ -542,7 +542,6 @@ def weight_quant_matmul(
 def fused_moe(
     hidden_states: Tensor,
     top_k: int,
-    num_experts: int,
     topk_ids: Tensor,
     topk_weights: Tensor,
     gate_up_weights: Tensor,
@@ -554,7 +553,6 @@ def fused_moe(
     Args:
         hidden_states (Tensor): The hidden_states tensor.
         top_k (int): The number of top K experts selected among multiple experts.
-        num_experts (int): The number of experts.
         topk_ids (Tensor): The IDs of the top K selected experts.
         topk_weights (Tensor): The topk_weights tensor corresponds to the weight of experts in topk_ids.
         gate_up_weights (Tensor): The gate_up_weights tensor used to upsample.
@@ -567,7 +565,6 @@ def fused_moe(
     return vendor_ops_registry["fused_moe"](
         hidden_states,
         top_k,
-        num_experts,
         topk_ids,
         topk_weights,
         gate_up_weights,
