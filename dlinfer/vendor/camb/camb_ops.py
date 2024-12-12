@@ -279,6 +279,8 @@ def paged_decode_attention(
 @register_ops(vendor_ops_registry)
 def paged_prefill_attention(
     query: Tensor,
+    key: Tensor,
+    value: Tensor,
     key_cache: Tensor,
     value_cache: Tensor,
     block_table: Tensor,
@@ -295,6 +297,9 @@ def paged_prefill_attention(
     softmax_scale: Optional[float],
     alibi_slopes: Optional[Sequence[float]],
     attn_output: Optional[Tensor],
+    kv_scales: Optional[Tensor],
+    kv_zeros: Optional[Tensor],
+    quant_bits: Optional[int],
 ) -> Tensor:
     if softmax_scale is None:
         softmax_scale = float(1 / math.sqrt(query.size(-1)))
