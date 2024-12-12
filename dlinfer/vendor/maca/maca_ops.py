@@ -1,10 +1,10 @@
 import os
 import math
+import vllm
 import torch
 import torch.distributed as dist
 
 from flash_attn import flash_attn_varlen_func
-from vllm._custom_ops import awq_gemm
 from vllm.attention.ops.prefix_prefill import context_attention_fwd
 
 from dlinfer.vendor import vendor_ops_registry
@@ -59,7 +59,7 @@ def add_rms_norm(
     weight: Tensor,
     epsilon: float,
 ) -> Tuple[Tensor, Tensor]:
-    maca_ext_ops.fused_add_rms_norm(hidden_states, residual, weight, epsilon)
+    vllm._custom_ops.fused_add_rms_norm(hidden_states, residual, weight, epsilon)
     return hidden_states, residual
 
 
@@ -188,7 +188,7 @@ def fill_kv_cache(
     quant_bits: int,
 ) -> Tuple[Tensor, Tensor]:
     kv_indices = kv_indices.squeeze(-1)
-    maca_ext_ops.reshape_and_cache_new(
+    vllm._custom_ops.reshape_and_cache_new(
         key, value, key_cache, value_cache, kv_indices, "auto", 1.0, 1.0
     )
     return key_cache, value_cache
@@ -220,7 +220,7 @@ def paged_decode_attention(
     num_kv_heads = value_cache.size(1)
     block_size = value_cache.size(2)
     output = torch.empty_like(query)
-    maca_ext_ops.paged_attention_v1(
+    vllm._custom_ops.paged_attention_v1(
         output,
         query,
         key_cache,
@@ -302,7 +302,7 @@ def rms_norm(
     epsilon: float,
 ) -> Tensor:
     output = torch.empty_like(hidden_states)
-    maca_ext_ops.rms_norm(output, hidden_states, weight, epsilon)
+    vllm._custom_ops.rms_norm(output, hidden_states, weight, epsilon)
     return output
 
 
@@ -320,7 +320,7 @@ def moe_gating_topk_softmax(
 
     token_expert_indicies = torch.empty_like(topk_ids)
 
-    maca_ext_ops.topk_softmax(
+    vllm._custom_ops.topk_softmax(
         topk_weights,
         topk_ids,
         token_expert_indicies,
@@ -342,7 +342,7 @@ def silu_and_mul(x: Tensor, dim: int = -1) -> Tensor:
     d = x.shape[-1] // 2
     output_shape = x.shape[:-1] + (d,)
     out = torch.empty(output_shape, dtype=x.dtype, device=x.device)
-    maca_ext_ops.silu_and_mul(out, x)
+    vllm._custom_ops.silu_and_mul(out, x)
     return out
 
 
@@ -405,7 +405,7 @@ def weight_quant_matmul(
     group_size: Optional[int] = 0,
 ):
     offset = None if (offset is None or offset.numel() == 0) else offset
-    output = awq_gemm(x, qweight, scale, offset, group_size)
+    output = vllm._custom_ops.awq_gemm(x, qweight, scale, offset, group_size)
     if bias is not None:
         output += bias
     return output
