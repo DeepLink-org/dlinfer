@@ -571,7 +571,7 @@ def linear_impl_abstract_func(
     cx = shape_x[-1]
     cy = shape_w[-1]
     assert cx == cy, "The last dimension of x must match the last dimension of weight."
-    return torch.empty(shape_x[:-1] + shape_w[-2:-1], dtype=x.dtype)
+    return x.new_empty((shape_x[:-1] + shape_w[-2:-1]))
 
 
 @register_custom_op(
