@@ -569,6 +569,20 @@ class ScalarTensorParam:
     dtype: str = "FLOAT"
 
 
+class ReduceType(IntEnum):
+    REDUCE_UNDEFINED = 0
+    REDUCE_MAX = 1
+    REDUCE_MIN = 2
+    REDUCE_SUM = 3
+
+
+@dataclass
+class ReduceParam:
+    name: str = ""
+    reduceType: ReduceType = ReduceType.REDUCE_UNDEFINED
+    axis: list[int] = field(default_factory=list)
+
+
 def custom_asdict_factory(data):
     def convert_value(obj):
         if isinstance(obj, IntEnum):
