@@ -64,4 +64,20 @@ int AclNnExpandOperation::CallAclExecute(uint8_t* workspace, uint64_t workspaceS
     return ret;
 }
 
+atb::Operation* AclNnExpandOperationCreate(const nlohmann::json& paramJson) {
+    std::string opName;
+    std::vector<int64_t> size;
+    if (paramJson.contains("name")) {
+        opName = paramJson["name"].get<std::string>();
+    }
+    if (paramJson.contains("size")) {
+        size = paramJson["size"].get<std::vector<int64_t>>();
+    }
+    DICP_LOG(INFO) << "AclNnExpandOperation: name: " << opName;
+    atb::Operation* op = new AclNnExpandOperation(opName, size);
+    return op;
+}
+
+REGISTER_OPERATION(AclNnExpandOperation, AclNnExpandOperationCreate);
+
 }  // namespace dicp

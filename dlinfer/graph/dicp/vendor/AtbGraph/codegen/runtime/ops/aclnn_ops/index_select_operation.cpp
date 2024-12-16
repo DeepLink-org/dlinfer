@@ -48,4 +48,21 @@ int AclNnIndexSelectOperation::CallAclExecute(uint8_t* workspace, uint64_t works
     return ret;
 }
 
+atb::Operation* AclNnIndexSelectOperationCreate(const nlohmann::json& paramJson) {
+    std::string opName;
+    int64_t dim;
+    std::string dtype;
+    if (paramJson.contains("name")) {
+        opName = paramJson["name"].get<std::string>();
+    }
+    if (paramJson.contains("dim")) {
+        dim = paramJson["dim"].get<int64_t>();
+    }
+    DICP_LOG(INFO) << "AclNnIndexSelectOperation: name: " << opName << " dim:" << dim;
+    atb::Operation* op = new AclNnIndexSelectOperation(opName, dim);
+    return op;
+}
+
+REGISTER_OPERATION(AclNnIndexSelectOperation, AclNnIndexSelectOperationCreate);
+
 }  // namespace dicp

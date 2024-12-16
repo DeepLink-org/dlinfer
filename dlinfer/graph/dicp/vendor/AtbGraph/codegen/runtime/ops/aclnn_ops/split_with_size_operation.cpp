@@ -76,4 +76,24 @@ int AclNnSplitWithSizeOperation::CallAclExecute(uint8_t* workspace, uint64_t wor
     return ret;
 }
 
+atb::Operation* AclNnSplitWithSizeOperationCreate(const nlohmann::json& paramJson) {
+    std::string opName;
+    int64_t splitDim;
+    std::vector<int64_t> splitSizes;
+    if (paramJson.contains("name")) {
+        opName = paramJson["name"].get<std::string>();
+    }
+    if (paramJson.contains("splitDim")) {
+        splitDim = paramJson["splitDim"].get<int64_t>();
+    }
+    if (paramJson.contains("splitSizes")) {
+        splitSizes = paramJson["splitSizes"].get<std::vector<int64_t>>();
+    }
+    DICP_LOG(INFO) << "AclNnSplitWithSizeOperation: name: " << opName;
+    atb::Operation* op = new AclNnSplitWithSizeOperation(opName, splitDim, splitSizes);
+    return op;
+}
+
+REGISTER_OPERATION(AclNnSplitWithSizeOperation, AclNnSplitWithSizeOperationCreate);
+
 }  // namespace dicp
