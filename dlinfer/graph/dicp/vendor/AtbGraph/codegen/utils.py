@@ -163,5 +163,12 @@ def get_ascend_dtype(dtype: torch.dtype) -> str:
         raise RuntimeError(f"unknow torch data type ({dtype}) in get_ascend_dtype!")
 
 
+def get_reduce_dim(x, dim):
+    x_rank = len(x.node.meta["val"].shape)
+    dim = dim if isinstance(dim, list) else [dim]
+    dim = [(i + x_rank) % x_rank for i in dim]
+    return dim
+
+
 def remove_duplicates(lst):
     return list(OrderedDict.fromkeys(lst))
