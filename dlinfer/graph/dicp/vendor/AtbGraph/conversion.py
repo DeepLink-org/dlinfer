@@ -10,7 +10,10 @@ from dlinfer.graph.dicp.vendor.AtbGraph import atb_op
 from dlinfer.graph.dicp.dynamo_bridge.conversion import register_conversion_impl
 from dlinfer.graph.dicp.dynamo_bridge.op_transformer import SingleOpTransformer
 from dlinfer.graph.dicp.vendor.AtbGraph import ext_ops
-from dlinfer.graph.dicp.vendor.AtbGraph.codegen.utils import get_ascend_dtype
+from dlinfer.graph.dicp.vendor.AtbGraph.codegen.utils import (
+    get_ascend_dtype,
+    get_reduce_dim,
+)
 
 
 aten = torch.ops.aten
@@ -655,14 +658,17 @@ class AtenToAtbTransformer(SingleOpTransformer):
 
     @register_conversion(torch.ops.aten.sum.dim_IntList)
     def aten_reduce_sum(self, x, dim):
+        dim = get_reduce_dim(x, dim)
         return self.get_proxy(atb_op.ReduceSum, (x, dim))
 
     @register_conversion(torch.ops.aten.amax.default)
     def aten_reduce_sum(self, x, dim):
+        dim = get_reduce_dim(x, dim)
         return self.get_proxy(atb_op.ReduceMax, (x, dim))
 
     @register_conversion(torch.ops.aten.amin.default)
     def aten_reduce_sum(self, x, dim):
+        dim = get_reduce_dim(x, dim)
         return self.get_proxy(atb_op.ReduceMin, (x, dim))
 
 
