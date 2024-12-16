@@ -20,18 +20,4 @@ private:
     int CallAclExecute(uint8_t* workspace, uint64_t workspaceSize, aclOpExecutor* aclExecutor, aclrtStream stream) override;
 };
 
-inline atb::Operation* AclNnGatherOperationCreate(const nlohmann::json& paramJson) {
-    std::string opName;
-    int64_t dim = 0;
-    if (paramJson.contains("name")) {
-        opName = paramJson["name"].get<std::string>();
-    }
-    if (paramJson.contains("dim")) {
-        dim = paramJson["dim"].get<int64_t>();
-    }
-    DICP_LOG(INFO) << "AclNnGatherOperation: name: " << opName;
-    atb::Operation* op = new AclNnGatherOperation(opName, dim);
-    return op;
-}
-
 }  // namespace dicp

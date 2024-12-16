@@ -18,18 +18,4 @@ private:
     int CallAclExecute(uint8_t* workspace, uint64_t workspaceSize, aclOpExecutor* aclExecutor, aclrtStream stream) override;
 };
 
-inline atb::Operation* AclNnPermuteOperationCreate(const nlohmann::json& paramJson) {
-    std::string opName;
-    std::vector<int64_t> dims;
-    if (paramJson.contains("name")) {
-        opName = paramJson["name"].get<std::string>();
-    }
-    if (paramJson.contains("perm")) {
-        dims = paramJson["perm"].get<std::vector<int64_t>>();
-    }
-    DICP_LOG(INFO) << "AclNnPermuteOperation: name: " << opName;
-    atb::Operation* op = new AclNnPermuteOperation(opName, dims);
-    return op;
-}
-
 }  // namespace dicp

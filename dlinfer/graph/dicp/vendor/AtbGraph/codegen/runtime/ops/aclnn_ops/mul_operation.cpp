@@ -50,4 +50,18 @@ int AclNnMulOperation::CallAclExecute(uint8_t* workspace, uint64_t workspaceSize
     return ret;
 }
 
+atb::Operation* AclNnMulOperationCreate(const nlohmann::json& paramJson) {
+    std::string opName;
+    float value;
+    std::string dtype;
+    if (paramJson.contains("name")) {
+        opName = paramJson["name"].get<std::string>();
+    }
+    DICP_LOG(INFO) << "AclNnMulOperation: name: " << opName;
+    atb::Operation* op = new AclNnMulOperation(opName);
+    return op;
+}
+
+REGISTER_OPERATION(AclNnMulOperation, AclNnMulOperationCreate);
+
 }  // namespace dicp

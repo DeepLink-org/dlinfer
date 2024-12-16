@@ -399,7 +399,7 @@ class AtbOverrides:
         return op
 
     def AddRmsNorm(name, x1, x2, gamma, epsilon):
-        op = Operation(name, "AddRmsNormOperation")
+        op = Operation(name, "AclNnAddRmsNormOperation")
         param = infer_param.AddRmsNormParam()
         param.epsilon = epsilon
         op.set_param(param)
@@ -437,7 +437,7 @@ class AtbOverrides:
         return op
 
     def SplitWithSize(name, x, sizes, dim):
-        op = Operation(name, "SplitWithSizeOperation")
+        op = Operation(name, "AclNnSplitWithSizeOperation")
         param = infer_param.SplitParam()
         param.splitDim = dim
         param.splitSizes = sizes

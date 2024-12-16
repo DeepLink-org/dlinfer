@@ -7,6 +7,7 @@
 #include <string>
 
 #include "atb/operation.h"
+#include "ops/operation_creator.h"
 #include "utils/log.h"
 
 namespace dicp {

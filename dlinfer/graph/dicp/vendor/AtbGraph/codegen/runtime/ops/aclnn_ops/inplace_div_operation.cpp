@@ -41,4 +41,17 @@ int AclNnInplaceDivOperation::CallAclExecute(uint8_t* workspace, uint64_t worksp
     return ret;
 }
 
+atb::Operation* AclNnInplaceDivOperationCreate(const nlohmann::json& paramJson) {
+    std::string opName;
+    float divisor;
+    if (paramJson.contains("name")) {
+        opName = paramJson["name"].get<std::string>();
+    }
+    DICP_LOG(INFO) << "AclNnInplaceDivOperation: name: " << opName;
+    atb::Operation* op = new AclNnInplaceDivOperation(opName);
+    return op;
+}
+
+REGISTER_OPERATION(AclNnInplaceDivOperation, AclNnInplaceDivOperationCreate);
+
 }  // namespace dicp

@@ -1,8 +1,7 @@
-#pragma once
 #include "atb_ops.h"
 namespace dicp {
 
-inline atb::Operation* LinearParallelOperationCreate(const nlohmann::json& paramJson) {
+atb::Operation* LinearParallelOperationCreate(const nlohmann::json& paramJson) {
     atb::infer::LinearParallelParam param;
     if (paramJson.contains("rank")) {
         param.rank = paramJson["rank"].get<int32_t>();
@@ -30,5 +29,7 @@ inline atb::Operation* LinearParallelOperationCreate(const nlohmann::json& param
     CREATE_OPERATION_NO_RETURN(param, &op);
     return op;
 }
+
+REGISTER_ATB_OPERATION("LinearParallelOperation", LinearParallelOperationCreate);
 
 }  // namespace dicp

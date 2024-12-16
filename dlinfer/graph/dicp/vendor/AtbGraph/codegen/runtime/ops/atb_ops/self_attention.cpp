@@ -1,9 +1,8 @@
-#pragma once
 #include "atb_ops.h"
 
 namespace dicp {
 
-inline atb::Operation* SelfAttentionOperationCreate(const nlohmann::json& paramJson) {
+atb::Operation* SelfAttentionOperationCreate(const nlohmann::json& paramJson) {
     atb::infer::SelfAttentionParam param;
     if (paramJson.contains("headNum")) {
         param.headNum = paramJson["headNum"].get<int32_t>();
@@ -44,5 +43,7 @@ inline atb::Operation* SelfAttentionOperationCreate(const nlohmann::json& paramJ
     CREATE_OPERATION_NO_RETURN(param, &op);
     return op;
 }
+
+REGISTER_ATB_OPERATION("SelfAttentionOperation", SelfAttentionOperationCreate);
 
 }  // namespace dicp

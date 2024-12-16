@@ -21,18 +21,4 @@ private:
     std::vector<int64_t> unsqueezeDim_;
 };
 
-inline atb::Operation* CustomUnsqueezeOperationCreate(const nlohmann::json& paramJson) {
-    std::string opName;
-    std::vector<int64_t> unsqueezeDim;
-    if (paramJson.contains("name")) {
-        opName = paramJson["name"].get<std::string>();
-    }
-    if (paramJson.contains("unsqueezeDim")) {
-        unsqueezeDim = std::move(paramJson["unsqueezeDim"].get<std::vector<int64_t>>());
-    }
-    DICP_LOG(INFO) << "CustomUnsqueezeOperation: name: " << opName << " unsqueezeDim:" << vectorToString<int64_t>(unsqueezeDim);
-    atb::Operation* op = new UnsqueezeOperation(opName, unsqueezeDim);
-    return op;
-}
-
 }  // namespace dicp

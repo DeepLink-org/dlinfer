@@ -58,4 +58,18 @@ int AclNnPowTensorTensorOperation::CallAclExecute(uint8_t* workspace, uint64_t w
     return ret;
 }
 
+atb::Operation* AclNnPowTensorTensorOperationCreate(const nlohmann::json& paramJson) {
+    std::string opName;
+    float exponent;
+    std::string dtype;
+    if (paramJson.contains("name")) {
+        opName = paramJson["name"].get<std::string>();
+    }
+    DICP_LOG(INFO) << "AclNnPowTensorTensorOperation: name: " << opName;
+    atb::Operation* op = new AclNnPowTensorTensorOperation(opName);
+    return op;
+}
+
+REGISTER_OPERATION(AclNnPowTensorTensorOperation, AclNnPowTensorTensorOperationCreate);
+
 }  // namespace dicp
