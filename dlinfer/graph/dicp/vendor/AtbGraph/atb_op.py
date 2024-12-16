@@ -486,3 +486,27 @@ class ScalarTensor(Operator):
 
     def infer_result(self, x, dtype):
         return torch.empty(1, dtype=dtype, device="npu")
+
+
+class ReduceSum(Operator):
+    def __init__(self):
+        super().__init__("ReduceSum")
+
+    def infer_result(self, x, dim):
+        return x.sum(dim)
+
+
+class ReduceMax(Operator):
+    def __init__(self):
+        super().__init__("ReduceMax")
+
+    def infer_result(self, x, dim):
+        return x.amax(dim)
+
+
+class ReduceMin(Operator):
+    def __init__(self):
+        super().__init__("ReduceMin")
+
+    def infer_result(self, x, dim):
+        return x.amin(dim)

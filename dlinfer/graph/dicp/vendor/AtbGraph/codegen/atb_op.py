@@ -721,3 +721,39 @@ class AtbOverrides:
         op.set_param(param)
         op.set_output([name])
         return op
+
+    def ReduceSum(name, x, dim):
+        op = Operation(name, "ReduceOperation")
+        param = infer_param.ReduceParam()
+        param.name = name
+        param.reduceType = infer_param.ReduceType.REDUCE_SUM
+        param.axis = dim if isinstance(dim, list) else [dim]
+
+        op.set_input([x])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def ReduceMax(name, x, dim):
+        op = Operation(name, "ReduceOperation")
+        param = infer_param.ReduceParam()
+        param.name = name
+        param.reduceType = infer_param.ReduceType.REDUCE_MAX
+        param.axis = dim if isinstance(dim, list) else [dim]
+
+        op.set_input([x])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def ReduceMin(name, x, dim):
+        op = Operation(name, "ReduceOperation")
+        param = infer_param.ReduceParam()
+        param.name = name
+        param.reduceType = infer_param.ReduceType.REDUCE_MIN
+        param.axis = dim if isinstance(dim, list) else [dim]
+
+        op.set_input([x])
+        op.set_param(param)
+        op.set_output([name])
+        return op

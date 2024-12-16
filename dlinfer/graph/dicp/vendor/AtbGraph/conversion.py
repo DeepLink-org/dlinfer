@@ -650,6 +650,18 @@ class AtenToAtbTransformer(SingleOpTransformer):
     def aten_scalar_tensor(self, x, dtype, layout, device):
         return self.get_proxy(atb_op.ScalarTensor, (float(x), dtype))
 
+    @register_conversion(torch.ops.aten.sum.dim_IntList)
+    def aten_reduce_sum(self, x, dim):
+        return self.get_proxy(atb_op.ReduceSum, (x, dim))
+
+    @register_conversion(torch.ops.aten.amax.default)
+    def aten_reduce_sum(self, x, dim):
+        return self.get_proxy(atb_op.ReduceMax, (x, dim))
+
+    @register_conversion(torch.ops.aten.amin.default)
+    def aten_reduce_sum(self, x, dim):
+        return self.get_proxy(atb_op.ReduceMin, (x, dim))
+
 
 class ViewSymIntTransformer(torch.fx.Transformer):
     def call_function(self, target, args, kwargs):
