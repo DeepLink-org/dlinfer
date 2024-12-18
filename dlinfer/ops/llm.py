@@ -539,6 +539,7 @@ def fused_moe(
     topk_weights: Tensor,
     gate_up_weights: Tensor,
     down_weights: Tensor,
+    renormalize: bool = False,
 ) -> Tensor:
     """
     Implement the Fused Mixture of Experts (MoE) model.
@@ -556,7 +557,13 @@ def fused_moe(
 
     """
     return vendor_ops_registry["fused_moe"](
-        hidden_states, top_k, topk_ids, topk_weights, gate_up_weights, down_weights
+        hidden_states,
+        top_k,
+        topk_ids,
+        topk_weights,
+        gate_up_weights,
+        down_weights,
+        renormalize,
     )
 
 
