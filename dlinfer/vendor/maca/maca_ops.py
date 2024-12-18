@@ -116,10 +116,11 @@ def prefill_attention(
 
     # for deepseek v2 lite.
     if query.shape[-1] == 576:
-        batch_size = kv_seq_len.dim()
+        batch_size = kv_seq_len.size(0)
         head_dim = query.shape[-1]
         nope_size = value.shape[-1]
         groups = num_q_heads // num_q_heads
+        value = torch.nn.functional.pad(value, [0, head_dim - nope_size], value=0)
 
         input_type = query.dtype
         query = query.to(torch.float32)
@@ -129,7 +130,7 @@ def prefill_attention(
         # (bs, seq_len, num_head, head_dim)
         query = query.view(batch_size, -1, num_q_heads, head_dim)
         key = key.view(batch_size, -1, num_kv_heads, head_dim)
-        value = value.view(batch_size, -1, num_kv_heads, nope_size)
+        value = value.view(batch_size, -1, num_kv_heads, head_dim)
         key = key.repeat(1, 1, groups, 1)
         value = value.repeat(1, 1, groups, 1)
 
@@ -147,7 +148,7 @@ def prefill_attention(
         attn_output = attn_output.transpose(1, 2).flatten(0, 1)
         attn_output = attn_output[..., :nope_size].contiguous()
         attn_output = attn_output.to(input_type)
-        return attn_output[..., :512].contiguous()
+        return attn_output
 
     # for cogvlm vl part.
     if query.size(-2) != num_q_heads:
@@ -188,7 +189,7 @@ def fill_kv_cache(
     quant_bits: int,
 ) -> Tuple[Tensor, Tensor]:
     kv_indices = kv_indices.squeeze(-1)
-    vllm._custom_ops.reshape_and_cache_new(
+    maca_ext_ops.reshape_and_cache_new(
         key, value, key_cache, value_cache, kv_indices, "auto", 1.0, 1.0
     )
     return key_cache, value_cache
@@ -218,9 +219,15 @@ def paged_decode_attention(
         softmax_scale = float(1 / math.sqrt(query.size(-1)))
 
     num_kv_heads = value_cache.size(1)
-    block_size = value_cache.size(2)
+    block_size = value_cache.size(-2)
     output = torch.empty_like(query)
-    vllm._custom_ops.paged_attention_v1(
+
+    # for deepseek v2 lite.
+    if query.size(-1) == 576:
+        value_cache = key_cache.transpose(2, 3).reshape(
+            -1, num_kv_heads, block_size, 576
+        )
+    maca_ext_ops.paged_attention_v1(
         output,
         query,
         key_cache,
@@ -241,8 +248,7 @@ def paged_decode_attention(
         1,  # blocksparse_block_size
         1,  # blocksparse_head_sliding_step
     )
-
-    return output
+    return output[..., :512]
 
 
 @register_ops(vendor_ops_registry)
@@ -301,9 +307,12 @@ def rms_norm(
     weight: Tensor,
     epsilon: float,
 ) -> Tensor:
+    input_dtype = hidden_states.dtype
+    hidden_states = hidden_states.to(torch.float32)
+    weight = weight.to(torch.float32)
     output = torch.empty_like(hidden_states)
     vllm._custom_ops.rms_norm(output, hidden_states, weight, epsilon)
-    return output
+    return output.to(input_dtype)
 
 
 @register_ops(vendor_ops_registry)
