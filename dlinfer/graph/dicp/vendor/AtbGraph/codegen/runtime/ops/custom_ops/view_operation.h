@@ -25,18 +25,4 @@ private:
     int otherProd_ = 1;
 };
 
-inline atb::Operation* CustomViewOperationCreate(const nlohmann::json& paramJson) {
-    std::string opName;
-    std::vector<int64_t> shape;
-    if (paramJson.contains("name")) {
-        opName = paramJson["name"].get<std::string>();
-    }
-    if (paramJson.contains("viewShape")) {
-        shape = std::move(paramJson["viewShape"].get<std::vector<int64_t>>());
-    }
-    DICP_LOG(INFO) << "CustomViewOperation: name: " << opName << " viewShape:" << vectorToString<int64_t>(shape);
-    atb::Operation* op = new ViewOperation(opName, shape);
-    return op;
-}
-
 }  // namespace dicp

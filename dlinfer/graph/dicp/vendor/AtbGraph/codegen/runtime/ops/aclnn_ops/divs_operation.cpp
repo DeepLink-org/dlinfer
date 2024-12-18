@@ -51,4 +51,24 @@ int AclNnDivsOperation::CallAclExecute(uint8_t* workspace, uint64_t workspaceSiz
     return ret;
 }
 
+atb::Operation* AclNnDivsOperationCreate(const nlohmann::json& paramJson) {
+    std::string opName;
+    std::string dtype;
+    float divisor;
+    if (paramJson.contains("name")) {
+        opName = paramJson["name"].get<std::string>();
+    }
+    if (paramJson.contains("divisor")) {
+        divisor = paramJson["divisor"].get<float>();
+    }
+    if (paramJson.contains("dtype")) {
+        dtype = paramJson["dtype"].get<std::string>();
+    }
+    DICP_LOG(INFO) << "AclNnDivsOperation: name: " << opName << " divisor:" << divisor;
+    atb::Operation* op = new AclNnDivsOperation(opName, divisor, dtype);
+    return op;
+}
+
+REGISTER_OPERATION(AclNnDivsOperation, AclNnDivsOperationCreate);
+
 }  // namespace dicp

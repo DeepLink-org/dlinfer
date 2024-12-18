@@ -1,10 +1,9 @@
-#pragma once
 #include "atb_ops.h"
 #include "utils/common.h"
 
 namespace dicp {
 
-inline atb::Operation* SliceOperationCreate(const nlohmann::json& paramJson) {
+atb::Operation* SliceOperationCreate(const nlohmann::json& paramJson) {
     atb::infer::SliceParam param;
     if (paramJson.contains("offsets")) {
         auto tmp = paramJson["offsets"].get<std::vector<int64_t>>();
@@ -27,5 +26,7 @@ inline atb::Operation* SliceOperationCreate(const nlohmann::json& paramJson) {
     CREATE_OPERATION_NO_RETURN(param, &op);
     return op;
 }
+
+REGISTER_ATB_OPERATION("SliceOperation", SliceOperationCreate);
 
 }  // namespace dicp

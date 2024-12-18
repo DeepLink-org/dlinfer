@@ -1,9 +1,8 @@
-#pragma once
 #include "atb_ops.h"
 
 namespace dicp {
 
-inline atb::Operation* PagedAttentionOperationCreate(const nlohmann::json& paramJson) {
+atb::Operation* PagedAttentionOperationCreate(const nlohmann::json& paramJson) {
     atb::infer::PagedAttentionParam param;
     if (paramJson.contains("headNum")) {
         param.headNum = paramJson["headNum"].get<int32_t>();
@@ -24,5 +23,7 @@ inline atb::Operation* PagedAttentionOperationCreate(const nlohmann::json& param
     CREATE_OPERATION_NO_RETURN(param, &op);
     return op;
 }
+
+REGISTER_ATB_OPERATION("PagedAttentionOperation", PagedAttentionOperationCreate);
 
 }  // namespace dicp

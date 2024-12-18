@@ -1,4 +1,3 @@
-#pragma once
 #include "atb_ops.h"
 
 namespace dicp {
@@ -10,5 +9,7 @@ inline atb::Operation* ReshapeAndCacheOperationCreate([[maybe_unused]] const nlo
     CREATE_OPERATION_NO_RETURN(param, &op);
     return op;
 }
+
+REGISTER_ATB_OPERATION("ReshapeAndCacheOperation", ReshapeAndCacheOperationCreate);
 
 }  // namespace dicp

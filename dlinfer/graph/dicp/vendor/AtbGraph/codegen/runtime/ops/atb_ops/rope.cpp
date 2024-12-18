@@ -1,9 +1,8 @@
-#pragma once
 #include "atb_ops.h"
 
 namespace dicp {
 
-inline atb::Operation* RopeOperationCreate(const nlohmann::json& paramJson) {
+atb::Operation* RopeOperationCreate(const nlohmann::json& paramJson) {
     atb::infer::RopeParam param;
     if (paramJson.contains("rotaryCoeff")) {
         param.rotaryCoeff = paramJson["rotaryCoeff"].get<int32_t>();
@@ -16,5 +15,7 @@ inline atb::Operation* RopeOperationCreate(const nlohmann::json& paramJson) {
     CREATE_OPERATION_NO_RETURN(param, &op);
     return op;
 }
+
+REGISTER_ATB_OPERATION("RopeOperation", RopeOperationCreate);
 
 }  // namespace dicp

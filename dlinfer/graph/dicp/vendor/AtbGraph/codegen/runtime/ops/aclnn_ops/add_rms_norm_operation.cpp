@@ -80,4 +80,20 @@ int AclNnAddRmsNormOperation::CallAclExecute(uint8_t* workspace, uint64_t worksp
     return ret;
 }
 
+atb::Operation* AclNnAddRmsNormOperationCreate(const nlohmann::json& paramJson) {
+    std::string opName;
+    float eps = 0;
+    if (paramJson.contains("name")) {
+        opName = paramJson["name"].get<std::string>();
+    }
+    if (paramJson.contains("epsilon")) {
+        eps = paramJson["epsilon"].get<float>();
+    }
+    DICP_LOG(INFO) << "AclNnAddRmsNormOperation: name: " << opName << " epsilon:" << eps;
+    atb::Operation* op = new AclNnAddRmsNormOperation(opName, eps);
+    return op;
+}
+
+REGISTER_OPERATION(AclNnAddRmsNormOperation, AclNnAddRmsNormOperationCreate);
+
 }  // namespace dicp

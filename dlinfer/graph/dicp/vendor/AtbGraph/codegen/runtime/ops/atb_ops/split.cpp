@@ -1,9 +1,8 @@
-#pragma once
 #include "atb_ops.h"
 
 namespace dicp {
 
-inline atb::Operation* SplitOperationCreate(const nlohmann::json& paramJson) {
+atb::Operation* SplitOperationCreate(const nlohmann::json& paramJson) {
     atb::infer::SplitParam param;
     if (paramJson.contains("splitDim")) {
         param.splitDim = paramJson["splitDim"].get<int32_t>();
@@ -16,5 +15,7 @@ inline atb::Operation* SplitOperationCreate(const nlohmann::json& paramJson) {
     CREATE_OPERATION_NO_RETURN(param, &op);
     return op;
 }
+
+REGISTER_ATB_OPERATION("SplitOperation", SplitOperationCreate);
 
 }  // namespace dicp

@@ -1,9 +1,8 @@
-#pragma once
 #include "atb_ops.h"
 
 namespace dicp {
 
-inline atb::Operation* RmsNormOperationCreate(const nlohmann::json& paramJson) {
+atb::Operation* RmsNormOperationCreate(const nlohmann::json& paramJson) {
     atb::infer::RmsNormParam param;
     param.layerType = atb::infer::RmsNormParam::RmsNormType::RMS_NORM_NORM;
     if (paramJson.contains("normParam")) {
@@ -22,5 +21,7 @@ inline atb::Operation* RmsNormOperationCreate(const nlohmann::json& paramJson) {
     CREATE_OPERATION_NO_RETURN(param, &op);
     return op;
 }
+
+REGISTER_ATB_OPERATION("RmsNormOperation", RmsNormOperationCreate);
 
 }  // namespace dicp

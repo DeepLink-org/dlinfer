@@ -45,4 +45,24 @@ int AclNnInplaceScatterOperation::CallAclExecute(uint8_t* workspace, uint64_t wo
     return ret;
 }
 
+atb::Operation* AclNnInplaceScatterOperationCreate(const nlohmann::json& paramJson) {
+    std::string opName;
+    int64_t dim = 0;
+    int64_t reduceType = 0;
+    if (paramJson.contains("name")) {
+        opName = paramJson["name"].get<std::string>();
+    }
+    if (paramJson.contains("dim")) {
+        dim = paramJson["dim"].get<int64_t>();
+    }
+    if (paramJson.contains("reduceType")) {
+        reduceType = paramJson["reduceType"].get<int64_t>();
+    }
+    DICP_LOG(INFO) << "AclNnInplaceScatterOperation: name: " << opName;
+    atb::Operation* op = new AclNnInplaceScatterOperation(opName, dim, reduceType);
+    return op;
+}
+
+REGISTER_OPERATION(AclNnInplaceScatterOperation, AclNnInplaceScatterOperationCreate);
+
 }  // namespace dicp
