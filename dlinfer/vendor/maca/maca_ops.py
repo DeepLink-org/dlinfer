@@ -348,14 +348,14 @@ def silu_and_mul(x: Tensor, dim: int = -1) -> Tensor:
 
 @register_ops(vendor_ops_registry)
 def fused_moe(
-    hidden_states: torch.Tensor,
+    hidden_states: Tensor,
+    gate_up_weights: Tensor,
+    down_weights: Tensor,
+    topk_weights: Tensor,
+    topk_ids: Tensor,
     top_k: int,
-    topk_ids: torch.LongTensor,
-    topk_weights: torch.Tensor,
-    gate_up_weights: torch.Tensor,
-    down_weights: torch.Tensor,
-    renormalize: bool = False,
-):
+    renormalize: bool,
+) -> Tensor:
     N = hidden_states.size(0)
     topk_weights = topk_weights.reshape(N, top_k)
     topk_ids = topk_ids.reshape(N, top_k)
