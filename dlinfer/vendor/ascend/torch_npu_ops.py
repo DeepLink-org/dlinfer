@@ -233,9 +233,11 @@ def paged_prefill_attention(
     block_table: Tensor,
     block_size: int,
     q_start_loc: Tensor,
+    cu_seq_lens_kv: Tensor,
     q_seq_len: Tensor,
     kv_seq_len: Tensor,
     max_q_seq_len: int,
+    max_kv_seq_len: int,
     num_q_heads: int,
     num_kv_heads: int,
     attn_mask: Sequence[Optional[Tensor]],
@@ -411,7 +413,11 @@ def fused_moe(
     topk_weights: Tensor,
     gate_up_weights: Tensor,
     down_weights: Tensor,
+    renormalize: bool = False,
 ) -> Tensor:
+    if renormalize:
+        topk_weights = topk_weights / topk_weights.sum(dim=-1, keepdim=True) 
+            
     seq_length = hidden_states.size(0)
     moe_output = torch.zeros_like(hidden_states)
 
