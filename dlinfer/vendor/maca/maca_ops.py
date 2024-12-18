@@ -356,8 +356,11 @@ def fused_moe(
     topk_weights: torch.Tensor,
     gate_up_weights: torch.Tensor,
     down_weights: torch.Tensor,
+    renormalize: bool = False,
 ):
     N, D = hidden_states.shape
+    if renormalize:
+        topk_weights = topk_weights / topk_weights.sum(dim=-1, keepdim=True)     
     hidden_states = hidden_states.view(N, -1, D).repeat(1, top_k, 1).reshape(-1, D)
     out = torch.zeros(
         N * top_k,

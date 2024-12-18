@@ -1,9 +1,6 @@
 import math
 import torch
-import torch_mlu
 import torch_mlu_ops as tmo
-import torch.nn.functional as F
-from torch import distributed as dist
 
 from dlinfer.vendor import vendor_ops_registry
 from dlinfer.utils.registry import register_ops
@@ -335,8 +332,11 @@ def fused_moe(
     topk_weights: Tensor,
     gate_up_weights: Tensor,
     down_weights: Tensor,
+    renormalize: bool=False,
 ) -> Tensor:
     num_experts = gate_up_weights.shape[0]
+    if renormalize:
+        topk_weights = topk_weights / topk_weights.sum(dim=-1, keepdim=True) 
     start_expert_id = 0
     (
         gather_expand_idx,

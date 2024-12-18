@@ -546,6 +546,7 @@ def fused_moe(
     topk_weights: Tensor,
     gate_up_weights: Tensor,
     down_weights: Tensor,
+    renormalize: bool=False,
 ) -> Tensor:
     """
     Implement the Fused Mixture of Experts (MoE) model.
@@ -557,7 +558,8 @@ def fused_moe(
         topk_weights (Tensor): The topk_weights tensor corresponds to the weight of experts in topk_ids.
         gate_up_weights (Tensor): The gate_up_weights tensor used to upsample.
         down_weights (Tensor): The down_weights tensor used to downsample.
-
+        renormalize (bool): A boolean flag to indicate whether to renormalize the output.
+        
     Returns:
         Tensor: The output tensor of the Fused Mixture of Experts (MoE) model.
 
@@ -569,6 +571,7 @@ def fused_moe(
         topk_weights,
         gate_up_weights,
         down_weights,
+        renormalize,
     )
 
 

@@ -413,7 +413,11 @@ def fused_moe(
     topk_weights: Tensor,
     gate_up_weights: Tensor,
     down_weights: Tensor,
+    renormalize: bool = False,
 ) -> Tensor:
+    if renormalize:
+        topk_weights = topk_weights / topk_weights.sum(dim=-1, keepdim=True) 
+            
     seq_length = hidden_states.size(0)
     moe_output = torch.zeros_like(hidden_states)
 
