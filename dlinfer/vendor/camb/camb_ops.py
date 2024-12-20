@@ -186,6 +186,11 @@ def prefill_attention(
     alibi_slopes: Optional[Sequence[float]],
     attn_output: Optional[Tensor],
 ) -> Tensor:
+    causal = True
+    # TODO a trick to handle lmdeploy vlmodel vision part flash-attention
+    if q_start_loc.shape[0] == q_seq_len.shape[0]:
+        q_start_loc = torch.cat([q_start_loc, q_seq_len[-1].unsqueeze(0)])
+        causal = True
     if alibi_slopes is not None:
         alibi_slopes = torch.tensor(alibi_slopes, dtype=torch.float32)
     if softmax_scale is None:
@@ -205,7 +210,7 @@ def prefill_attention(
         max_q_seq_len,
         max_q_seq_len,
         softmax_scale,
-        True,
+        causal,
         -1,
         -1,
         query.dtype,
@@ -407,13 +412,13 @@ def linear(
         else:
             out = tmo.matmul(x, weight, bias)
     elif x.dim() == 3:
-        assert x.size(0) == 1, "batch size must be 1"
-        x_reshaped = x.squeeze(0)
+        bsz, seq_len, _ = x.size()
+        x_reshaped = x.view(bsz * seq_len, -1)
         if all_reduce:
             cncl_comm = torch.distributed.distributed_c10d._world.default_pg._get_backend(
                 x.device
             ).get_cncl_comm(x.device.index)
-            out = tmo.matmul_allreduce(cncl_comm, x_reshaped, weight, bias).unsqueeze(0)
+            out = tmo.matmul_allreduce(cncl_comm, x_reshaped, weight, bias).view(bsz, seq_len, -1)
         else:
-            out = tmo.matmul(x_reshaped, weight, bias).unsqueeze(0)  
+            out = tmo.matmul(x_reshaped, weight, bias).view(bsz, seq_len, -1) 
     return out
