@@ -593,6 +593,7 @@ class AtbOverrides:
     def View(name, x, size):
         op = Operation(name, "CustomViewOperation")
         param = infer_param.ViewParam()
+        param.name = name
         param.viewShape = size
 
         op.set_input([x])
@@ -606,6 +607,7 @@ class AtbOverrides:
     def Unsqueeze(name, x, dim):
         op = Operation(name, "CustomUnsqueezeOperation")
         param = infer_param.UnsqueezeParam()
+        param.name = name
         param.unsqueezeDim = [dim]
 
         op.set_input([x])
@@ -619,6 +621,7 @@ class AtbOverrides:
     def Squeeze(name, x, dim):
         op = Operation(name, "CustomSqueezeOperation")
         param = infer_param.SqueezeParam()
+        param.name = name
         param.squeezeDim = [dim]
 
         op.set_input([x])
