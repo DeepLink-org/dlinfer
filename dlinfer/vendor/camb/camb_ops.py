@@ -35,35 +35,18 @@ def rms_norm(
         dim == 2 or dim == 3
     ), "only support hidden_states: [total_seq_len, hidden_size] or [bs, seq_len, hidden_size]"
     store_output_before_norm = False
-    if dim == 2:
-        normed_hidden_states = tmo.fused_rms_norm(
-            hidden_states,
-            None,
-            weight,
-            None,
-            None,
-            epsilon,
-            store_output_before_norm,
-            None,
-            None,
-        )
-        return normed_hidden_states
-    else:
-        original_shape = hidden_states.shape
-        hidden_states = hidden_states.view(-1, original_shape[-1])
-        normed_hidden_states = tmo.fused_rms_norm(
-            hidden_states,
-            None,
-            weight,
-            None,
-            None,
-            epsilon,
-            store_output_before_norm,
-            None,
-            None,
-        )
-        normed_hidden_states = normed_hidden_states.view(original_shape)
-        return normed_hidden_states
+    normed_hidden_states = tmo.fused_rms_norm(
+        hidden_states,
+        None,
+        weight,
+        None,
+        None,
+        epsilon,
+        store_output_before_norm,
+        None,
+        None,
+    )
+    return normed_hidden_states
 
 @register_ops(vendor_ops_registry)
 def add_rms_norm(
@@ -77,34 +60,16 @@ def add_rms_norm(
         dim == 2 or dim == 3
     ), "only support hidden_states: [total_seq_len, hidden_size] or [bs, seq_len, hidden_size]"
     store_output_before_norm = True
-    if dim == 2:
-        normed_hidden_states, added_hidden_states = tmo.fused_rms_norm(
-            hidden_states,
-            residual,
-            weight,
-            None,
-            None,
-            epsilon,
-            store_output_before_norm,
-            None,
-        )
-        return normed_hidden_states, added_hidden_states
-    else:
-        original_shape = hidden_states.shape
-        hidden_states = hidden_states.view(-1, original_shape[-1])
-        residual = residual.view(-1, original_shape[-1])
-        normed_hidden_states, added_hidden_states = tmo.fused_rms_norm(
-            hidden_states,
-            residual,
-            weight,
-            None,
-            None,
-            epsilon,
-            store_output_before_norm,
-            None,
-        )
-        normed_hidden_states = normed_hidden_states.view(original_shape)
-        added_hidden_states = added_hidden_states.view(original_shape)
+    normed_hidden_states, added_hidden_states = tmo.fused_rms_norm(
+        hidden_states,
+        residual,
+        weight,
+        None,
+        None,
+        epsilon,
+        store_output_before_norm,
+        None,
+    )
     return normed_hidden_states, added_hidden_states
 
 @register_ops(vendor_ops_registry)
