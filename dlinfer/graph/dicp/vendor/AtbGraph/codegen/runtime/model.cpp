@@ -270,17 +270,12 @@ atb::Status Model::ExecuteNode(int nodeId) {
 
 void Model::BuildNodeVariantPack(int nodeId) {
     auto& node = graph_.nodes.at(nodeId);
-    bool needReshape = node.inTensorReshapeFuncs.size() > 0;
 
     atb::SVector<atb::TensorDesc> inTensorDescs;
     inTensorDescs.resize(node.variantPack.inTensors.size());
     for (size_t i = 0; i < node.inTensors.size(); ++i) {
         node.variantPack.inTensors.at(i) = *node.inTensors.at(i);
         inTensorDescs.at(i) = node.inTensors.at(i)->desc;
-        if (needReshape) {
-            node.inTensorReshapeFuncs.at(i)(node.inTensors.at(i)->desc.shape, inTensorDescs.at(i).shape);
-            node.variantPack.inTensors.at(i).desc.shape = inTensorDescs.at(i).shape;
-        }
         DICP_LOG(INFO) << modelId_ << " nodes[" << nodeId << "] inTensors[" << i << "]:" << tensor_utils::TensorToString(node.variantPack.inTensors.at(i));
     }
 
@@ -357,9 +352,6 @@ void Model::CreateSingleOperation(const nlohmann::json& paramJson, Node& node) {
             throw std::runtime_error("cannot find name in input/internal!");
         }
     }
-    if (getValue<bool>(paramJson, "hasReshapeInputs")) {
-        SetupReshapeFunctions(paramJson["reshapeInputs"], node.inTensorReshapeFuncs, node.inTensors.size());
-    }
     if (getValue<bool>(paramJson, "hasInplaceOutputs")) {
         SetupInplaceOutputs(paramJson["inplaceOutputs"], node.inplaceIndices);
     }
@@ -405,11 +397,6 @@ void Model::CreateGraphOperation(const nlohmann::json& paramJson, Node& node) {
             }
             for (const auto& t : opOutputNames) {
                 graph_param.nodes[cur_node_index].outTensorIds.push_back(graph_tensor_ids[t]);
-            }
-
-            if (getValue<bool>(nodeOp, "hasReshapeInputs")) {
-                auto& cur_node = graph_param.nodes[cur_node_index];
-                SetupReshapeFunctions(nodeOp["reshapeInputs"], cur_node.inTensorReshapeFuncs, cur_node.inTensorIds.size());
             }
         } else {
             DICP_LOG(ERROR) << "invalid node type in graph opearation, ndoeType: " << nodeType;
@@ -468,85 +455,6 @@ void Model::SetupInplaceOutputs(const nlohmann::json& inplaceOutputs, std::unord
         auto inputIdx = getValue<int32_t>(inplaceTensors, "input_index");
         inplaceIndices[outputIdx] = inputIdx;
     }
-}
-
-void Model::SetupReshapeFunctions(const nlohmann::json& reshapeInputs, atb::SVector<atb::ReshapeFunc>& funcs, size_t tensorSize) {
-    funcs.resize(tensorSize);
-    int count = 0;
-    for (const auto& reshapeInput : reshapeInputs) {
-        auto reshapeType = getValue<std::string>(reshapeInput, "reshapeType");
-        if (reshapeType == "None") {
-            funcs.at(count) = [](const atb::Dims& oldShape, atb::Dims& newShape) { newShape = oldShape; };
-        } else if (reshapeType == "view") {
-            SetupViewReshape(reshapeInput, funcs.at(count));
-        } else if (reshapeType == "unsqueeze") {
-            SetupUnsqueezeReshape(reshapeInput, funcs.at(count));
-        } else if (reshapeType == "squeeze") {
-            SetupSqueezeReshape(reshapeInput, funcs.at(count));
-        }
-        count++;
-    }
-}
-
-void Model::SetupViewReshape(const nlohmann::json& reshapeInput, atb::ReshapeFunc& func) {
-    auto dimNum = getValue<int32_t>(reshapeInput, "dimNum");
-    auto dims = getValue<std::vector<int32_t>>(reshapeInput, "dims");
-    bool needInferDim = false;
-    size_t dimNeedInfer = 0;
-    for (size_t i = 0; i < dims.size(); ++i) {
-        if (dims[i] == -1) {
-            needInferDim = true;
-            dimNeedInfer = i;
-            break;
-        }
-    }
-    func = [=](const atb::Dims& oldShape, atb::Dims& newShape) {
-        newShape.dimNum = dimNum;
-        if (needInferDim) {
-            int64_t totalValue = 1;
-            int64_t otherProd = 1;
-            for (size_t i = 0; i < oldShape.dimNum; ++i) {
-                totalValue *= oldShape.dims[i];
-            }
-            for (size_t i = 0; i < dims.size(); ++i) {
-                if (i != dimNeedInfer) {
-                    otherProd *= dims[i];
-                }
-            }
-            newShape.dims[dimNeedInfer] = totalValue / otherProd;
-        }
-        for (size_t i = 0; i < dims.size(); ++i) {
-            if (dims[i] != -1) {
-                newShape.dims[i] = dims[i];
-            }
-        }
-    };
-}
-
-void Model::SetupUnsqueezeReshape(const nlohmann::json& reshapeInput, atb::ReshapeFunc& func) {
-    auto dims = getValue<std::vector<int32_t>>(reshapeInput, "dim");
-    func = [=](const atb::Dims& oldShape, atb::Dims& newShape) {
-        std::vector<int64_t> dimValues(oldShape.dims, oldShape.dims + oldShape.dimNum);
-        for (const auto& d : dims) {
-            int offset = d < 0 ? d + oldShape.dimNum + 1 : d;
-            dimValues.insert(dimValues.begin() + offset, 1);
-        }
-        newShape.dimNum = dimValues.size();
-        std::copy(dimValues.begin(), dimValues.end(), newShape.dims);
-    };
-}
-
-void Model::SetupSqueezeReshape(const nlohmann::json& reshapeInput, atb::ReshapeFunc& func) {
-    auto dims = getValue<std::vector<int32_t>>(reshapeInput, "dim");
-    func = [=](const atb::Dims& oldShape, atb::Dims& newShape) {
-        std::vector<int64_t> dimValues(oldShape.dims, oldShape.dims + oldShape.dimNum);
-        for (const auto& d : dims) {
-            int offset = d < 0 ? d + oldShape.dimNum : d;
-            dimValues.erase(dimValues.begin() + offset);
-        }
-        newShape.dimNum = dimValues.size();
-        std::copy(dimValues.begin(), dimValues.end(), newShape.dims);
-    };
 }
 
 void Model::ClearInternalTensors() {

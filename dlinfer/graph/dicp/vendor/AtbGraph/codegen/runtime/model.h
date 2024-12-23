@@ -39,7 +39,6 @@ struct Node {
     std::vector<atb::Tensor*> inTensors;
     std::vector<atb::Tensor*> outTensors;
     atb::VariantPack variantPack;
-    atb::SVector<atb::ReshapeFunc> inTensorReshapeFuncs;
     atb::SVector<TensorType> inTensorTypes;
     atb::SVector<TensorType> outTensorTypes;
     std::unordered_map<int, int> inplaceIndices;
@@ -86,10 +85,6 @@ private:
     atb::Tensor GetInternalTensor(atb::Tensor* outTensor, size_t nodeId, size_t outTensorId, const atb::TensorDesc& tensorDesc);
     void FreeInternalTensor(void* tensorDeviceData);
     void SetupInplaceOutputs(const nlohmann::json& inplaceOutputs, std::unordered_map<int, int>& inplaceIndices);
-    void SetupReshapeFunctions(const nlohmann::json& reshapeInputs, atb::SVector<atb::ReshapeFunc>& funcs, size_t tensorSize);
-    void SetupViewReshape(const nlohmann::json& reshapeInput, atb::ReshapeFunc& func);
-    void SetupUnsqueezeReshape(const nlohmann::json& reshapeInput, atb::ReshapeFunc& func);
-    void SetupSqueezeReshape(const nlohmann::json& reshapeInput, atb::ReshapeFunc& func);
     void SetupInferShape(const nlohmann::json& inferShape, atb::InferShapeFunc& inferShapeFunc);
 
 private:
