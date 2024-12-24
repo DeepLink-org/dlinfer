@@ -21,7 +21,6 @@ def CambDefaultMultinomialSamplingImpl_forward(
     offsets: torch.LongTensor,
     indices: torch.Tensor = None,
 ):
-    print("###### using camb mu")
     sampled_index = torch.multinomial(scores, num_samples=1, replacement=False)
     outputs = torch.gather(indices, dim=1, index=sampled_index)
     return outputs.view(-1)
