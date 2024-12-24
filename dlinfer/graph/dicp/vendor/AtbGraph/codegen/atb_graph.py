@@ -574,8 +574,12 @@ def parse_graph(
         if len(inplace_output_tensors) > 0:
             graph_node.has_inplace_output = True
             for output_name, input_name in inplace_output_tensors.items():
+                if output_name not in graph_node.outputs:
+                    graph_node.outputs.append(output_name)
+                    graph_node.internals.remove(output_name)
+
                 output_idx = graph_node.outputs.index(output_name)
-                input_idx = graph_ndoe.inputs.index(input_name)
+                input_idx = graph_node.inputs.index(input_name)
                 graph_node.add_inplace_output(output_idx, input_idx)
 
     ## run graph

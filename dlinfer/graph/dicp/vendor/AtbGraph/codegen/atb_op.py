@@ -279,7 +279,10 @@ class AtbOverrides:
 
         graph_output_names = []
         for x in outputs:
-            if isinstance(x, torch.fx.node.Node) and isinstance(x.meta["val"], list):
+            if isinstance(x, torch.fx.node.Node) and type(x.meta["val"]) in [
+                list,
+                tuple,
+            ]:
                 meta_val = x.meta["val"]
                 if len(meta_val) != 1:
                     node_name = str(x)
