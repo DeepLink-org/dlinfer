@@ -31,6 +31,13 @@ class AtbCompileJob(DeviceCompileJob):
     def _compile(self):
         try:
             if not hasattr(torch.classes.DICPModel, "DICPModel"):
+                if os.getenv("DICP_USE_TORCH_NPU_LAUNCHER", "0") != "0":
+                    os.environ["ATB_CONTEXT_HOSTTILING_RING"] = "1"
+                    os.environ["ATB_CONTEXT_HOSTTILING_SIZE"] = "102400"
+                    os.environ["ATB_WORKSPACE_MEM_ALLOC_GLOBAL"] = "1"
+                    os.environ["ATB_USE_TILING_COPY_STREAM"] = "0"
+                    os.environ["ATB_OPSRUNNER_KERNEL_CACHE_LOCAL_COUNT"] = "1"
+                    os.environ["ATB_OPSRUNNER_KERNEL_CACHE_GLOABL_COUNT"] = "16"
                 current_dir = os.path.dirname(__file__)
                 lib_path = os.path.join(current_dir, "codegen/libdicp_model.so")
                 torch.classes.load_library(lib_path)
