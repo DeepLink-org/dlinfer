@@ -562,11 +562,12 @@ class AtenToAtbTransformer(SingleOpTransformer):
     def dlinfer_fused_moe(
         self,
         hidden_states,
-        top_k,
-        topk_ids,
-        topk_weights,
         gate_up_weights,
         down_weights,
+        topk_weights,
+        topk_ids,
+        topk,
+        renormalize,
     ):
         hidden_states_dtype = hidden_states.node.meta["val"].dtype
         hidden_states_shape = hidden_states.node.meta["val"].shape
@@ -593,7 +594,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
             -1 if isinstance(x, torch.SymInt) else x for x in topk_ids_shape
         ]
         squeeze_shape = squeeze_shape[:-1]
-        for k in range(top_k):
+        for k in range(topk):
             expert_ids = self.get_proxy(atb_op.AclNnSlice, (topk_ids, 1, k, k + 1, 1))
             weights = self.get_proxy(atb_op.AclNnSlice, (topk_weights, 1, k, k + 1, 1))
 
