@@ -76,7 +76,7 @@ def add_rms_norm(
 def apply_rotary_pos_emb(
     query: Tensor,
     key: Tensor,
-    cos: Optional[Tensor],
+    cos: Optional[Tensor],#(total_seq_len, head_dim)
     sin: Optional[Tensor],
     position_ids: Optional[Tensor],
     cos_sin_cache: Optional[Tensor],
@@ -85,12 +85,10 @@ def apply_rotary_pos_emb(
     # [1, total_seq_len, q_head_num, head_dim]
     _, total_seq_len, _, head_dim = query.shape
     
-    sin_reshaped = sin.view(total_seq_len, head_dim)
-    cos_reshaped = cos.view(total_seq_len, head_dim)
     q_embed = tmo.apply_rotary(
         query,
-        sin_reshaped,
-        cos_reshaped,
+        sin,
+        cos,
         None,
         None,
         interleaved,
@@ -100,8 +98,8 @@ def apply_rotary_pos_emb(
     )
     k_embed = tmo.apply_rotary(
         key,
-        sin_reshaped,
-        cos_reshaped,
+        sin,
+        cos,
         None,
         None,
         interleaved,
