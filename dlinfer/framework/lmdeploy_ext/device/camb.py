@@ -21,6 +21,9 @@ def CambDefaultMultinomialSamplingImpl_forward(
     offsets: torch.LongTensor,
     indices: torch.Tensor = None,
 ):
+    r"""
+    Note.torch_mlu.multinomial dosen't support replacement=True, whereas lmdeploy set replacement=True by default.
+    """
     sampled_index = torch.multinomial(scores, num_samples=1, replacement=False)
     outputs = torch.gather(indices, dim=1, index=sampled_index)
     return outputs.view(-1)
@@ -33,6 +36,8 @@ def CambFusedLogitsProcessor__call__(
     scores: torch.FloatTensor,
 ):
     r"""
+    Note. torch_mlu.where dosen't support torch.bool,we need to convert it to torch.float16 first and then convert it to torch.bool.
+
     Args:
         all_ids (torch.LongTensor): All the token ids.
         guided_input_ids (torch.LongTensor): Guided prompt ids.
@@ -72,7 +77,7 @@ def CambFusedLogitsProcessor__call__(
     if stop_words is not None:
         stop_mask = sampling_inputs.stop_mask
         stop_mask = torch.where(
-            self.ignore_eos[:, None], stop_mask.to(torch.float32), 0
+            self.ignore_eos[:, None], stop_mask.to(torch.float16), 0
         ).to(torch.bool)
         scores = _process_bad_words_(scores, stop_words, stop_mask)
 
