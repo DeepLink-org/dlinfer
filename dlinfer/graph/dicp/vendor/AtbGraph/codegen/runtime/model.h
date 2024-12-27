@@ -93,6 +93,7 @@ private:
     void SetupInferShape(const nlohmann::json& inferShape, atb::InferShapeFunc& inferShapeFunc);
 
 private:
+    bool UseTorchNpuLauncher_;
     std::string modelId_;
     std::string modelPath_;
     Graph graph_;
