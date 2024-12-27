@@ -16,6 +16,8 @@ env:
   REPORT_DIR: "${HOME}/GitHub/ci_log/test_reports"
   TEST_LMDEPLOY_E2E_LOG_PATH: "${HOME}/Github/ci_log/logs"
   TEST_LMDEPLOY_E2E_MODEL_PATH: "${HOME}/Github/model"
+  TEST_LMDEPLOY_E2E_LOCAL_PIC1: "${HOME}/Github/pic/tiger.jpeg"
+  TEST_LMDEPLOY_E2E_LOCAL_PIC2: "${HOME}/Github/pic/human-pose.jpeg"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

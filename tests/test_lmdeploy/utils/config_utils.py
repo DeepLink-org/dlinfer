@@ -30,17 +30,23 @@ def get_torch_model_list(
 def get_config():
     model_path = os.getenv("TEST_LMDEPLOY_E2E_MODEL_PATH", None)
     log_path = os.getenv("TEST_LMDEPLOY_E2E_LOG_PATH", None)
+    local_pic1 = os.getenv("TEST_LMDEPLOY_E2E_LOCAL_PIC1", None)
+    local_pic2 = os.getenv("TEST_LMDEPLOY_E2E_LOCAL_PIC2", None)
     assert (model_path is not None) and (log_path is not None)
-    config_path = os.path.join(TEST_DIR + "/test_lmdeploy/e2e/config.yaml")
+    config_path = os.path.join(TEST_DIR, "test_lmdeploy/e2e/config.yaml")
     with open(config_path) as f:
         config = yaml.load(f.read(), Loader=yaml.SafeLoader)
     config['model_path'] = model_path
     config['log_path'] = log_path
+    if local_pic1:
+        config['LOCAL_PIC1'] = local_pic1
+    if local_pic2:
+        config['LOCAL_PIC2'] = local_pic2
     return config
 
 
 def get_case_config():
-    case_path = os.path.join(TEST_DIR + "/test_lmdeploy/e2e/prompt_case.yaml")
+    case_path = os.path.join(TEST_DIR, "test_lmdeploy/e2e/prompt_case.yaml")
     with open(case_path) as f:
         case_config = yaml.load(f.read(), Loader=yaml.SafeLoader)
     return case_config
