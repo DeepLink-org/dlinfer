@@ -541,12 +541,12 @@ def weight_quant_matmul(
 @register_custom_op("dlinfer::fused_moe", ["hidden_states"])
 def fused_moe(
     hidden_states: Tensor,
-    top_k: int,
-    topk_ids: Tensor,
-    topk_weights: Tensor,
     gate_up_weights: Tensor,
     down_weights: Tensor,
-    renormalize: bool=False,
+    topk_weights: Tensor,
+    topk_ids: Tensor,
+    topk: int,
+    renormalize: bool,
 ) -> Tensor:
     """
     Implement the Fused Mixture of Experts (MoE) model.
@@ -566,12 +566,12 @@ def fused_moe(
     """
     return vendor_ops_registry["fused_moe"](
         hidden_states,
-        top_k,
-        topk_ids,
-        topk_weights,
         gate_up_weights,
         down_weights,
-        renormalize,
+        topk_weights,
+        topk_ids,
+        topk,
+        renormalize
     )
 
 

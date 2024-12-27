@@ -408,16 +408,13 @@ def weight_quant_matmul(
 @register_ops(vendor_ops_registry)
 def fused_moe(
     hidden_states: Tensor,
-    top_k: int,
-    topk_ids: Tensor,
-    topk_weights: Tensor,
     gate_up_weights: Tensor,
     down_weights: Tensor,
-    renormalize: bool = False,
+    topk_weights: Tensor,
+    topk_ids: Tensor,
+    top_k: int,
+    renormalize: bool,
 ) -> Tensor:
-    if renormalize:
-        topk_weights = topk_weights / topk_weights.sum(dim=-1, keepdim=True) 
-            
     seq_length = hidden_states.size(0)
     moe_output = torch.zeros_like(hidden_states)
 
