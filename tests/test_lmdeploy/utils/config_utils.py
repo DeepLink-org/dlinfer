@@ -48,6 +48,7 @@ def get_config():
         config = yaml.load(f.read(), Loader=yaml.SafeLoader)
     config["model_path"] = model_path
     config["log_path"] = log_path
+    os.makedirs(log_path, exist_ok=True)
     if local_pic1:
         config["LOCAL_PIC1"] = local_pic1
     if local_pic2:
