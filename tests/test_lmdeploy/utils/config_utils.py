@@ -36,12 +36,12 @@ def get_config():
     config_path = os.path.join(TEST_DIR, "test_lmdeploy/e2e/config.yaml")
     with open(config_path) as f:
         config = yaml.load(f.read(), Loader=yaml.SafeLoader)
-    config['model_path'] = model_path
-    config['log_path'] = log_path
+    config["model_path"] = model_path
+    config["log_path"] = log_path
     if local_pic1:
-        config['LOCAL_PIC1'] = local_pic1
+        config["LOCAL_PIC1"] = local_pic1
     if local_pic2:
-        config['LOCAL_PIC2'] = local_pic2
+        config["LOCAL_PIC2"] = local_pic2
     return config
 
 
