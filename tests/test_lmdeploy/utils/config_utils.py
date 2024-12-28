@@ -27,11 +27,21 @@ def get_torch_model_list(
         return case_list
 
 
+def get_env_with_replace_home(env_str, home_str):
+    env_var = os.getenv(env_str)
+    if r"${HOME}" in env_var:
+        env_var = env_var.replace(r"${HOME}", home_str)
+    if "$HOME" in env_var:
+        env_var = env_var.replace("$HOME", home_str)
+    return env_var
+
+
 def get_config():
-    model_path = os.getenv("TEST_LMDEPLOY_E2E_MODEL_PATH", None)
-    log_path = os.getenv("TEST_LMDEPLOY_E2E_LOG_PATH", None)
-    local_pic1 = os.getenv("TEST_LMDEPLOY_E2E_LOCAL_PIC1", None)
-    local_pic2 = os.getenv("TEST_LMDEPLOY_E2E_LOCAL_PIC2", None)
+    home_dir = os.getenv("HOME")
+    model_path = get_env_with_replace_home("TEST_LMDEPLOY_E2E_MODEL_PATH", home_dir)
+    log_path = get_env_with_replace_home("TEST_LMDEPLOY_E2E_LOG_PATH", home_dir)
+    local_pic1 = get_env_with_replace_home("TEST_LMDEPLOY_E2E_LOCAL_PIC1", home_dir)
+    local_pic2 = get_env_with_replace_home("TEST_LMDEPLOY_E2E_LOCAL_PIC2", home_dir)
     assert (model_path is not None) and (log_path is not None)
     config_path = os.path.join(TEST_DIR, "test_lmdeploy/e2e/config.yaml")
     with open(config_path) as f:
