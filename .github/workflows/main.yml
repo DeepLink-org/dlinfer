@@ -93,8 +93,11 @@ jobs:
       - name: Generate reports
         if: always()
         run: |
+          if [ ! -d ${{ env.REPORT_DIR }} ]; then
+            mkdir -p ${{ env.REPORT_DIR }}
+          fi
           export date_today="$(date +'%Y%m%d-%H%M%S')"
-          export report_dir="$REPORT_DIR/$date_today"
+          export report_dir="${{ env.REPORT_DIR }}/$date_today"
           echo "Save report to $report_dir"
           cd ${{env.CI_PATH }}/tests
           mv allure-results $report_dir
