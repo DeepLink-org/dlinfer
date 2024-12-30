@@ -559,7 +559,7 @@ def fused_moe(
         gate_up_weights (Tensor): The gate_up_weights tensor used to upsample.
         down_weights (Tensor): The down_weights tensor used to downsample.
         renormalize (bool): A boolean flag to indicate whether to renormalize the output.
-        
+
     Returns:
         Tensor: The output tensor of the Fused Mixture of Experts (MoE) model.
 
@@ -571,7 +571,7 @@ def fused_moe(
         topk_weights,
         topk_ids,
         topk,
-        renormalize
+        renormalize,
     )
 
 
