@@ -563,7 +563,7 @@ def fused_moe(
         topk_weights,
         topk_ids,
         topk,
-        renormalize
+        renormalize,
     )
 
 
