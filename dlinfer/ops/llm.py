@@ -1,7 +1,7 @@
 # Copyright (c) 2024, DeepLink. All rights reserved.
 import torch
 from dlinfer.vendor import vendor_ops_registry
-from dlinfer.utils.type_annotation import Tensor, Optional, Sequence, Tuple
+from dlinfer.utils.type_annotation import Tensor, Optional, Sequence, Tuple, Union
 from dlinfer.graph.custom_op import register_custom_op
 
 
@@ -294,9 +294,11 @@ def paged_prefill_attention(
     block_table: Tensor,
     block_size: int,
     q_start_loc: Tensor,
+    cu_seq_lens_kv: Tensor,
     q_seq_len: Tensor,
     kv_seq_len: Tensor,
-    max_q_seq_len: Tensor,
+    max_q_seq_len: Union[int, Tensor],
+    max_kv_seq_len: int,
     num_q_heads: int,
     num_kv_heads: int,
     attn_mask: Sequence[Optional[Tensor]],
@@ -319,8 +321,11 @@ def paged_prefill_attention(
                               block in the key/value cache.
         block_size (int): The size of each block in the input sequence.
         q_start_loc (Tensor): The start location of each query sequence.
+        cu_seq_lens_kv (Tensor): The cumulative sequence lengths of the key/value sequences.
         q_seq_len (Tensor): The length of each query sequence.
         kv_seq_len (Tensor): The length of each key/value sequence.
+        max_q_seq_len (int): The maximum length of any query sequence.
+        max_kv_seq_len (int): The maximum length of any key/value sequence.
         num_q_heads (int): The number of query heads.
         num_kv_heads (int): The number of key/value heads.
         attn_mask (Sequence[Optional[Tensor]]): A sequence of optional attention masks, one for each batch.
@@ -343,9 +348,11 @@ def paged_prefill_attention(
         block_table,
         block_size,
         q_start_loc,
+        cu_seq_lens_kv,
         q_seq_len,
         kv_seq_len,
         max_q_seq_len,
+        max_kv_seq_len,
         num_q_heads,
         num_kv_heads,
         attn_mask,
@@ -551,7 +558,8 @@ def fused_moe(
         topk_weights (Tensor): The topk_weights tensor corresponds to the weight of experts in topk_ids.
         gate_up_weights (Tensor): The gate_up_weights tensor used to upsample.
         down_weights (Tensor): The down_weights tensor used to downsample.
-
+        renormalize (bool): A boolean flag to indicate whether to renormalize the output.
+        
     Returns:
         Tensor: The output tensor of the Fused Mixture of Experts (MoE) model.
 
