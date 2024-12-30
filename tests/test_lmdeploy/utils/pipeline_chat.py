@@ -171,11 +171,11 @@ def assert_pipeline_chat_log(
     return log_results
 
 
-PIC1 = (
+REMOTE_PIC1 = (
     "https://raw.githubusercontent.com/"
     + "open-mmlab/mmdeploy/main/tests/data/tiger.jpeg"
 )
-PIC2 = (
+REMOTE_PIC2 = (
     "https://raw.githubusercontent.com/"
     + "open-mmlab/mmdeploy/main/demo/resources/human-pose.jpg"
 )
@@ -185,6 +185,8 @@ def run_pipeline_vl_chat_test(config, model_case, device_type, eager_mode=True):
     log_path = config.get("log_path")
     tp = get_tp_num(config, model_case)
     model_path = config.get("model_path")
+    PIC1 = config.get("LOCAL_PIC1", REMOTE_PIC1)
+    PIC2 = config.get("LOCAL_PIC2", REMOTE_PIC2)
     hf_path = model_path + "/" + model_case
     backend_config = PytorchEngineConfig(
         tp=tp, session_len=8192, device_type=device_type, eager_mode=eager_mode

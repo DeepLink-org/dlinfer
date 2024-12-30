@@ -1,23 +1,23 @@
-model_path: /data2/share_data
-log_path: /data2/wugeshui/GitHub/ci_log/logs
-
 tp_config:
     Mixtral-8x7B-Instruct-v0.1: 2
-    InternVL2-26B: 2
+    # InternVL2-26B: 2
     cogvlm2-llama3-chat-19B: 2
 
 graph_config:
-    Qwen2-7B-Instruct: True
+    internlm2-chat-7b: True
     Meta-Llama-3-8B-Instruct: True
+    Mixtral-8x7B-Instruct-v0.1: True
+    Qwen2.5-7B-Instruct: True
 
 pytorch_chat_model:
     - llama_model_data/Meta-Llama-3-8B-Instruct
     - mixtral_model_data/Mixtral-8x7B-Instruct-v0.1
-    - qwen_model_data/Qwen2-7B-Instruct
-    - qwen_model_data/Qwen-14B-Chat
+    - qwen_model_data/Qwen2.5-7B-Instruct
+    # - qwen_model_data/Qwen-14B-Chat
 
 pytorch_vl_model:
     - internvl_model_data/InternVL2-26B
     - internvl_model_data/InternVL2-2B
-    - cogvlm_model_data/cogvlm-chat
-    - cogvlm_model_data/cogvlm2-llama3-chat-19B
+    # - cogvlm_model_data/cogvlm-chat
+    # - cogvlm_model_data/cogvlm2-llama3-chat-19B
+    - qwen_model_data/Qwen2-VL-7B-Instruct
