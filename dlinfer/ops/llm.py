@@ -294,9 +294,9 @@ def paged_prefill_attention(
     block_table: Tensor,
     block_size: int,
     q_start_loc: Tensor,
-    cu_seq_lens_kv: Tensor,
     q_seq_len: Tensor,
     kv_seq_len: Tensor,
+    cu_seq_lens_kv: Tensor,
     max_q_seq_len: Union[int, Tensor],
     max_kv_seq_len: int,
     num_q_heads: int,
@@ -321,9 +321,9 @@ def paged_prefill_attention(
                               block in the key/value cache.
         block_size (int): The size of each block in the input sequence.
         q_start_loc (Tensor): The start location of each query sequence.
-        cu_seq_lens_kv (Tensor): The cumulative sequence lengths of the key/value sequences.
         q_seq_len (Tensor): The length of each query sequence.
         kv_seq_len (Tensor): The length of each key/value sequence.
+        cu_seq_lens_kv (Tensor): The cumulative sequence lengths of the key/value sequences.
         max_q_seq_len (int): The maximum length of any query sequence.
         max_kv_seq_len (int): The maximum length of any key/value sequence.
         num_q_heads (int): The number of query heads.
@@ -348,9 +348,9 @@ def paged_prefill_attention(
         block_table,
         block_size,
         q_start_loc,
-        cu_seq_lens_kv,
         q_seq_len,
         kv_seq_len,
+        cu_seq_lens_kv,        
         max_q_seq_len,
         max_kv_seq_len,
         num_q_heads,
