@@ -443,9 +443,8 @@ def fused_moe(
         [weight for weight in gate_up_weights],
         bias=None,
         group_list=group_list,
-        split_item=0,
-    )
-    up_proj = torch.cat(up_proj)
+        split_item=2,
+    )[0]
 
     gate_cache = silu_and_mul(up_proj, -1)
 
@@ -455,9 +454,8 @@ def fused_moe(
         [weight for weight in down_weights],
         bias=None,
         group_list=group_list,
-        split_item=0,
-    )
-    down_proj = torch.cat(down_proj)
+        split_item=2,
+    )[0]
 
     skip = torch.zeros_like(hidden_states)
     bias = torch.zeros_like(down_proj)

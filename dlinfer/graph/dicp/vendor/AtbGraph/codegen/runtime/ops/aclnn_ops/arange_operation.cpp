@@ -10,8 +10,8 @@ namespace dicp {
 const int NUM0 = 0;
 const int NUM1 = 1;
 
-AclNnArangeOperation::AclNnArangeOperation(const std::string& name, int64_t start, int64_t end, int64_t step)
-    : AclNnOperation(name), start_(start), end_(end), step_(step) {
+AclNnArangeOperation::AclNnArangeOperation(const std::string& name, int64_t start, int64_t end, int64_t step, aclDataType dtype)
+    : AclNnOperation(name), start_(start), end_(end), step_(step), dtype_(dtype) {
     aclStart_ = aclCreateScalar(&start_, aclDataType::ACL_INT64);
     aclEnd_ = aclCreateScalar(&end_, aclDataType::ACL_INT64);
     aclStep_ = aclCreateScalar(&step_, aclDataType::ACL_INT64);
@@ -35,7 +35,7 @@ atb::Status AclNnArangeOperation::InferShape(const atb::SVector<atb::TensorDesc>
     DICP_LOG(INFO) << opName_ << " infer shape start";
     outTensorDescs.at(0).format = aclFormat::ACL_FORMAT_ND;
     outTensorDescs.at(0).shape.dimNum = NUM1;
-    outTensorDescs.at(0).dtype = aclDataType::ACL_INT64;
+    outTensorDescs.at(0).dtype = dtype_;
     outTensorDescs.at(0).shape.dims[0] = sizeArange_;
     DICP_LOG(INFO) << opName_ << " infer shape end";
     return 0;
@@ -66,6 +66,7 @@ atb::Operation* AclNnArangeOperationCreate(const nlohmann::json& paramJson) {
     int64_t start = 0;
     int64_t end = 0;
     int64_t step = 0;
+    aclDataType dataType = aclDataType::ACL_DT_UNDEFINED;
     if (paramJson.contains("name")) {
         opName = paramJson["name"].get<std::string>();
     }
@@ -78,8 +79,11 @@ atb::Operation* AclNnArangeOperationCreate(const nlohmann::json& paramJson) {
     if (paramJson.contains("step")) {
         step = paramJson["step"].get<int64_t>();
     }
-    DICP_LOG(INFO) << "AclNnArangeOperation: name: " << opName << " start:" << start << " end:" << end << " step:" << step;
-    atb::Operation* op = new AclNnArangeOperation(opName, start, end, step);
+    if (paramJson.contains("outTensorType")) {
+        dataType = static_cast<aclDataType>(paramJson["outTensorType"].get<int32_t>());
+    }
+    DICP_LOG(INFO) << "AclNnArangeOperation: name: " << opName << " start:" << start << " end:" << end << " step:" << step << "datatype: " << dataType;
+    atb::Operation* op = new AclNnArangeOperation(opName, start, end, step, dataType);
     return op;
 }
 
