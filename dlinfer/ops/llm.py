@@ -1,7 +1,7 @@
 # Copyright (c) 2024, DeepLink. All rights reserved.
 import torch
 from dlinfer.vendor import vendor_ops_registry
-from dlinfer.utils.type_annotation import Tensor, Optional, Sequence, Tuple, Union
+from dlinfer.utils.type_annotation import Tensor, Optional, Sequence, Tuple
 from dlinfer.graph.custom_op import register_custom_op
 
 
@@ -297,7 +297,7 @@ def paged_prefill_attention(
     q_seq_len: Tensor,
     kv_seq_len: Tensor,
     cu_seq_lens_kv: Tensor,
-    max_q_seq_len: Union[int, Tensor],
+    max_q_seq_len: int,
     max_kv_seq_len: int,
     num_q_heads: int,
     num_kv_heads: int,
