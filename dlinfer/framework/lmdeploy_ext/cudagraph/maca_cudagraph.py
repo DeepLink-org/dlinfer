@@ -43,7 +43,7 @@ def MacaCudaGraphMixin_make_buffers_cudagraph(
         max_batches + 1, dtype=torch.int32, device=device
     )
 
-    input_buffers["kv_start_indices"] = torch.empty(
+    input_buffers["kv_start_indices"] = -torch.ones(
         (max_batches, 1), dtype=torch.int64, device=device
     )
     return input_buffers
@@ -60,7 +60,6 @@ def MacaCudaGraphMixin_fill_buffers_cudagraph(
     **kwargs
 ) -> Dict[str, Tensor]:
     """fill cudagraph buffers from forward inputs."""
-    is_decoding = graph_meta.is_decoding
     block_offsets: Tensor = attn_metadata.block_offsets
     q_start_loc: Tensor = attn_metadata.q_start_loc
     q_seqlens: Tensor = attn_metadata.q_seqlens
@@ -92,11 +91,6 @@ def MacaCudaGraphMixin_fill_buffers_cudagraph(
     # create inputs
     new_batch_size = next_power_of_2(batch_size)
 
-    # init ended batch buffer
-    if batch_size != new_batch_size:
-        input_buffers["kv_seqlens"][batch_size:new_batch_size] = -1
-        input_buffers["kv_start_indices"][batch_size:new_batch_size] = -1
-
     attn_metadata.block_offsets = input_buffers["block_offsets"][:new_batch_size]
     attn_metadata.q_start_loc = input_buffers["q_start_loc"][: new_batch_size + 1]
     attn_metadata.q_seqlens = input_buffers["q_seqlens"][:new_batch_size]
@@ -108,20 +102,11 @@ def MacaCudaGraphMixin_fill_buffers_cudagraph(
         attn_metadata=attn_metadata,
     )
 
-    if is_decoding:
-        new_inputs["input_ids"] = input_buffers["input_ids"][:, :new_batch_size]
-        new_inputs["position_ids"] = input_buffers["position_ids"][:, :new_batch_size]
-    else:
-        new_inputs["input_ids"] = input_buffers["input_ids"]
-        new_inputs["position_ids"] = input_buffers["position_ids"]
+    new_inputs["input_ids"] = input_buffers["input_ids"][:, :new_batch_size]
+    new_inputs["position_ids"] = input_buffers["position_ids"][:, :new_batch_size]
 
     if inputs_embeds is not None:
-        if is_decoding:
-            new_inputs["inputs_embeds"] = input_buffers["inputs_embeds"][
-                :, :new_batch_size
-            ]
-        else:
-            new_inputs["inputs_embeds"] = input_buffers["inputs_embeds"]
+        new_inputs["inputs_embeds"] = input_buffers["inputs_embeds"][:, :new_batch_size]
 
     new_inputs.update(kwargs)
 
