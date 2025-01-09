@@ -6,7 +6,7 @@ from dlinfer.vendor import vendor_ops_registry
 from dlinfer.utils.registry import register_ops
 from dlinfer.utils.type_annotation import Tensor, Optional, Sequence, Tuple
 
-__all__ =[
+__all__ = [
     "add_rms_norm",
     "apply_rotary_pos_emb",
     "prefill_attention",
@@ -23,6 +23,7 @@ __all__ =[
 @register_ops(vendor_ops_registry)
 def silu_and_mul(input_tensor: Tensor, dim: int) -> Tensor:
     return tmo.active(input_tensor, act_mode="silu", is_gated=True)
+
 
 @register_ops(vendor_ops_registry)
 def rms_norm(
@@ -48,6 +49,7 @@ def rms_norm(
     )
     return normed_hidden_states
 
+
 @register_ops(vendor_ops_registry)
 def add_rms_norm(
     hidden_states: Tensor,
@@ -72,11 +74,12 @@ def add_rms_norm(
     )
     return normed_hidden_states, added_hidden_states
 
+
 @register_ops(vendor_ops_registry)
 def apply_rotary_pos_emb(
     query: Tensor,
     key: Tensor,
-    cos: Optional[Tensor],#(total_seq_len, head_dim)
+    cos: Optional[Tensor],  # (total_seq_len, head_dim)
     sin: Optional[Tensor],
     position_ids: Optional[Tensor],
     cos_sin_cache: Optional[Tensor],
@@ -84,7 +87,7 @@ def apply_rotary_pos_emb(
     interleaved = False  # False for fold rope, True for cross rope
     # [1, total_seq_len, q_head_num, head_dim]
     _, total_seq_len, _, head_dim = query.shape
-    
+
     q_embed = tmo.apply_rotary(
         query,
         sin,
@@ -134,6 +137,7 @@ def fill_kv_cache(
 
     return key_cache, value_cache
 
+
 @register_ops(vendor_ops_registry)
 def prefill_attention(
     query: Tensor,
@@ -181,6 +185,7 @@ def prefill_attention(
     )
 
     return out
+
 
 @register_ops(vendor_ops_registry)
 def paged_decode_attention(
@@ -241,6 +246,7 @@ def paged_decode_attention(
 
     return attn_output
 
+
 @register_ops(vendor_ops_registry)
 def paged_prefill_attention(
     query: Tensor,
@@ -251,9 +257,9 @@ def paged_prefill_attention(
     block_table: Tensor,
     block_size: int,
     q_start_loc: Tensor,
-    cu_seq_lens_kv: Tensor,
     q_seq_len: Tensor,
     kv_seq_len: Tensor,
+    cu_seq_lens_kv: Tensor,
     max_q_seq_len: int,
     max_kv_seq_len: int,
     num_q_heads: int,
@@ -287,10 +293,12 @@ def paged_prefill_attention(
     )
     return output
 
+
 @register_ops(vendor_ops_registry)
 def moe_gating_topk_softmax(router_logits: Tensor, topk: int) -> Tuple[Tensor, Tensor]:
     routing_weights, selected_experts = tmo.moe_softmax_topk(router_logits, topk)
     return routing_weights, selected_experts
+
 
 @register_ops(vendor_ops_registry)
 def fused_moe(
@@ -300,11 +308,11 @@ def fused_moe(
     topk_weights: Tensor,
     gate_up_weights: Tensor,
     down_weights: Tensor,
-    renormalize: bool=False,
+    renormalize: bool = False,
 ) -> Tensor:
     num_experts = gate_up_weights.shape[0]
     if renormalize:
-        topk_weights = topk_weights / topk_weights.sum(dim=-1, keepdim=True) 
+        topk_weights = topk_weights / topk_weights.sum(dim=-1, keepdim=True)
     start_expert_id = 0
     (
         gather_expand_idx,
@@ -358,7 +366,8 @@ def fused_moe(
         bias=None,
     )
     return out
-    
+
+
 @register_ops(vendor_ops_registry)
 def linear(
     x: Tensor,
@@ -368,9 +377,11 @@ def linear(
 ) -> Tensor:
     if x.dim() == 2:
         if all_reduce:
-            cncl_comm = torch.distributed.distributed_c10d._world.default_pg._get_backend(
-                x.device
-            ).get_cncl_comm(x.device.index)
+            cncl_comm = (
+                torch.distributed.distributed_c10d._world.default_pg._get_backend(
+                    x.device
+                ).get_cncl_comm(x.device.index)
+            )
             out = tmo.matmul_allreduce(cncl_comm, x, weight, bias)
         else:
             out = tmo.matmul(x, weight, bias)
@@ -378,10 +389,14 @@ def linear(
         bsz, seq_len, _ = x.size()
         x_reshaped = x.view(bsz * seq_len, -1)
         if all_reduce:
-            cncl_comm = torch.distributed.distributed_c10d._world.default_pg._get_backend(
-                x.device
-            ).get_cncl_comm(x.device.index)
-            out = tmo.matmul_allreduce(cncl_comm, x_reshaped, weight, bias).view(bsz, seq_len, -1)
+            cncl_comm = (
+                torch.distributed.distributed_c10d._world.default_pg._get_backend(
+                    x.device
+                ).get_cncl_comm(x.device.index)
+            )
+            out = tmo.matmul_allreduce(cncl_comm, x_reshaped, weight, bias).view(
+                bsz, seq_len, -1
+            )
         else:
-            out = tmo.matmul(x_reshaped, weight, bias).view(bsz, seq_len, -1) 
+            out = tmo.matmul(x_reshaped, weight, bias).view(bsz, seq_len, -1)
     return out
