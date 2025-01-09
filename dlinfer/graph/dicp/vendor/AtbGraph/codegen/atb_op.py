@@ -169,16 +169,27 @@ class AtbOverrides:
         return op
 
     def Muls(name, x, y, dtype="FLOAT"):
-        op = Operation(name, "AclNnMulsOperation")
-        param = infer_param.MulsParam()
-        param.name = name
-        param.value = float(y)
-        param.dtype = dtype
+        op = Operation(name, "ElewiseOperation")
+        param = infer_param.ElewiseParam()
+        param.elewiseType = infer_param.ElewiseType.ELEWISE_MULS
+        param.mulsParam.varAttr = y
 
         op.set_input([x])
         op.set_param(param)
         op.set_output([name])
         return op
+
+    # def Muls(name, x, y, dtype="FLOAT"):
+    #     op = Operation(name, "AclNnMulsOperation")
+    #     param = infer_param.MulsParam()
+    #     param.name = name
+    #     param.value = float(y)
+    #     param.dtype = dtype
+
+    #     op.set_input([x])
+    #     op.set_param(param)
+    #     op.set_output([name])
+    #     return op
 
     def PowTensorTensor(name, x, y):
         op = Operation(name, "AclNnPowTensorTensorOperation")
@@ -232,13 +243,14 @@ class AtbOverrides:
         op.set_output([name])
         return op
 
-    def Arange(name, start, end, step):
+    def Arange(name, start, end, step, dtype):
         op = Operation(name, "AclNnArangeOperation")
         param = infer_param.ArangeParam()
         param.name = name
         param.start = start
         param.end = end
         param.step = step
+        param.outTensorType = get_acl_dtype(dtype)
 
         op.set_param(param)
         op.set_output([name])
@@ -335,7 +347,7 @@ class AtbOverrides:
         return op
 
     def SelfAttentionPAEncoder(
-        name, query, key, value, seqlen, mask, q_head_num, kv_head_num
+        name, query, key, value, seqlen, mask, q_head_num, kv_head_num, scale
     ):
         op = Operation(name, "SelfAttentionOperation")
         param = infer_param.SelfAttentionParam()
@@ -345,7 +357,7 @@ class AtbOverrides:
         param.clampType = infer_param.SelfAttentionClampType.CLAMP_TYPE_UNDEFINED
         param.headNum = q_head_num
         param.kvHeadNum = kv_head_num
-        param.qkScale = 1.0 / math.sqrt(128)
+        param.qkScale = scale
         param.isTriuMask = 1
 
         if mask is not None:
@@ -804,6 +816,168 @@ class AtbOverrides:
         param.axis = dim
 
         op.set_input([x])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def AclNnBincount(name, x, weights, minlength):
+        op = Operation(name, "AclNnBincountOperation")
+        param = infer_param.AclNnBincountParam()
+        param.name = name
+        param.minlength = minlength
+
+        op.set_input([x, weights])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def AclNnCumsum(name, x, dim, dtype):
+        op = Operation(name, "AclNnCumsumOperation")
+        param = infer_param.AclNnCumsumParam()
+        param.name = name
+        param.dim = dim
+        param.outTensorType = get_acl_dtype(dtype)
+
+        op.set_input([x])
+        op.set_output(param)
+        return op
+
+    def Zeros(name, size, dtype):
+        op = Operation(name, "ZerosOperation")
+        param = infer_param.ZerosParam()
+        param.name = name
+        param.size = size
+        param.outTensorType = get_acl_dtype(dtype)
+
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def ZerosLike(name, x):
+        op = Operation(name, "ZerosLikeOperation")
+        param = infer_param.ZerosLikeParam()
+        param.name = name
+
+        op.set_input([x])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def PrepareMoe(name, x, num_experts):
+        op = Operation(name, "PrepareMoeOperation")
+        param = infer_param.PrepareMoeParam()
+        param.name = name
+        param.numExperts = num_experts
+
+        op.set_input([x])
+        op.set_param(param)
+        op.set_output([f"{name}__0", f"{name}__1", f"{name}__2", f"{name}__3"])
+        return op
+
+    def MoeInitRouting(name, x, row_ids, topk_ids, active_num, num_experts):
+        op = Operation(name, "AclNnMoeInitRoutingOperation")
+        param = infer_param.MoeInitRoutingParam()
+        param.name = name
+        param.activeNum = active_num
+        param.numExperts = num_experts
+
+        op.set_input([x, row_ids, topk_ids])
+        op.set_param(param)
+        op.set_output([f"{name}__0", f"{name}__1", f"{name}__2"])
+        return op
+
+    def MoeTokenPermute(name, x, topk_ids):
+        op = Operation(name, "MoeTokenPermuteOperation")
+        param = infer_param.MoeToenPermuteParam()
+        param.name = name
+
+        op.set_input([x, topk_ids])
+        op.set_param(param)
+        op.set_output([f"{name}__0", f"{name}__1"])
+        return op
+
+    def AclNnGroupedMatmul(name, x, weights, group, split_item):
+        op = Operation(name, "AclNnGroupedMatmulOperation")
+        param = infer_param.AclNnGroupedMatmulParam()
+        param.name = name
+        param.splitItem = split_item
+        # param.groupListOptional = group_list
+
+        op.set_input([x, weights, group])
+        op.set_param(param)
+        op.set_output([f"{name}__0"])
+        return op
+
+    def MoeFinalizeRouting(
+        name,
+        down_proj,
+        skip1,
+        skip2,
+        bias,
+        topk_weights,
+        expanded_row_idx,
+        export_for_source_row,
+    ):
+        op = Operation(name, "AclNnMoeFinalizeRoutingOperation")
+        param = infer_param.MoeFinalizeRoutingParam()
+        param.name = name
+
+        op.set_input(
+            [
+                down_proj,
+                skip1,
+                skip2,
+                bias,
+                topk_weights,
+                expanded_row_idx,
+                export_for_source_row,
+            ]
+        )
+        op.set_param(param)
+        op.set_output([f"{name}__0"])
+        return op
+
+    def MoeTokenUnpermute(name, permuted_tokens, sorted_indices, probs):
+        op = Operation(name, "MoeTokenUnpermuteOperation")
+        param = infer_param.MoeTokenUnpermuteParam()
+        param.name = name
+
+        op.set_input([permuted_tokens, sorted_indices, probs])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def Renormalize(name, x, dim):
+        op = Operation(name, "RenormalizeOperation")
+        param = infer_param.RenormalizeParam()
+        param.name = name
+        param.dim = dim
+
+        op.set_input([x])
+        op.set_param(param)
+        op.set_output([f"{name}__0", f"{name}__1"])
+        return op
+
+    def FusedMoe(
+        name,
+        hidden_states,
+        gate_up_weights,
+        down_weights,
+        topk_weights,
+        topk_ids,
+        topk,
+        renormalize,
+        num_experts,
+    ):
+        op = Operation("CustomFusedMoeOperation")
+        param = infer_param.FusedMoeParam()
+        param.topk = topk
+        param.renormalize = str(renormalize).lower()
+        param.numExperts = num_experts
+
+        op.set_input(
+            [hidden_states, gate_up_weights, down_weights, topk_weights, topk_ids]
+        )
         op.set_param(param)
         op.set_output([name])
         return op

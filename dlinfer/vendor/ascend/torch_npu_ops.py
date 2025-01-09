@@ -445,9 +445,8 @@ def fused_moe(
         [weight for weight in gate_up_weights],
         bias=None,
         group_list=group_list,
-        split_item=0,
-    )
-    up_proj = torch.cat(up_proj)
+        split_item=2,
+    )[0]
 
     gate_cache = silu_and_mul(up_proj, -1)
 
@@ -457,12 +456,12 @@ def fused_moe(
         [weight for weight in down_weights],
         bias=None,
         group_list=group_list,
-        split_item=0,
-    )
-    down_proj = torch.cat(down_proj)
+        split_item=2,
+    )[0]
 
     skip = torch.zeros_like(hidden_states)
     bias = torch.zeros_like(down_proj)
+    export_for_source_row = torch.zeros_like(topk_ids)
     moe_output = torch.ops.npu.npu_moe_finalize_routing(
         down_proj,
         skip1=skip,
@@ -470,9 +469,7 @@ def fused_moe(
         bias=bias,
         scales=topk_weights.to(hidden_states.dtype),
         expanded_src_to_dst_row=expanded_row_idx,
-        export_for_source_row=torch.zeros(
-            (seq_length, topk), dtype=torch.int32, device=hidden_states.device
-        ),
+        export_for_source_row=export_for_source_row,
     )
 
     return moe_output

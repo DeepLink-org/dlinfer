@@ -424,6 +424,7 @@ class ArangeParam:
     start: int = 0
     end: int = 0
     step: int = 0
+    outTensorType: AclDataType = AclDataType.ACL_DT_UNDEFINED
 
 
 class ParallelType(IntEnum):
@@ -581,6 +582,82 @@ class ReduceParam:
     name: str = ""
     reduceType: ReduceType = ReduceType.REDUCE_UNDEFINED
     axis: list[int] = field(default_factory=list)
+
+
+@dataclass
+class AclNnBincountParam:
+    name: str = ""
+    minlength: int = 0
+
+
+@dataclass
+class AclNnCumsumParam:
+    name: str = ""
+    dim: int = 0
+    outTensorType: AclDataType = AclDataType.ACL_DT_UNDEFINED
+
+
+@dataclass
+class ZerosParam:
+    name: str = ""
+    size: list[int] = field(default_factory=list)
+    outTensorType: AclDataType = AclDataType.ACL_DT_UNDEFINED
+
+
+@dataclass
+class ZerosLikeParam:
+    name: str = ""
+
+
+@dataclass
+class PrepareMoeParam:
+    name: str = ""
+    numExperts: int = 0
+
+
+@dataclass
+class MoeInitRoutingParam:
+    name: str = ""
+    activeNum: int = 10240
+    numExperts: int = 0
+
+
+@dataclass
+class MoeToenPermuteParam:
+    name: str = ""
+
+
+@dataclass
+class AclNnGroupedMatmulParam:
+    name: str = ""
+    splitItem: int = 0
+    groupType: int = 0
+    # groupListType: int = 0
+    # actType: int = 0
+
+
+@dataclass
+class MoeFinalizeRoutingParam:
+    name: str = ""
+
+
+@dataclass
+class MoeTokenUnpermuteParam:
+    name: str = ""
+
+
+@dataclass
+class RenormalizeParam:
+    name: str = ""
+    dim: int = 0
+
+
+@dataclass
+class FusedMoeParam:
+    name: str = ""
+    topk: int = 0
+    renormalize: str = "false"
+    numExperts: int = 0
 
 
 def custom_asdict_factory(data):

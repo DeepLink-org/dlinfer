@@ -209,8 +209,8 @@ class Arange(Operator):
     def __init__(self):
         super().__init__("Arange")
 
-    def infer_result(self, start, end, step):
-        return torch.ops.aten.arange.start_step(start, end, step, dtype=torch.int64)
+    def infer_result(self, start, end, step, dtype):
+        return torch.ops.aten.arange.start_step(start, end, step, dtype=dtype)
 
 
 class Graph(Operator):
@@ -276,7 +276,9 @@ class SelfAttentionPAEncoder(Operator):
     def __init__(self):
         super().__init__("SelfAttentionPAEncoder")
 
-    def infer_result(self, query, key, value, seqlen, mask, q_head_num, kv_head_num):
+    def infer_result(
+        self, query, key, value, seqlen, mask, q_head_num, kv_head_num, scale
+    ):
         return query
 
 
@@ -510,3 +512,139 @@ class ReduceMin(Operator):
 
     def infer_result(self, x, dim):
         return x.amin(dim)
+
+
+class AclNnBincount(Operator):
+    def __init__(self):
+        super().__init__("AclNnBincount")
+
+    def infer_result(self, x, weights, minlength):
+        return torch.bincount(x, weights=weights, minlength=minlength)
+
+
+class AclNnCumsum(Operator):
+    def __init__(self):
+        super().__init__("AclNnCumsum")
+
+    def infer_result(self, x, dim, dtype):
+        return torch.cumsum(x, dim, dtype=dtype)
+
+
+class Zeros(Operator):
+    def __init__(self):
+        super().__init__("Zeros")
+
+    def infer_result(self, size, dtype):
+        return torch.ops.aten.zeros.default(size, dtype=dtype)
+
+
+class ZerosLike(Operator):
+    def __init__(self):
+        super().__init__("ZerosLike")
+
+    def infer_result(self, x):
+        return x
+
+
+class PrepareMoe(Operator):
+    def __init__(self):
+        super().__init__("PrepareMoe")
+
+    def infer_result(self, x, num_experts):
+        return (
+            x.transpose(0, 1).to(torch.int32),
+            x.to(torch.int32),
+            # x.flatten().to(torch.int64),
+            # x.flatten().to(torch.int64),
+            torch.arange(0, 64, 1, dtype=torch.int32),
+            torch.arange(0, 64, 1, dtype=torch.int32),
+        )
+
+
+class MoeInitRouting(Operator):
+    def __init__(self):
+        super().__init__("MoeInitRouting")
+
+    def infer_result(self, x, row_ids, topk_ids, active_num, num_experts):
+        return (
+            x.repeat_interleave(topk_ids.size(1), dim=0),
+            row_ids.flatten(),
+            topk_ids.flatten(),
+        )
+
+
+class MoeTokenPermute(Operator):
+    def __init__(self):
+        super().__init__("MoeTokenPermute")
+
+    def infer_result(self, x, topk_ids):
+        return (
+            x.repeat_interleave(topk_ids.size(1), dim=0),
+            topk_ids.flatten().to(torch.int32),
+        )
+
+
+class AclNnGroupedMatmul(Operator):
+    def __init__(self):
+        super().__init__("AclNnGroupedMatmul")
+
+    def infer_result(self, x, weights, group, split_item=2):
+        return x.new_empty(x.size(0), weights.size(1))
+
+
+class MoeFinalizeRouting(Operator):
+    def __init__(self):
+        super().__init__("MoeFinalizeRouting")
+
+    def infer_result(
+        self,
+        down_proj,
+        skip1,
+        skip2,
+        bias,
+        topk_weights,
+        expanded_row_idx,
+        export_for_source_row,
+    ):
+        return skip1
+
+
+class MoeTokenUnpermute(Operator):
+    def __init__(self):
+        super().__init__("MoeTokenUnpermute")
+
+    def infer_result(
+        self,
+        permuted_tokens,
+        sorted_indices,
+        probs,
+    ):
+        tokens_num = probs.size(0)
+        hidden_size = permuted_tokens.size(1)
+        return permuted_tokens.new_empty((tokens_num, hidden_size))
+
+
+class Renormalize(Operator):
+    def __init__(self):
+        super().__init__("Renormalize")
+
+    def infer_result(self, x, dim):
+        return x.sum(dim), x
+
+
+class FusedMoe(Operator):
+    def __init__(self):
+        super().__init__("FusedMoe")
+
+    def infer_result(
+        self,
+        hidden_states,
+        gate_up_weights,
+        down_weights,
+        topk_weights,
+        topk_ids,
+        topk,
+        renormalize,
+        num_experts,
+    ):
+        return torch.empty_like(hidden_states)
