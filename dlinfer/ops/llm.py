@@ -350,7 +350,7 @@ def paged_prefill_attention(
         q_start_loc,
         q_seq_len,
         kv_seq_len,
-        cu_seq_lens_kv,        
+        cu_seq_lens_kv,
         max_q_seq_len,
         max_kv_seq_len,
         num_q_heads,
