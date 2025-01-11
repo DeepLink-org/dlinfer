@@ -257,7 +257,7 @@ def paged_prefill_attention(
     q_start_loc: Tensor,
     q_seq_len: Tensor,
     kv_seq_len: Tensor,
-    cu_seq_lens_kv: Tensor,    
+    cu_seq_lens_kv: Tensor,
     max_q_seq_len: int,
     max_kv_seq_len: int,
     num_q_heads: int,
