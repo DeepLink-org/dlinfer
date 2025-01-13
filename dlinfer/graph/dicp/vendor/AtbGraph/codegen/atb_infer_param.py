@@ -610,20 +610,26 @@ class ZerosLikeParam:
 
 
 @dataclass
+class RenormalizeParam:
+    name: str = ""
+    dim: int = 0
+
+
+@dataclass
 class PrepareMoeParam:
     name: str = ""
     numExperts: int = 0
 
 
 @dataclass
-class MoeInitRoutingParam:
+class AclNnMoeInitRoutingParam:
     name: str = ""
     activeNum: int = 10240
     numExperts: int = 0
 
 
 @dataclass
-class MoeToenPermuteParam:
+class AclNnMoeToenPermuteParam:
     name: str = ""
 
 
@@ -631,33 +637,16 @@ class MoeToenPermuteParam:
 class AclNnGroupedMatmulParam:
     name: str = ""
     splitItem: int = 0
-    groupType: int = 0
-    # groupListType: int = 0
-    # actType: int = 0
 
 
 @dataclass
-class MoeFinalizeRoutingParam:
+class AclNnMoeFinalizeRoutingParam:
     name: str = ""
 
 
 @dataclass
-class MoeTokenUnpermuteParam:
+class AclNnMoeTokenUnpermuteParam:
     name: str = ""
-
-
-@dataclass
-class RenormalizeParam:
-    name: str = ""
-    dim: int = 0
-
-
-@dataclass
-class FusedMoeParam:
-    name: str = ""
-    topk: int = 0
-    renormalize: str = "false"
-    numExperts: int = 0
 
 
 def custom_asdict_factory(data):

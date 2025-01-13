@@ -240,12 +240,12 @@ class AtenToAtbTransformer(SingleOpTransformer):
         binary_ops = {
             (torch.ops.aten.add.Tensor, "add"): (
                 atb_op.Add,
-                atb_op.Adds,
+                atb_op.AclNnAdds,
                 atb_op.AclNnAdd,
             ),
             (torch.ops.aten.sub.Tensor, "sub"): (
                 atb_op.Sub,
-                atb_op.Subs,
+                atb_op.AclNnSubs,
                 atb_op.AclNnSub,
             ),
             (torch.ops.aten.mul.Tensor, "mul"): (
@@ -255,7 +255,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
             ),
             (torch.ops.aten.div.Tensor, "div"): (
                 atb_op.Div,
-                atb_op.Divs,
+                atb_op.AclNnDivs,
                 atb_op.AclNnDiv,
             ),
         }
@@ -586,16 +586,12 @@ class AtenToAtbTransformer(SingleOpTransformer):
 
         topk_ids = self.get_proxy(atb_op.Cast, (topk_ids, torch.int32))
         pre_pare = self.get_proxy(atb_op.PrepareMoe, (topk_ids, num_experts))
-        row_ids = self.get_proxy(atb_op.GetItem, (pre_pare, 1))
         group = self.get_proxy(atb_op.GetItem, (pre_pare, 3))
 
-        # moe init routing
-        # active_num = 10240
-        # moe_init = self.get_proxy(
-        #     atb_op.MoeInitRouting,
-        #     (hidden_states, row_ids, topk_ids, active_num, num_experts),
-        # )
-        moe_init = self.get_proxy(atb_op.MoeTokenPermute, (hidden_states, topk_ids))
+        # moe token permute
+        moe_init = self.get_proxy(
+            atb_op.AclNnMoeTokenPermute, (hidden_states, topk_ids)
+        )
         expanded_hidden_states = self.get_proxy(atb_op.GetItem, (moe_init, 0))
         expanded_row_idx = self.get_proxy(atb_op.GetItem, (moe_init, 1))
 
@@ -618,23 +614,10 @@ class AtenToAtbTransformer(SingleOpTransformer):
         )
         down_proj = self.get_proxy(atb_op.GetItem, (down_sample, 0))
 
-        # finalize routing
+        # moe token unpermute
         topk_weights = self.get_proxy(atb_op.Cast, (topk_weights, hidden_states_dtype))
-        # expanded_row_idx = self.get_proxy(
-        #     atb_op.View,
-        #     (
-        #         self.get_proxy(
-        #             atb_op.Transpose,
-        #             (
-        #                 self.get_proxy(atb_op.View, (expanded_row_idx, (topk, -1))),
-        #                 (1, 0),
-        #             ),
-        #         ),
-        #         (-1,),
-        #     ),
-        # )
         moe_out = self.get_proxy(
-            atb_op.MoeTokenUnpermute,
+            atb_op.AclNnMoeTokenUnpermute,
             (
                 down_proj,
                 expanded_row_idx,
@@ -698,7 +681,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
         return self.get_proxy(atb_op.Zeros, (size, dtype))
 
     @register_conversion(torch.ops.aten.zeros_like.default)
-    def aten_zeros_default(self, x, pin_memory=False):
+    def aten_zeros_like_default(self, x, pin_memory=False):
         return self.get_proxy(atb_op.ZerosLike, (x,))
 
 

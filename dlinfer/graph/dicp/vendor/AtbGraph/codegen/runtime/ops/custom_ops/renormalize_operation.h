@@ -1,7 +1,6 @@
 #pragma once
 
 #include "ops/aclnn_ops/acl_nn_operation.h"
-// #include "acl_nn_operation.h"
 
 namespace dicp {
 

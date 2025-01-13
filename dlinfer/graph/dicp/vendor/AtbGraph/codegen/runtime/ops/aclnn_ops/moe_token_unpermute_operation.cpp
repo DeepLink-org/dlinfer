@@ -39,6 +39,7 @@ int MoeTokenUnpermuteOperation::SetAclNnWorkspaceExecutor(uint64_t& workspaceSiz
                                                      aclOutTensors_.at(0).tensor,
                                                      &workspaceSize,
                                                      &aclExecutor_);
+
     DICP_LOG(INFO) << opName_ << " aclnnMoeTokenUnpermuteGetWorkspaceSize end, ret:" << ret << ", workspaceSize:" << workspaceSize
                    << ", aclExecutor:" << aclExecutor_;
 
@@ -46,21 +47,22 @@ int MoeTokenUnpermuteOperation::SetAclNnWorkspaceExecutor(uint64_t& workspaceSiz
 }
 
 int MoeTokenUnpermuteOperation::CallAclExecute(uint8_t* workspace, uint64_t workspaceSize, aclOpExecutor* aclExecutor, aclrtStream stream) {
-    DICP_LOG(INFO) << opName_ << " MoeTokenUnpermuteOperation start";
+    DICP_LOG(INFO) << opName_ << " aclnnMoeTokenUnpermute start";
     int ret = aclnnMoeTokenUnpermute(workspace, workspaceSize, aclExecutor, stream);
-    DICP_LOG(INFO) << opName_ << " MoeTokenUnpermuteOperation end, ret:" << ret;
+    DICP_LOG(INFO) << opName_ << " aclnnMoeTokenUnpermute end, ret:" << ret;
     return ret;
 }
 
-atb::Operation* MoeTokenUnpermuteOperationCreate(const nlohmann::json& paramJson) {
+atb::Operation* AclNnMoeTokenUnpermuteOperationCreate(const nlohmann::json& paramJson) {
     std::string opName;
     if (paramJson.contains("name")) {
         opName = paramJson["name"].get<std::string>();
     }
+    DICP_LOG(INFO) << " MoeTokenUnpermuteOperation: name: " << opName;
     atb::Operation* op = new MoeTokenUnpermuteOperation(opName);
     return op;
 }
 
-REGISTER_OPERATION(MoeTokenUnpermuteOperation, MoeTokenUnpermuteOperationCreate);
+REGISTER_OPERATION(AclNnMoeTokenUnpermuteOperation, AclNnMoeTokenUnpermuteOperationCreate);
 
 }  // namespace dicp

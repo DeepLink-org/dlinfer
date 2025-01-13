@@ -7,7 +7,6 @@
 namespace dicp {
 
 const int NUM1 = 1;
-const int NUM2 = 2;
 const int NUM3 = 3;
 
 AclNnMoeInitRoutingOperation::AclNnMoeInitRoutingOperation(const std::string& name, int64_t activeNum, int64_t numExperts)
@@ -56,6 +55,7 @@ int AclNnMoeInitRoutingOperation::SetAclNnWorkspaceExecutor(uint64_t& workspaceS
                                                   aclOutTensors_.at(2).tensor,
                                                   &workspaceSize,
                                                   &aclExecutor_);
+
     DICP_LOG(INFO) << opName_ << " aclnnMoeInitRoutingGetWorkspaceSize end, ret:" << ret << ", workspaceSize:" << workspaceSize
                    << ", aclExecutor:" << aclExecutor_;
 
@@ -63,9 +63,9 @@ int AclNnMoeInitRoutingOperation::SetAclNnWorkspaceExecutor(uint64_t& workspaceS
 }
 
 int AclNnMoeInitRoutingOperation::CallAclExecute(uint8_t* workspace, uint64_t workspaceSize, aclOpExecutor* aclExecutor, aclrtStream stream) {
-    DICP_LOG(INFO) << opName_ << " AclNnMoeInitRouting start";
+    DICP_LOG(INFO) << opName_ << " aclnnMoeInitRouting start";
     int ret = aclnnMoeInitRouting(workspace, workspaceSize, aclExecutor, stream);
-    DICP_LOG(INFO) << opName_ << " AclNnMoeInitRouting end, ret:" << ret;
+    DICP_LOG(INFO) << opName_ << " aclnnMoeInitRouting end, ret:" << ret;
     return ret;
 }
 

@@ -1,4 +1,3 @@
-#pragma once
 #include "atb_ops.h"
 #include "utils/common.h"
 

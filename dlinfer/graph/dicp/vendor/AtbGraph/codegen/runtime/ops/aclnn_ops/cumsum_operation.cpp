@@ -1,14 +1,11 @@
 #include "cumsum_operation.h"
 
-#include <cstddef>
-
 #include "aclnnop/aclnn_cumsum.h"
 #include "utils/log.h"
 
 namespace dicp {
 
 const int NUM1 = 1;
-const int NUM2 = 2;
 
 AclNnCumsumOperation::AclNnCumsumOperation(const std::string& name, int64_t dim, aclDataType dtype) : AclNnOperation(name), dim_(dim), dtype_(dtype) {}
 
@@ -22,7 +19,7 @@ atb::Status AclNnCumsumOperation::InferShape(const atb::SVector<atb::TensorDesc>
 
     auto rank = inTensorDescs.at(0).shape.dimNum;
     for (size_t i = 0; i < rank; ++i) {
-        outTensorDescs.at(0).shape.dims[i] = i == (dim_ + rank) % rank ? 1 : inTensorDescs.at(0).shape.dims[i];
+        outTensorDescs.at(0).shape.dims[i] = i == (dim_ + rank) % rank ? NUM1 : inTensorDescs.at(0).shape.dims[i];
     }
     DICP_LOG(INFO) << opName_ << " infer shape end";
     return 0;

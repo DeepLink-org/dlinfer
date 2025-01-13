@@ -6,7 +6,6 @@
 namespace dicp {
 
 const int NUM1 = 1;
-const int NUM2 = 2;
 
 AclNnBincountOperation::AclNnBincountOperation(const std::string& name, int64_t minlength) : AclNnOperation(name), minlength_(minlength) {}
 

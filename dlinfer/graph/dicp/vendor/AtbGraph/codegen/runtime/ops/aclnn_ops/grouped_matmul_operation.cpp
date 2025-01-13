@@ -7,7 +7,6 @@
 namespace dicp {
 
 const int NUM1 = 1;
-const int NUM2 = 2;
 const int NUM3 = 3;
 
 AclNnGroupedMatmulOperation::AclNnGroupedMatmulOperation(const std::string& name, int64_t splitItem) : AclNnOperation(name) { this->splitItem = splitItem; }
@@ -32,18 +31,14 @@ uint32_t AclNnGroupedMatmulOperation::GetInputNum() const { return NUM3; }
 uint32_t AclNnGroupedMatmulOperation::GetOutputNum() const { return NUM1; }
 
 int AclNnGroupedMatmulOperation::SetAclNnWorkspaceExecutor(uint64_t& workspaceSize) {
-    // groupedMatmulV3
     DICP_LOG(INFO) << opName_ << " aclnnGroupedMatmulGetWorkspaceSize start";
     std::vector<aclTensor*> xTmp{aclInTensors_.at(0).tensor};
     aclTensorList* xTensorList = aclCreateTensorList(xTmp.data(), xTmp.size());
     std::vector<aclTensor*> weightTmp{aclInTensors_.at(1).tensor};
     aclTensorList* weightTensorList = aclCreateTensorList(weightTmp.data(), weightTmp.size());
-    // aclOutTensorList_.push_back(aclCreateTensorList(weightTmp.data(), weightTmp.size()));
     std::vector<aclTensor*> outTmp{aclOutTensors_.at(0).tensor};
     aclTensorList* outTensorList = aclCreateTensorList(outTmp.data(), outTmp.size());
-    // aclOutTensorList_.push_back(aclCreateTensorList(outTmp.data(), outTmp.size()));
-    DICP_LOG(INFO) << "aclnnGroupedMatmulGetWorkspaceSize create list end";
-    DICP_LOG(INFO) << aclInTensors_.size() << " ** " << aclOutTensors_.size();
+
     int ret = aclnnGroupedMatmulV3GetWorkspaceSize(xTensorList,
                                                    weightTensorList,
                                                    nullptr,
@@ -65,9 +60,9 @@ int AclNnGroupedMatmulOperation::SetAclNnWorkspaceExecutor(uint64_t& workspaceSi
 }
 
 int AclNnGroupedMatmulOperation::CallAclExecute(uint8_t* workspace, uint64_t workspaceSize, aclOpExecutor* aclExecutor, aclrtStream stream) {
-    DICP_LOG(INFO) << opName_ << " aclnnGroupedMatmulV3 execute start";
+    DICP_LOG(INFO) << opName_ << " aclnnGroupedMatmulV3 start";
     int ret = aclnnGroupedMatmulV3(workspace, workspaceSize, aclExecutor, stream);
-    DICP_LOG(INFO) << opName_ << " aclnnGroupedMatmulV3 execute end, ret:" << ret;
+    DICP_LOG(INFO) << opName_ << " aclnnGroupedMatmulV3 end, ret:" << ret;
 
     return 0;
 }

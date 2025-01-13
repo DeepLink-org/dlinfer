@@ -59,6 +59,7 @@ atb::Operation* AclNnMoeFinalizeRoutingOperationCreate(const nlohmann::json& par
     if (paramJson.contains("name")) {
         opName = paramJson["name"].get<std::string>();
     }
+    DICP_LOG(INFO) << "AclNnMoeFinalizeRoutingOperation: name: " << opName;
     atb::Operation* op = new AclNnMoeFinalizeRoutingOperation(opName);
     return op;
 }

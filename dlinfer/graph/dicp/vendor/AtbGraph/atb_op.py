@@ -85,9 +85,9 @@ class Add(Operator):
         return a + b
 
 
-class Adds(Operator):
+class AclNnAdds(Operator):
     def __init__(self):
-        super().__init__("Adds")
+        super().__init__("AclNnAdds")
 
     def infer_result(self, a, b, dtype="FLOAT"):
         return a + b
@@ -101,9 +101,9 @@ class Sub(Operator):
         return a - b
 
 
-class Subs(Operator):
+class AclNnSubs(Operator):
     def __init__(self):
-        super().__init__("Subs")
+        super().__init__("AclNnSubs")
 
     def infer_result(self, a, b, dtype="FLOAT"):
         return a - b
@@ -117,9 +117,9 @@ class Div(Operator):
         return a / b
 
 
-class Divs(Operator):
+class AclNnDivs(Operator):
     def __init__(self):
-        super().__init__("Divs")
+        super().__init__("AclNnDivs")
 
     def infer_result(self, a, b):
         return a / b
@@ -546,6 +546,14 @@ class ZerosLike(Operator):
         return x
 
 
+class Renormalize(Operator):
+    def __init__(self):
+        super().__init__("Renormalize")
+
+    def infer_result(self, x, dim):
+        return x.sum(dim), x
+
+
 class PrepareMoe(Operator):
     def __init__(self):
         super().__init__("PrepareMoe")
@@ -554,16 +562,14 @@ class PrepareMoe(Operator):
         return (
             x.transpose(0, 1).to(torch.int32),
             x.to(torch.int32),
-            # x.flatten().to(torch.int64),
-            # x.flatten().to(torch.int64),
-            torch.arange(0, 64, 1, dtype=torch.int32),
-            torch.arange(0, 64, 1, dtype=torch.int32),
+            torch.arange(0, num_experts, 1, dtype=torch.int32),
+            torch.arange(0, num_experts, 1, dtype=torch.int32),
         )
 
 
 class MoeInitRouting(Operator):
     def __init__(self):
-        super().__init__("MoeInitRouting")
+        super().__init__("AclNnMoeInitRouting")
 
     def infer_result(self, x, row_ids, topk_ids, active_num, num_experts):
         return (
@@ -573,9 +579,9 @@ class MoeInitRouting(Operator):
         )
 
 
-class MoeTokenPermute(Operator):
+class AclNnMoeTokenPermute(Operator):
     def __init__(self):
-        super().__init__("MoeTokenPermute")
+        super().__init__("AclNnMoeTokenPermute")
 
     def infer_result(self, x, topk_ids):
         return (
@@ -594,7 +600,7 @@ class AclNnGroupedMatmul(Operator):
 
 class MoeFinalizeRouting(Operator):
     def __init__(self):
-        super().__init__("MoeFinalizeRouting")
+        super().__init__("AclNnMoeFinalizeRouting")
 
     def infer_result(
         self,
@@ -609,9 +615,9 @@ class MoeFinalizeRouting(Operator):
         return skip1
 
 
-class MoeTokenUnpermute(Operator):
+class AclNnMoeTokenUnpermute(Operator):
     def __init__(self):
-        super().__init__("MoeTokenUnpermute")
+        super().__init__("AclNnMoeTokenUnpermute")
 
     def infer_result(
         self,
@@ -622,29 +628,3 @@ class MoeTokenUnpermute(Operator):
         tokens_num = probs.size(0)
         hidden_size = permuted_tokens.size(1)
         return permuted_tokens.new_empty((tokens_num, hidden_size))
-
-
-class Renormalize(Operator):
-    def __init__(self):
-        super().__init__("Renormalize")
-
-    def infer_result(self, x, dim):
-        return x.sum(dim), x
-
-
-class FusedMoe(Operator):
-    def __init__(self):
-        super().__init__("FusedMoe")
-
-    def infer_result(
-        self,
-        hidden_states,
-        gate_up_weights,
-        down_weights,
-        topk_weights,
-        topk_ids,
-        topk,
-        renormalize,
-        num_experts,
-    ):
-        return torch.empty_like(hidden_states)

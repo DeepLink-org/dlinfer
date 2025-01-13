@@ -1,7 +1,5 @@
 #include "prepare_moe_operation.h"
 
-#include <cstddef>
-
 #include "aclnnop/aclnn_arange.h"
 #include "aclnnop/aclnn_bincount.h"
 #include "aclnnop/aclnn_cumsum.h"
@@ -14,6 +12,7 @@
 
 namespace dicp {
 
+const int NUM0 = 0;
 const int NUM1 = 1;
 const int NUM2 = 2;
 const int NUM4 = 4;
@@ -47,27 +46,27 @@ atb::Status PrepareMoeOperation::InferShape(const atb::SVector<atb::TensorDesc>&
     DICP_LOG(INFO) << opName_ << " infer shape start";
     // arange out
     outTensorDescs.at(0).format = aclFormat::ACL_FORMAT_ND;
-    outTensorDescs.at(0).shape.dimNum = 2;
+    outTensorDescs.at(0).shape.dimNum = NUM2;
     outTensorDescs.at(0).dtype = aclDataType::ACL_INT32;
     outTensorDescs.at(0).shape.dims[0] = inTensorDescs.at(0).shape.dims[1];
     outTensorDescs.at(0).shape.dims[1] = inTensorDescs.at(0).shape.dims[0];
 
     // permute out
     outTensorDescs.at(1).format = aclFormat::ACL_FORMAT_ND;
-    outTensorDescs.at(1).shape.dimNum = 2;
+    outTensorDescs.at(1).shape.dimNum = NUM2;
     outTensorDescs.at(1).dtype = aclDataType::ACL_INT32;
     outTensorDescs.at(1).shape.dims[0] = inTensorDescs.at(0).shape.dims[0];
     outTensorDescs.at(1).shape.dims[1] = inTensorDescs.at(0).shape.dims[1];
 
     // bincount out
     outTensorDescs.at(2).format = aclFormat::ACL_FORMAT_ND;
-    outTensorDescs.at(2).shape.dimNum = 1;
+    outTensorDescs.at(2).shape.dimNum = NUM1;
     outTensorDescs.at(2).dtype = aclDataType::ACL_INT64;
     outTensorDescs.at(2).shape.dims[0] = numExperts_;
 
     // cumsum out
     outTensorDescs.at(3).format = aclFormat::ACL_FORMAT_ND;
-    outTensorDescs.at(3).shape.dimNum = 1;
+    outTensorDescs.at(3).shape.dimNum = NUM1;
     outTensorDescs.at(3).dtype = aclDataType::ACL_INT64;
     outTensorDescs.at(3).shape.dims[0] = numExperts_;
 
@@ -95,7 +94,7 @@ int PrepareMoeOperation::CreateAclTensors(const atb::VariantPack& variantPack) {
     }
     auto seqLength = aclInTensors_[0].atbTensor.desc.shape.dims[0];
     auto topk = aclInTensors_[0].atbTensor.desc.shape.dims[1];
-    aclInTensors_[0].atbTensor.desc.shape.dimNum = 1;
+    aclInTensors_[0].atbTensor.desc.shape.dimNum = NUM1;
     aclInTensors_[0].atbTensor.desc.shape.dims[0] = seqLength * topk;
 
     aclOutTensors_.resize(variantPack.outTensors.size());
@@ -130,7 +129,7 @@ int PrepareMoeOperation::Setup(const atb::VariantPack& variantPack, uint64_t& wo
     DICP_LOG(INFO) << opName_ << " aclnnArangeGetWorkspaceSize start";
     auto seqLength = variantPack.inTensors.at(0).desc.shape.dims[0];
     auto topk = variantPack.inTensors.at(0).desc.shape.dims[1];
-    int64_t startValue = 0, endValue = seqLength * topk, stepValue = 1;
+    int64_t startValue = NUM0, endValue = seqLength * topk, stepValue = NUM1;
     aclStart_ = aclCreateScalar(&startValue, aclDataType::ACL_INT64);
     aclEnd_ = aclCreateScalar(&endValue, aclDataType::ACL_INT64);
     aclStep_ = aclCreateScalar(&stepValue, aclDataType::ACL_INT64);
@@ -220,7 +219,7 @@ int PrepareMoeOperation::Execute(const atb::VariantPack& variantPack, uint8_t* w
     return 0;
 }
 
-atb::Operation* PrepareMoeOperationCreate(const nlohmann::json& paramJson) {
+atb::Operation* CustomPrepareMoeOperationCreate(const nlohmann::json& paramJson) {
     std::string opName;
     int64_t numExperts;
     if (paramJson.contains("name")) {
@@ -229,10 +228,11 @@ atb::Operation* PrepareMoeOperationCreate(const nlohmann::json& paramJson) {
     if (paramJson.contains("numExperts")) {
         numExperts = paramJson["numExperts"].get<std::int64_t>();
     }
+    DICP_LOG(INFO) << "CustomPrepareMoeOperation: name: " << opName << ", numExperts:" << numExperts;
     atb::Operation* op = new PrepareMoeOperation(opName, numExperts);
     return op;
 }
 
-REGISTER_OPERATION(PrepareMoeOperation, PrepareMoeOperationCreate);
+REGISTER_OPERATION(CustomPrepareMoeOperation, CustomPrepareMoeOperationCreate);
 
 }  // namespace dicp

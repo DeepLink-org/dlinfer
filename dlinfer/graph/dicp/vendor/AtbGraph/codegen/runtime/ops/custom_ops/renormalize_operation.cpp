@@ -1,7 +1,5 @@
 #include "renormalize_operation.h"
 
-#include <cstddef>
-
 #include "aclnnop/aclnn_div.h"
 #include "aclnnop/aclnn_reduce_sum.h"
 #include "ops/operation_creator.h"
@@ -73,7 +71,6 @@ int RenormalizeOperation::CreateAclTensors(const atb::VariantPack& variantPack) 
         aclOutTensors_[i] = CreateTensor(variantPack.outTensors.at(i));
     }
 
-    DICP_LOG(INFO) << opName_ << " Create aclOutTensor end";
     DICP_LOG(INFO) << opName_ << " CreateAclTensor end";
     return 0;
 }
@@ -153,7 +150,7 @@ int RenormalizeOperation::Execute(const atb::VariantPack& variantPack, uint8_t* 
     return 0;
 }
 
-atb::Operation* RenormalizeOperationCreate(const nlohmann::json& paramJson) {
+atb::Operation* CustomRenormalizeOperationCreate(const nlohmann::json& paramJson) {
     std::string opName;
     int64_t dim;
     if (paramJson.contains("name")) {
@@ -162,11 +159,11 @@ atb::Operation* RenormalizeOperationCreate(const nlohmann::json& paramJson) {
     if (paramJson.contains("dim")) {
         dim = paramJson["dim"].get<std::int64_t>();
     }
-    DICP_LOG(INFO) << "RenormalizeOperation: name: " << opName << ", dim:" << dim;
+    DICP_LOG(INFO) << "CustomRenormalizeOperation: name: " << opName << ", dim:" << dim;
     atb::Operation* op = new RenormalizeOperation(opName, dim);
     return op;
 }
 
-REGISTER_OPERATION(RenormalizeOperation, RenormalizeOperationCreate);
+REGISTER_OPERATION(CustomRenormalizeOperation, CustomRenormalizeOperationCreate);
 
 }  // namespace dicp

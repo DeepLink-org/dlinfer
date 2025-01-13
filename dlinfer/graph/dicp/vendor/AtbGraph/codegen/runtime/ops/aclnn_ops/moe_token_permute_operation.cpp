@@ -7,8 +7,6 @@ namespace dicp {
 
 const int NUM1 = 1;
 const int NUM2 = 2;
-const int NUM3 = 3;
-const int NUM7 = 7;
 
 MoeTokenPermuteOperation::MoeTokenPermuteOperation(const std::string& name) : AclNnOperation(name) {}
 
@@ -30,6 +28,7 @@ atb::Status MoeTokenPermuteOperation::InferShape(const atb::SVector<atb::TensorD
     outTensorDescs.at(1).dtype = aclDataType::ACL_INT32;
     outTensorDescs.at(1).shape.dims[0] = seq_len * topk;
     DICP_LOG(INFO) << opName_ << " infer shape end";
+
     return 0;
 }
 
@@ -39,7 +38,6 @@ uint32_t MoeTokenPermuteOperation::GetOutputNum() const { return NUM2; }
 
 int MoeTokenPermuteOperation::SetAclNnWorkspaceExecutor(uint64_t& workspaceSize) {
     DICP_LOG(INFO) << opName_ << " aclnnMoeTokenPermuteGetWorkspaceSize start";
-    DICP_LOG(INFO) << opName_ << "aclInTensors_.size: " << aclInTensors_.size() << " aclOutTensors_.size:" << aclOutTensors_.size();
 
     int ret = aclnnMoeTokenPermuteGetWorkspaceSize(aclInTensors_.at(0).tensor,
                                                    aclInTensors_.at(1).tensor,
@@ -49,6 +47,7 @@ int MoeTokenPermuteOperation::SetAclNnWorkspaceExecutor(uint64_t& workspaceSize)
                                                    aclOutTensors_.at(1).tensor,
                                                    &workspaceSize,
                                                    &aclExecutor_);
+
     DICP_LOG(INFO) << opName_ << " aclnnMoeTokenPermuteGetWorkspaceSize end, ret:" << ret << ", workspaceSize:" << workspaceSize
                    << ", aclExecutor:" << aclExecutor_;
 
@@ -56,21 +55,22 @@ int MoeTokenPermuteOperation::SetAclNnWorkspaceExecutor(uint64_t& workspaceSize)
 }
 
 int MoeTokenPermuteOperation::CallAclExecute(uint8_t* workspace, uint64_t workspaceSize, aclOpExecutor* aclExecutor, aclrtStream stream) {
-    DICP_LOG(INFO) << opName_ << " MoeTokenPermuteOperation start";
+    DICP_LOG(INFO) << opName_ << " aclnnMoeTokenPermute start";
     int ret = aclnnMoeTokenPermute(workspace, workspaceSize, aclExecutor, stream);
-    DICP_LOG(INFO) << opName_ << " MoeTokenPermuteOperation end, ret:" << ret;
+    DICP_LOG(INFO) << opName_ << " aclnnMoeTokenPermute end, ret:" << ret;
     return ret;
 }
 
-atb::Operation* MoeTokenPermuteOperationCreate(const nlohmann::json& paramJson) {
+atb::Operation* AclNnMoeTokenPermuteOperationCreate(const nlohmann::json& paramJson) {
     std::string opName;
     if (paramJson.contains("name")) {
         opName = paramJson["name"].get<std::string>();
     }
+    DICP_LOG(INFO) << "MoeTokenPermuteOperation: name: " << opName;
     atb::Operation* op = new MoeTokenPermuteOperation(opName);
     return op;
 }
 
-REGISTER_OPERATION(MoeTokenPermuteOperation, MoeTokenPermuteOperationCreate);
+REGISTER_OPERATION(AclNnMoeTokenPermuteOperation, AclNnMoeTokenPermuteOperationCreate);
 
 }  // namespace dicp
