@@ -27,6 +27,10 @@ __all__ = [
     "moe_gating_topk_softmax",
     "linear",
     "weight_quant_matmul",
+    "per_token_quant_int8",
+    "linear_w8a8",
+    "rms_norm_w8a8",
+    "add_rms_norm_w8a8",
 ]
 
 
@@ -403,3 +407,63 @@ def weight_quant_matmul(
     if bias is not None:
         output += bias
     return output
+
+
+@register_ops(vendor_ops_registry)
+def per_token_quant_int8(
+    x: Tensor,
+):
+    x, input_scale, _ = vllm._custom_ops.scaled_int8_quant(x, None)
+    return x, input_scale
+
+
+@register_ops(vendor_ops_registry)
+def linear_w8a8(
+    a: Tensor,
+    b: Tensor,
+    rms_scale: float,
+    linear_scale: float,
+    out_dtype: torch.dtype,
+    quant_dtype: torch.dtype = torch.int8,
+    bias: Tensor = None,
+):
+    assert quant_dtype == torch.int8
+    bs, seq_len, head_size = a.size()
+    out = vllm._custom_ops.cutlass_scaled_mm(
+        a.view(-1, head_size),
+        b,
+        scale_a=rms_scale,
+        scale_b=linear_scale,
+        out_dtype=out_dtype,
+        bias=bias,
+    )
+    out = out.view(bs, seq_len, -1)
+    return out
+
+
+@register_ops(vendor_ops_registry)
+def rms_norm_w8a8(
+    hidden_states: Tensor,
+    weight: Tensor,
+    epsilon: float,
+    quant_dtype: torch.dtype = torch.int8,
+):
+    assert quant_dtype == torch.int8
+    x = torch.empty_like(hidden_states)
+    vllm._custom_ops.rms_norm(x, hidden_states, weight, epsilon)
+    x, input_scale, _ = vllm._custom_ops.scaled_int8_quant(x, None)
+    return x, input_scale
+
+
+@register_ops(vendor_ops_registry)
+def add_rms_norm_w8a8(
+    hidden_states: Tensor,
+    residual: Tensor,
+    weight: Tensor,
+    epsilon: float,
+    quant_dtype: torch.dtype = torch.int8,
+):
+    assert quant_dtype == torch.int8
+    vllm._custom_ops.fused_add_rms_norm(hidden_states, residual, weight, epsilon)
+    x, input_scale, _ = vllm._custom_ops.scaled_int8_quant(hidden_states, None)
+    return x, input_scale, residual
