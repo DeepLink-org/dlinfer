@@ -310,7 +310,6 @@ def rms_norm(
 def moe_gating_topk_softmax(
     router_logits: Tensor, topk: int, renormalize: bool = False
 ) -> Tuple[Tensor, Tensor]:
-
     N = router_logits.size(0)
 
     topk_weights = torch.empty(

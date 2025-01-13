@@ -12,9 +12,8 @@ torch._dynamo.config.suppress_errors = False
 
 # atb mm
 @torch._custom_op.impl.custom_op("atb::linear")
-def linear(
-    a: Tensor, b: Tensor, bias: Tensor, trans_a: bool, trans_b: bool
-) -> Tensor: ...
+def linear(a: Tensor, b: Tensor, bias: Tensor, trans_a: bool, trans_b: bool) -> Tensor:
+    ...
 
 
 @linear.impl_abstract()
@@ -43,7 +42,8 @@ def atb_linear_impl(a, b, bias, trans_a, trans_b):
 def allreduce(
     x: Tensor,
     reduce_type: str,
-) -> Tensor: ...
+) -> Tensor:
+    ...
 
 
 @allreduce.impl_abstract()
@@ -63,7 +63,8 @@ def atb_allreduce_impl(x, reduce_type):
 def inplace_div(
     x: Tensor,
     other: Tensor,
-) -> Tensor: ...
+) -> Tensor:
+    ...
 
 
 @inplace_div.impl_abstract()
@@ -80,7 +81,8 @@ def inplace_div_impl(x, other):
 
 # atb scatter_
 @torch._custom_op.impl.custom_op("atb::inplace_scatter")
-def inplace_scatter(x: Tensor, dim: int, index: Tensor, src: Tensor) -> Tensor: ...
+def inplace_scatter(x: Tensor, dim: int, index: Tensor, src: Tensor) -> Tensor:
+    ...
 
 
 @inplace_scatter.impl_abstract()

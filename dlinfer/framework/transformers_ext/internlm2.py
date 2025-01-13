@@ -10,7 +10,8 @@ import dlinfer.ops as ext_ops
 
 
 @dataclass
-class TransformerBlockContext: ...
+class TransformerBlockContext:
+    ...
 
 
 transformer_block_context = TransformerBlockContext()
@@ -229,13 +230,14 @@ def transformers_cache_utils_dynamiccache_update(
         self.key_cache.append(key_states)
         self.value_cache.append(value_states)
     else:
-        self.key_cache[layer_idx], self.value_cache[layer_idx] = (
-            ext_ops.fill_contiguous_kvcache(
-                self.key_cache[layer_idx],
-                self.value_cache[layer_idx],
-                key_states,
-                value_states,
-            )
+        (
+            self.key_cache[layer_idx],
+            self.value_cache[layer_idx],
+        ) = ext_ops.fill_contiguous_kvcache(
+            self.key_cache[layer_idx],
+            self.value_cache[layer_idx],
+            key_states,
+            value_states,
         )
 
     return self.key_cache[layer_idx], self.value_cache[layer_idx]

@@ -346,19 +346,19 @@ def parse_graph(
         node = graph.nodes[name]
         if node.op_type == "inplaceOperation":
             if node.input_index != -1:
-                inplace_replace[node.outputs[0]] = (
-                    f"{node.inputs[0]}__{node.input_index}"
-                )
+                inplace_replace[
+                    node.outputs[0]
+                ] = f"{node.inputs[0]}__{node.input_index}"
             else:
                 inplace_replace[node.outputs[0]] = node.inputs[0]
             if node.target_index != -1:
-                inplace_tensor_to_real_tensor[inplace_replace[node.outputs[0]]] = (
-                    f"{node.target}__{node.target_index}"
-                )
+                inplace_tensor_to_real_tensor[
+                    inplace_replace[node.outputs[0]]
+                ] = f"{node.target}__{node.target_index}"
             else:
-                inplace_tensor_to_real_tensor[inplace_replace[node.outputs[0]]] = (
-                    node.target
-                )
+                inplace_tensor_to_real_tensor[
+                    inplace_replace[node.outputs[0]]
+                ] = node.target
             del graph.nodes[name]
     for name in graph.nodes.keys():
         node = graph.nodes[name]
