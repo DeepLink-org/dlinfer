@@ -45,19 +45,19 @@ def apply_rotary_pos_emb(
     cos_sin_cache: Optional[Tensor],
 ) -> Tuple[Tensor, Tensor]:
     # rotary pos emb helpers:
+    assert len(query.shape) == 4
+    batch, seq_len, _, _ = query.shape
+    cos = cos.reshape(batch, seq_len, 1, -1)
+    sin = sin.reshape(batch, seq_len, 1, -1)
+    query = query.contiguous()
+    key = key.contiguous()
+
     def rotate_half_(x):
         x1, x2 = x[..., : x.shape[-1] // 2], x[..., x.shape[-1] // 2 :]
         return torch.cat((-x2, x1), dim=-1)
 
     def apply_rotary_pos_emb_(q, k, cos, sin):
         return (q * cos) + (rotate_half_(q) * sin), (k * cos) + (rotate_half_(k) * sin)
-
-    if len(cos.shape) < 4:
-        cos = cos.unsqueeze(2)
-    if len(sin.shape) < 4:
-        sin = sin.unsqueeze(2)
-    query = query.contiguous()
-    key = key.contiguous()
 
     # ascend ops currently only support dim 128
     if query.shape[-1] != 128 or key.shape[-1] != 128:
@@ -235,7 +235,9 @@ def paged_prefill_attention(
     q_start_loc: Tensor,
     q_seq_len: Tensor,
     kv_seq_len: Tensor,
+    cu_seq_lens_kv: Tensor,
     max_q_seq_len: int,
+    max_kv_seq_len: int,
     num_q_heads: int,
     num_kv_heads: int,
     attn_mask: Sequence[Optional[Tensor]],
