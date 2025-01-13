@@ -11,7 +11,8 @@ import amct_pytorch as amct
 
 
 def get_model(model_path, seqlen=2048):
-    def skip(*args, **kwargs): ...
+    def skip(*args, **kwargs):
+        ...
 
     torch.nn.init.kaiming_uniform_ = skip
     torch.nn.init.uniform_ = skip
