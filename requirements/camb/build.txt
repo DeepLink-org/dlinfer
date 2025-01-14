@@ -1,0 +1,6 @@
+pyyaml
+setuptools==69.5.1
+wheel
+scikit-build
+cmake>=3.18
+-r torch.txt
