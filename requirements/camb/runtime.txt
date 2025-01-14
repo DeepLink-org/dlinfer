@@ -1,2 +1,4 @@
 transformers
+torch_mlu
+torch_mlu_ops
 -r torch.txt
