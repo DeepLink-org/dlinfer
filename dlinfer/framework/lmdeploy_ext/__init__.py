@@ -2,3 +2,4 @@
 import dlinfer.framework.transformers_ext
 from . import quants
 from . import cudagraph
+from . import device
