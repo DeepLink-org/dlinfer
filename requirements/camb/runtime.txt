@@ -1,4 +1,4 @@
 transformers
-torch_mlu
-torch_mlu_ops
+torch-mlu
+torch-mlu-ops
 -r torch.txt
