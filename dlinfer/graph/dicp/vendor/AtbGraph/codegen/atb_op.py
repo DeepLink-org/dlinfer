@@ -771,3 +771,24 @@ class AtbOverrides:
             "dim": [dim],
         }
         return op
+
+    def Zeros(name, size, dtype):
+        op = Operation(name, "ZerosOperation")
+        param = infer_param.ZerosParam()
+        param.name = name
+        param.size = size
+        param.outTensorType = get_acl_dtype(dtype)
+
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def ZerosLike(name, x):
+        op = Operation(name, "ZerosLikeOperation")
+        param = infer_param.ZerosLikeParam()
+        param.name = name
+
+        op.set_input([x])
+        op.set_param(param)
+        op.set_output([name])
+        return op
