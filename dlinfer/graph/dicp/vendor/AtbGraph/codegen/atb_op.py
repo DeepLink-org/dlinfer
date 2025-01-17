@@ -785,7 +785,7 @@ class AtbOverrides:
 
     def ZerosLike(name, x):
         op = Operation(name, "ZerosLikeOperation")
-        param = infer_param.ZerosLikeParam()
+        param = infer_param.OnlyNameParam()
         param.name = name
 
         op.set_input([x])

@@ -576,11 +576,6 @@ class ZerosParam:
     outTensorType: AclDataType = AclDataType.ACL_DT_UNDEFINED
 
 
-@dataclass
-class ZerosLikeParam:
-    name: str = ""
-
-
 def custom_asdict_factory(data):
     def convert_value(obj):
         if isinstance(obj, IntEnum):
