@@ -3,7 +3,7 @@ from typing import List, Callable
 from lmdeploy.pytorch.models import qwen2_vl
 
 
-def dlinfer_apply_mrope_selection(
+def _apply_mrope_selection(
     hidden_states: torch.Tensor,
     mrope_position_ids: torch.Tensor,
     mrope_section: List[int],
@@ -29,4 +29,4 @@ def dlinfer_apply_mrope_selection(
     return _cos, _sin
 
 
-qwen2_vl._apply_mrope_selection = dlinfer_apply_mrope_selection
+qwen2_vl._apply_mrope_selection = _apply_mrope_selection

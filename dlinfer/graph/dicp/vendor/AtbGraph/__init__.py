@@ -8,6 +8,6 @@ def atbgraph(gm, fake_input_tensor):
 
 
 try:
-    from . import patch_lmdeploy
+    from dlinfer.framework.lmdeploy_ext.dynamo import graph_mode_patch
 except Exception:
     ...
