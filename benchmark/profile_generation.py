@@ -235,7 +235,6 @@ def profile_throughput(
 
 
 class MemoryMonitor:
-
     @classmethod
     def init(cls):
         from multiprocessing import Manager
