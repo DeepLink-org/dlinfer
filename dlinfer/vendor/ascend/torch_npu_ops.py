@@ -5,6 +5,7 @@ import torch
 from dlinfer.vendor import vendor_ops_registry
 from dlinfer.utils.registry import register_ops
 from dlinfer.utils.type_annotation import Tensor, Optional, Sequence, Tuple
+from functools import lru_cache
 
 __all__ = [
     "add_rms_norm",
@@ -20,6 +21,24 @@ __all__ = [
     "fused_moe",
     "linear",
 ]
+
+
+class SocVersion:
+    Ascend310P: str = "Ascend310P"
+    Ascend910B: str = "Ascend910B"
+
+    @classmethod
+    @lru_cache(maxsize=1)
+    def device_name(cls) -> str:
+        return torch.npu.get_device_name()[:10]
+
+    @classmethod
+    def is_Ascend310P(cls) -> bool:
+        return cls.device_name() == cls.Ascend310P
+
+    @classmethod
+    def is_Ascend910B(cls) -> bool:
+        return cls.device_name() == cls.Ascend910B
 
 
 @register_ops(vendor_ops_registry)
@@ -88,29 +107,68 @@ def prefill_attention(
     query = query.contiguous()
     key = key.contiguous()
     value = value.contiguous()
-    seq_qlen_list = (
-        [max_q_seq_len * (i + 1) for i in range(query.shape[0])]
-        if q_seq_len is None
-        else q_seq_len.cumsum(0).tolist()
-    )
-    seq_kvlen_list = seq_qlen_list
-    if (attn_mask is None or len(attn_mask) == 0) and q_seq_len is None:
-        query = query.view(query.shape[0] * query.shape[1], num_q_heads, -1)
-        key = key.view(key.shape[0] * key.shape[1], num_kv_heads, -1)
-        value = value.view(value.shape[0] * value.shape[1], num_kv_heads, -1)
     scale_value = softmax_scale if softmax_scale else 1.0 / math.sqrt(query.shape[-1])
-    attn_mask_ = None if (attn_mask is None or len(attn_mask) == 0) else attn_mask[0]
-    attn_output.view(query.shape)[:] = torch.ops.npu.npu_fusion_attention(
-        query,
-        key,
-        value,
-        num_q_heads,
-        "TND",
-        scale=scale_value,
-        atten_mask=attn_mask_,
-        actual_seq_qlen=seq_qlen_list,
-        actual_seq_kvlen=seq_kvlen_list,
-    )[0]
+    if SocVersion.is_Ascend910B():
+        seq_qlen_list = (
+            [max_q_seq_len * (i + 1) for i in range(query.shape[0])]
+            if q_seq_len is None
+            else q_seq_len.cumsum(0).tolist()
+        )
+        seq_kvlen_list = seq_qlen_list
+        if (attn_mask is None or len(attn_mask) == 0) and q_seq_len is None:
+            query = query.view(query.shape[0] * query.shape[1], num_q_heads, -1)
+            key = key.view(key.shape[0] * key.shape[1], num_kv_heads, -1)
+            value = value.view(value.shape[0] * value.shape[1], num_kv_heads, -1)
+        attn_mask_ = (
+            None if (attn_mask is None or len(attn_mask) == 0) else attn_mask[0]
+        )
+        attn_output.view(query.shape)[:] = torch.ops.npu.npu_fusion_attention(
+            query,
+            key,
+            value,
+            num_q_heads,
+            "TND",
+            scale=scale_value,
+            atten_mask=attn_mask_,
+            actual_seq_qlen=seq_qlen_list,
+            actual_seq_kvlen=seq_kvlen_list,
+        )[0]
+    elif SocVersion.is_Ascend310P():
+        assert num_q_heads == num_kv_heads, f"Ascend310P only support mha models."
+        seq_qlen_list = q_seq_len.tolist()
+        batch = len(seq_qlen_list)
+        start = 0
+        for i in range(batch):
+            end = start + seq_qlen_list[i]
+            single_seqlen = int(seq_qlen_list[i])
+
+            single_q = query[start:end].view(1, single_seqlen, -1)
+            single_k = key[start:end].reshape(1, single_seqlen, -1)
+            single_v = value[start:end].reshape(1, single_seqlen, -1)
+            single_o = attn_output[start:end].view(1, single_seqlen, -1)
+
+            start = end
+            actual_seq_lengths = seq_qlen_list[i : i + 1]
+
+            torch.ops.npu_ext.npu_prompt_flash_attention_out(
+                single_q,
+                single_k,
+                single_v,
+                single_o,
+                padding_mask=None,
+                atten_mask=None,
+                actual_seq_lengths=actual_seq_lengths,
+                num_heads=num_q_heads,
+                scale_value=scale_value,
+                pre_tokens=2147473647,
+                next_tokens=0,
+                input_layout="BSH",
+                num_key_value_heads=num_kv_heads,
+            )
+    else:
+        raise ValueError(
+            f"dlinfer doesn't support {SocVersion.device_name()} device currently."
+        )
     return attn_output
 
 
@@ -147,8 +205,20 @@ def fill_kv_cache(
 
     key_cache_reshaped = key_cache.view(block_total, head, dim)
     value_cache_reshaped = value_cache.view(block_total, head, dim)
-    torch.ops.npu.npu_scatter_nd_update_(key_cache_reshaped, kv_indices, key)
-    torch.ops.npu.npu_scatter_nd_update_(value_cache_reshaped, kv_indices, value)
+    if SocVersion.is_Ascend910B():
+        torch.ops.npu.npu_scatter_nd_update_(key_cache_reshaped, kv_indices, key)
+        torch.ops.npu.npu_scatter_nd_update_(value_cache_reshaped, kv_indices, value)
+    elif SocVersion.is_Ascend310P():
+        key_cache_reshaped[:] = torch.ops.npu.npu_scatter_nd_update(
+            key_cache_reshaped, kv_indices, key
+        )
+        value_cache_reshaped[:] = torch.ops.npu.npu_scatter_nd_update(
+            value_cache_reshaped, kv_indices, value
+        )
+    else:
+        raise ValueError(
+            f"dlinfer doesn't support {SocVersion.device_name()} device currently."
+        )
     return key_cache, value_cache
 
 
@@ -296,7 +366,11 @@ def rms_norm(hidden_states: Tensor, weight: Tensor, epsilon: float) -> Tensor:
 
 @register_ops(vendor_ops_registry)
 def silu_and_mul(input_tensor: Tensor, dim: int) -> Tensor:
-    return torch.ops.npu.npu_swiglu(input_tensor, dim)
+    if SocVersion.is_Ascend910B():
+        return torch.ops.npu.npu_swiglu(input_tensor, dim)
+    elif SocVersion.is_Ascend310P():
+        gate_cache, up_cache = input_tensor.chunk(2, dim)
+        return torch.ops.npu.npu_silu(gate_cache) * up_cache
 
 
 @register_ops(vendor_ops_registry)
