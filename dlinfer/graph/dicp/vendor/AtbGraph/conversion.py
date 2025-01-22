@@ -538,6 +538,14 @@ class AtenToAtbTransformer(SingleOpTransformer):
 
         return self.get_proxy(atb_op.Slice, (x, dim, offsets, size))
 
+    @register_conversion(torch.ops.aten.copy.default)
+    def aten_copy(self, x, src):
+        return src
+
+    @register_conversion(torch.ops.aten.clone.default)
+    def aten_clone(self, x):
+        return x
+
     @register_conversion(torch.ops.aten.alias.default)
     def alias(self, x):
         # lowering through view
@@ -652,6 +660,14 @@ class AtenToAtbTransformer(SingleOpTransformer):
     @register_conversion(torch.ops.aten.scalar_tensor.default)
     def aten_scalar_tensor(self, x, dtype, layout, device):
         return self.get_proxy(atb_op.ScalarTensor, (float(x), dtype))
+
+    @register_conversion(torch.ops.aten.zeros.default)
+    def aten_zeros_default(self, size, dtype, device=None, pin_memory=False):
+        return self.get_proxy(atb_op.Zeros, (size, dtype))
+
+    @register_conversion(torch.ops.aten.zeros_like.default)
+    def aten_zeros_like_default(self, x, pin_memory=False):
+        return self.get_proxy(atb_op.ZerosLike, (x,))
 
 
 class ViewSymIntTransformer(torch.fx.Transformer):

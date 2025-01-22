@@ -464,6 +464,10 @@ def parse_graph(
                             squeeze_replace[target_name].target_reshape_info["dim"]
                         )
                     reshape_info["dim"] = list(reversed(reshape_info["dim"]))
+                    if isinstance(
+                        node.inputs, torch.fx.immutable_collections.immutable_list
+                    ):
+                        node.inputs = list(node.inputs)
                     node.inputs[idx] = target_name
                     reshape_inputs[idx] = reshape_info
                     need_reshape_input = True

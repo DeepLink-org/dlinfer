@@ -194,6 +194,15 @@ def run_pipeline_vl_chat_test(config, model_case, device_type, eager_mode=True):
     print("backend_config: ", backend_config)
     pipe = pipeline(hf_path, backend_config=backend_config)
 
+    log_string = "\n".join(
+        [
+            "reproduce config info:",
+            "engine_config = " + str(backend_config),
+            'pipe = pipeline("' + hf_path + '",  backend_config=engine_config)',
+        ]
+    )
+    print("log config: ", log_string)
+
     pipeline_chat_log = os.path.join(
         log_path, device_type + "_pipeline_vl_chat_" + model_case.split("/")[1] + ".log"
     )

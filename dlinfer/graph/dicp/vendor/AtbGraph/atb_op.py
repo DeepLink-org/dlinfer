@@ -486,3 +486,19 @@ class ScalarTensor(Operator):
 
     def infer_result(self, x, dtype):
         return torch.empty(1, dtype=dtype, device="npu")
+
+
+class Zeros(Operator):
+    def __init__(self):
+        super().__init__("Zeros")
+
+    def infer_result(self, size, dtype):
+        return torch.ops.aten.zeros.default(size, dtype=dtype)
+
+
+class ZerosLike(Operator):
+    def __init__(self):
+        super().__init__("ZerosLike")
+
+    def infer_result(self, x):
+        return x
