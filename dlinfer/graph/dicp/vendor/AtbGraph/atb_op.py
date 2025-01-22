@@ -529,6 +529,7 @@ class AclNnCumsum(Operator):
     def infer_result(self, x, dim, dtype):
         return torch.cumsum(x, dim, dtype=dtype)
 
+
 class Zeros(Operator):
     def __init__(self):
         super().__init__("Zeros")
