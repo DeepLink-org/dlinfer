@@ -9,6 +9,8 @@ graph_config:
     Mixtral-8x7B-Instruct-v0.1: True
     Qwen2.5-7B-Instruct: True
     Qwen2-VL-7B-Instruct: True
+    InternVL2-2B: True
+    InternVL2-26B: True
 
 pytorch_chat_model:
     - llama_model_data/Meta-Llama-3-8B-Instruct
