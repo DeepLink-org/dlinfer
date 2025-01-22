@@ -542,6 +542,14 @@ class AtenToAtbTransformer(SingleOpTransformer):
 
         return self.get_proxy(atb_op.Slice, (x, dim, offsets, size))
 
+    @register_conversion(torch.ops.aten.copy.default)
+    def aten_copy(self, x, src):
+        return src
+
+    @register_conversion(torch.ops.aten.clone.default)
+    def aten_clone(self, x):
+        return x
+
     @register_conversion(torch.ops.aten.alias.default)
     def alias(self, x):
         # lowering through view

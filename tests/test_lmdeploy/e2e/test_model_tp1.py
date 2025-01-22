@@ -65,3 +65,20 @@ def test_pipeline_chat_pytorch_tp1_ascend_graph(config, common_case_config, mode
 
     # assert script
     assert_pipeline_chat_log(config, common_case_config, model, "ascend")
+
+
+@pytest.mark.usefixtures("common_case_config")
+@pytest.mark.flaky(reruns=0)
+@pytest.mark.lmdeploy
+@pytest.mark.chat
+@pytest.mark.graph
+@pytest.mark.parametrize(
+    "model", get_torch_model_list(tp_num=1, graph_mode=True, model_type="vl_model")
+)
+def test_pipeline_chat_pytorch_tp1_ascend_graph(config, common_case_config, model):
+    p = Process(target=run_pipeline_vl_chat_test, args=(config, model, "ascend", False))
+    p.start()
+    p.join()
+
+    # assert script
+    assert_pipeline_chat_log(config, common_case_config, model, "ascend")

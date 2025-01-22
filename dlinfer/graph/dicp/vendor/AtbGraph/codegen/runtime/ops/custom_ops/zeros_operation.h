@@ -8,7 +8,6 @@ class ZerosOperation : public AclNnOperation {
 public:
     explicit ZerosOperation(const std::string& name, const std::vector<int64_t>& size, aclDataType dtype);
     ~ZerosOperation() override;
-    enum class ValueType { INT64, INT32, FLOAT, FLOAT16, BF16, UNKNOWN };
 
     std::string GetName() const override;
     atb::Status InferShape(const atb::SVector<atb::TensorDesc>& inTensorDescs, atb::SVector<atb::TensorDesc>& outTensorDescs) const override;

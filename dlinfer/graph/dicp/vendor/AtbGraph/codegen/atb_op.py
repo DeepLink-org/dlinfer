@@ -856,6 +856,7 @@ class AtbOverrides:
     def ZerosLike(name, x):
         op = Operation(name, "ZerosLikeOperation")
         param = infer_param.ZerosLikeParam()
+        param = infer_param.OnlyNameParam()
         param.name = name
 
         op.set_input([x])
@@ -899,7 +900,7 @@ class AtbOverrides:
 
     def AclNnMoeTokenPermute(name, x, topk_ids):
         op = Operation(name, "AclNnMoeTokenPermuteOperation")
-        param = infer_param.AclNnMoeToenPermuteParam()
+        param = infer_param.OnlyNameParam()
         param.name = name
 
         op.set_input([x, topk_ids])
@@ -929,7 +930,7 @@ class AtbOverrides:
         export_for_source_row,
     ):
         op = Operation(name, "AclNnMoeFinalizeRoutingOperation")
-        param = infer_param.AclNnMoeFinalizeRoutingParam()
+        param = infer_param.OnlyNameParam()
         param.name = name
 
         op.set_input(
@@ -949,7 +950,7 @@ class AtbOverrides:
 
     def AclNnMoeTokenUnpermute(name, permuted_tokens, sorted_indices, probs):
         op = Operation(name, "AclNnMoeTokenUnpermuteOperation")
-        param = infer_param.AclNnMoeTokenUnpermuteParam()
+        param = infer_param.OnlyNameParam()
         param.name = name
 
         op.set_input([permuted_tokens, sorted_indices, probs])

@@ -605,11 +605,6 @@ class ZerosParam:
 
 
 @dataclass
-class ZerosLikeParam:
-    name: str = ""
-
-
-@dataclass
 class RenormalizeParam:
     name: str = ""
     dim: int = 0
@@ -629,24 +624,9 @@ class AclNnMoeInitRoutingParam:
 
 
 @dataclass
-class AclNnMoeToenPermuteParam:
-    name: str = ""
-
-
-@dataclass
 class AclNnGroupedMatmulParam:
     name: str = ""
     splitItem: int = 0
-
-
-@dataclass
-class AclNnMoeFinalizeRoutingParam:
-    name: str = ""
-
-
-@dataclass
-class AclNnMoeTokenUnpermuteParam:
-    name: str = ""
 
 
 def custom_asdict_factory(data):
