@@ -1,6 +1,6 @@
 tp_config:
     Mixtral-8x7B-Instruct-v0.1: 2
-    # InternVL2-26B: 2
+    InternVL2-26B: 2
     cogvlm2-llama3-chat-19B: 2
 
 graph_config:
