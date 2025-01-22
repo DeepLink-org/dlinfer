@@ -71,33 +71,58 @@ pip install dlinfer-ascend
    DEVICE=maca python3 setup.py develop
    ```
 
+### 寒武纪云端智能加速卡
+
+1. 寒武纪软件栈请自行联系寒武纪相关人员。
+
+2. 寒武纪版本的dlinfer安装命令如下：
+
+   ```shell
+   cd /path_to_dlinfer
+   DEVICE=camb python3 setup.py develop
+   ```
+
 # 支持模型框架列表
 
 ## LMDeploy
 
-|  | |华为Atlas 800T A2 | |沐曦C500 | 寒武纪云端智能加速卡（开发中） |
+|  | |华为Atlas 800T A2 | |沐曦C500 | 寒武纪云端智能加速卡 |
 | --- | --- | --- | --- | --- | --- |
 |  | bf16(eager) | w4a16(eager) | bf16(graph) |   |   |
-| InternLM2.5-7B/20B   | √ | √ | √ | √  |  |
-| InternLM2-7B/20B     | √ | √ | √ | √  |  |
-| InternVL2-2B         | √ | √ | √ | √  |  |
-| InternVL1-5          | √ | √ | - | √  |  |
-| Llama3(.1)-8B        | √ | √ | √ | √  |  |
-| Mixtral8x7B          | √ | X | √ | √  |  |
-| Qwen2(.5)-7B         | √ | X | √ | √  |  |
-| Qwen2-57B-A14B       | √ | X | - | √  |  |
-| CogVLM               | √ | X | - | √  |  |
-| CogVLM2              | √ | X | - | √  |  |
-| glm-4v-9b            | √ | - | - | -  |  |
+| InternLM3-8B         | √ | √ | √ | √  | √ |
+| InternLM2.5-7B/20B   | √ | √ | √ | √  | √ |
+| InternLM2-7B/20B     | √ | √ | √ | √  | √ |
+| InternVL2-2B         | √ | √ | √ | √  | √ |
+| InternVL1-5          | √ | √ | - | √  | - |
+| Llama3(.1)-8B        | √ | √ | √ | √  | √ |
+| Mixtral8x7B          | √ | X | √ | √  | √ |
+| Qwen2(.5)-7B         | √ | √ | √ | √  | √ |
+| Qwen2-57B-A14B       | √ | √ | - | √  | - |
+| Qwen2(.5)VL-7B       | √ | √ | √ | √  | √ |
+| CogVLM               | √ | X | - | √  | - |
+| CogVLM2              | √ | X | - | √  | - |
+| glm-4v-9b            | √ | - | - | -  | - |
 
 ‘√’代表测试通过，‘X’代表不支持，‘-’代表未测试
 
 ### 使用LMDeploy
 
-只需要指定pytorch engine后端为ascend/maca，不需要其他任何修改即可。详细可参考lmdeploy文档。
+LMDeploy安装：
+
+```shell
+cd /path_to_lmdeploy
+# 华为
+LMDEPLOY_TARGET_DEVICE=ascend pip3 install -e .
+# 沐曦
+LMDEPLOY_TARGET_DEVICE=maca   pip3 install -e .
+# 寒武纪
+LMDEPLOY_TARGET_DEVICE=camb   pip3 install -e .
+```
+
+只需要指定pytorch engine后端为ascend/maca/camb，不需要其他任何修改即可。详细可参考lmdeploy文档。
 
 > [!CAUTION]
-> 沐曦环境下必须把`PytorchEnginConfig`中的`block_size`设为`256`。
+> 寒武纪环境下必须把`PytorchEnginConfig`中的`block_size`设为`16`。
 
 示例代码如下：
 
