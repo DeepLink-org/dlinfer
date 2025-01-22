@@ -3,7 +3,7 @@
 
 import pytest
 
-from ..utils.config_utils import get_config, get_case_config
+from test_lmdeploy.utils.config_utils import get_config, get_case_config
 
 
 @pytest.fixture(scope="session")
