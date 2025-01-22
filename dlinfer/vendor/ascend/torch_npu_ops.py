@@ -417,6 +417,7 @@ def fused_moe(
 ) -> Tensor:
     seq_length = hidden_states.size(0)
     num_experts = gate_up_weights.size(0)
+    active_num = hidden_states.size(0)
     topk_ids = topk_ids.to(torch.int32)
 
     if renormalize:
@@ -424,17 +425,18 @@ def fused_moe(
     if not topk_weights.is_contiguous():
         topk_weights = topk_weights.contiguous()
 
+    # moe init routing
     row_idx = (
         torch.arange(seq_length * topk, dtype=torch.int32, device=hidden_states.device)
         .view((topk, seq_length))
         .transpose(0, 1)
         .contiguous()
     )
-    active_num = 10240
-    expanded_hidden_states, expanded_row_idx, expanded_expert_idx = (
-        torch.ops.npu.npu_moe_init_routing(hidden_states, row_idx, topk_ids, active_num)
+    expanded_hidden_states, expanded_row_idx, _ = torch.ops.npu.npu_moe_init_routing(
+        hidden_states, row_idx, topk_ids, active_num
     )
 
+    # up sample
     gate_up_weights = gate_up_weights.transpose(1, 2)
     flattened_ids = topk_ids.flatten()
     counts = torch.bincount(flattened_ids, minlength=num_experts)
@@ -448,8 +450,10 @@ def fused_moe(
         split_item=2,
     )[0]
 
+    # activation
     gate_cache = silu_and_mul(up_proj, -1)
 
+    # down sample
     down_weights = down_weights.transpose(1, 2)
     down_proj = torch.ops.npu.npu_grouped_matmul(
         [gate_cache],
@@ -459,6 +463,7 @@ def fused_moe(
         split_item=2,
     )[0]
 
+    # moe finalize routing
     skip = torch.zeros_like(hidden_states)
     bias = torch.zeros_like(down_proj)
     export_for_source_row = torch.zeros_like(topk_ids)
