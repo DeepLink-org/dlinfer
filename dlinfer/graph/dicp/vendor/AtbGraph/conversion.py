@@ -10,7 +10,10 @@ from dlinfer.graph.dicp.vendor.AtbGraph import atb_op
 from dlinfer.graph.dicp.dynamo_bridge.conversion import register_conversion_impl
 from dlinfer.graph.dicp.dynamo_bridge.op_transformer import SingleOpTransformer
 from dlinfer.graph.dicp.vendor.AtbGraph import ext_ops
-from dlinfer.graph.dicp.vendor.AtbGraph.codegen.utils import get_ascend_dtype
+from dlinfer.graph.dicp.vendor.AtbGraph.codegen.utils import (
+    get_ascend_dtype,
+    get_reduce_dim,
+)
 
 
 aten = torch.ops.aten
@@ -237,12 +240,12 @@ class AtenToAtbTransformer(SingleOpTransformer):
         binary_ops = {
             (torch.ops.aten.add.Tensor, "add"): (
                 atb_op.Add,
-                atb_op.Adds,
+                atb_op.AclNnAdds,
                 atb_op.AclNnAdd,
             ),
             (torch.ops.aten.sub.Tensor, "sub"): (
                 atb_op.Sub,
-                atb_op.Subs,
+                atb_op.AclNnSubs,
                 atb_op.AclNnSub,
             ),
             (torch.ops.aten.mul.Tensor, "mul"): (
@@ -252,7 +255,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
             ),
             (torch.ops.aten.div.Tensor, "div"): (
                 atb_op.Div,
-                atb_op.Divs,
+                atb_op.AclNnDivs,
                 atb_op.AclNnDiv,
             ),
         }
@@ -322,7 +325,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
     def aten_arange_start_step(self, start, end, step, dtype, device, index=0):
         assert dtype == torch.int64
         assert index == 0
-        return self.get_proxy(atb_op.Arange, (start, end, step))
+        return self.get_proxy(atb_op.Arange, (start, end, step, dtype))
 
     @register_conversion(torch.ops.aten.view.default)
     def aten_view(self, x, size):
@@ -437,6 +440,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
         # inplace1 = self.get_proxy(atb_op.Inplace, (fill_kv_cache, k_cache, 0))
         # inplace2 = self.get_proxy(atb_op.Inplace, (fill_kv_cache, v_cache, 1))
         mask = mask[0]
+        scale = 1.0 / math.sqrt(query.node.meta["val"].shape[-1])
         if query.node.meta["val"].dtype != mask.node.meta["val"].dtype:
             mask = self.get_proxy(atb_op.Cast, (mask, query.node.meta["val"].dtype))
         if is_unpaged_prefill:
@@ -455,7 +459,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
 
             out = self.get_proxy(
                 atb_op.SelfAttentionPAEncoder,
-                (query, key, value, kv_seq_len, mask, num_q_heads, num_kv_heads),
+                (query, key, value, kv_seq_len, mask, num_q_heads, num_kv_heads, scale),
             )
         else:
             q_shape = list(query.node.meta["val"].shape)
@@ -579,60 +583,55 @@ class AtenToAtbTransformer(SingleOpTransformer):
         topk,
         renormalize,
     ):
+        num_experts = gate_up_weights.node.meta["val"].shape[0]
         hidden_states_dtype = hidden_states.node.meta["val"].dtype
-        hidden_states_shape = hidden_states.node.meta["val"].shape
-        hidden_states_unsqueeze_shape = [
-            -1 if isinstance(x, torch.SymInt) else x for x in hidden_states_shape
-        ]
-        hidden_states_unsqueeze_shape.append(1)
-        hidden_states_unsqueeze = self.get_proxy(
-            atb_op.View, (hidden_states, hidden_states_unsqueeze_shape)
-        )
-
-        moe_out = self.get_proxy(
-            atb_op.Muls, (hidden_states, 0, get_ascend_dtype(hidden_states_dtype))
-        )
-
-        topk_weights_dtype = topk_weights.node.meta["val"].dtype
-        if topk_weights_dtype != hidden_states_dtype:
+        if renormalize:
+            reduce_dim = get_reduce_dim(topk_weights, -1)[0]
             topk_weights = self.get_proxy(
-                atb_op.Cast, (topk_weights, hidden_states_dtype)
+                atb_op.Renormalize, (topk_weights, reduce_dim)
             )
+            topk_weights = self.get_proxy(atb_op.GetItem, (topk_weights, 1))
 
-        topk_ids_shape = topk_ids.node.meta["val"].shape
-        squeeze_shape = [
-            -1 if isinstance(x, torch.SymInt) else x for x in topk_ids_shape
-        ]
-        squeeze_shape = squeeze_shape[:-1]
-        for k in range(topk):
-            expert_ids = self.get_proxy(atb_op.AclNnSlice, (topk_ids, 1, k, k + 1, 1))
-            weights = self.get_proxy(atb_op.AclNnSlice, (topk_weights, 1, k, k + 1, 1))
+        topk_ids = self.get_proxy(atb_op.Cast, (topk_ids, torch.int32))
+        pre_pare = self.get_proxy(atb_op.PrepareMoe, (topk_ids, num_experts))
+        group = self.get_proxy(atb_op.GetItem, (pre_pare, 3))
 
-            expert_ids_squeeze = self.get_proxy(
-                atb_op.View, (expert_ids, squeeze_shape)
-            )
-            up_weights = self.get_proxy(
-                atb_op.IndexSelect, (gate_up_weights, 0, expert_ids_squeeze)
-            )
-            down_weights_selected = self.get_proxy(
-                atb_op.IndexSelect, (down_weights, 0, expert_ids_squeeze)
-            )
+        # moe token permute
+        moe_init = self.get_proxy(
+            atb_op.AclNnMoeTokenPermute, (hidden_states, topk_ids)
+        )
+        expanded_hidden_states = self.get_proxy(atb_op.GetItem, (moe_init, 0))
+        expanded_row_idx = self.get_proxy(atb_op.GetItem, (moe_init, 1))
 
-            up_proj = self.get_proxy(
-                atb_op.BatchMatMul, (up_weights, hidden_states_unsqueeze)
-            )
-            up_proj = self.get_proxy(atb_op.Squeeze, (up_proj, -1))
+        # up sample
+        gate_up_weights = self.get_proxy(atb_op.Transpose, (gate_up_weights, (0, 2, 1)))
+        up_sample = self.get_proxy(
+            atb_op.AclNnGroupedMatmul,
+            (expanded_hidden_states, gate_up_weights, group, 2),
+        )
+        up_proj = self.get_proxy(atb_op.GetItem, (up_sample, 0))
 
-            silu_and_mul = self.silu_and_mul(up_proj, -1)
-            silu_and_mul = self.get_proxy(atb_op.Unsqueeze, (silu_and_mul, -1))
+        # activation
+        gate_cache = self.silu_and_mul(up_proj, -1)
 
-            down_proj = self.get_proxy(
-                atb_op.BatchMatMul, (down_weights_selected, silu_and_mul)
-            )
-            down_proj = self.get_proxy(atb_op.Squeeze, (down_proj, -1))
+        # down sample
+        down_weights = self.get_proxy(atb_op.Transpose, (down_weights, (0, 2, 1)))
+        down_sample = self.get_proxy(
+            atb_op.AclNnGroupedMatmul,
+            (gate_cache, down_weights, group, 2),
+        )
+        down_proj = self.get_proxy(atb_op.GetItem, (down_sample, 0))
 
-            mul = self.get_proxy(atb_op.Mul, (weights, down_proj))
-            moe_out = self.get_proxy(atb_op.Add, (moe_out, mul))
+        # moe token unpermute
+        topk_weights = self.get_proxy(atb_op.Cast, (topk_weights, hidden_states_dtype))
+        moe_out = self.get_proxy(
+            atb_op.AclNnMoeTokenUnpermute,
+            (
+                down_proj,
+                expanded_row_idx,
+                topk_weights,
+            ),
+        )
         return moe_out
 
     @register_conversion("torch.ops.dlinfer.moe_gating_topk_softmax.default")
@@ -660,6 +659,30 @@ class AtenToAtbTransformer(SingleOpTransformer):
     @register_conversion(torch.ops.aten.scalar_tensor.default)
     def aten_scalar_tensor(self, x, dtype, layout, device):
         return self.get_proxy(atb_op.ScalarTensor, (float(x), dtype))
+
+    @register_conversion(torch.ops.aten.sum.dim_IntList)
+    def aten_reduce_sum(self, x, dim):
+        dim = get_reduce_dim(x, dim)
+        return self.get_proxy(atb_op.ReduceSum, (x, dim))
+
+    @register_conversion(torch.ops.aten.amax.default)
+    def aten_reduce_max(self, x, dim):
+        dim = get_reduce_dim(x, dim)
+        return self.get_proxy(atb_op.ReduceMax, (x, dim))
+
+    @register_conversion(torch.ops.aten.amin.default)
+    def aten_reduce_min(self, x, dim):
+        dim = get_reduce_dim(x, dim)
+        return self.get_proxy(atb_op.ReduceMin, (x, dim))
+
+    @register_conversion(torch.ops.aten.bincount)
+    def aten_bincount(self, x, weights=None, minlength=0):
+        return self.get_proxy(atb_op.AclNnBincount, (x, weights, minlength))
+
+    @register_conversion(torch.ops.aten.cumsum)
+    def aten_cumsum(self, x, dim, dtype=None, out=None):
+        out_dtype = fx_traceback.get_current_meta()["val"].dtype
+        return self.get_proxy(atb_op.AclNnCumsum, (x, dim, out_dtype))
 
     @register_conversion(torch.ops.aten.zeros.default)
     def aten_zeros_default(self, size, dtype, device=None, pin_memory=False):
