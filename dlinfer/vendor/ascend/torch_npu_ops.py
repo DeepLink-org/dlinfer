@@ -5,7 +5,7 @@ import torch
 from dlinfer.vendor import vendor_ops_registry
 from dlinfer.utils.registry import register_ops
 from dlinfer.utils.type_annotation import Tensor, Optional, Sequence, Tuple
-from functools import lru_cache
+from .utils import SocVersion
 
 __all__ = [
     "add_rms_norm",
@@ -21,24 +21,6 @@ __all__ = [
     "fused_moe",
     "linear",
 ]
-
-
-class SocVersion:
-    Ascend310P: str = "Ascend310P"
-    Ascend910B: str = "Ascend910B"
-
-    @classmethod
-    @lru_cache(maxsize=1)
-    def device_name(cls) -> str:
-        return torch.npu.get_device_name()[:10]
-
-    @classmethod
-    def is_Ascend310P(cls) -> bool:
-        return cls.device_name() == cls.Ascend310P
-
-    @classmethod
-    def is_Ascend910B(cls) -> bool:
-        return cls.device_name() == cls.Ascend910B
 
 
 @register_ops(vendor_ops_registry)
