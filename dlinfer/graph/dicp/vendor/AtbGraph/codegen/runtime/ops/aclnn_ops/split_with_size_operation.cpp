@@ -70,9 +70,9 @@ int AclNnSplitWithSizeOperation::SetAclNnWorkspaceExecutor(uint64_t& workspaceSi
 }
 
 int AclNnSplitWithSizeOperation::CallAclExecute(uint8_t* workspace, uint64_t workspaceSize, aclOpExecutor* aclExecutor, aclrtStream stream) {
-    DICP_LOG(INFO) << opName_ << " aclnnPermute start";
+    DICP_LOG(INFO) << opName_ << " aclnnSplitWithSize start";
     int ret = aclnnSplitWithSize(workspace, workspaceSize, aclExecutor, stream);
-    DICP_LOG(INFO) << opName_ << " aclnnPermute end, ret:" << ret;
+    DICP_LOG(INFO) << opName_ << " aclnnSplitWithSize end, ret:" << ret;
     return ret;
 }
 

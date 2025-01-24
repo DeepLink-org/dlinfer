@@ -424,6 +424,7 @@ class ArangeParam:
     start: int = 0
     end: int = 0
     step: int = 0
+    outTensorType: AclDataType = AclDataType.ACL_DT_UNDEFINED
 
 
 class ParallelType(IntEnum):
@@ -569,11 +570,63 @@ class ScalarTensorParam:
     dtype: str = "FLOAT"
 
 
+class ReduceType(IntEnum):
+    REDUCE_UNDEFINED = 0
+    REDUCE_MAX = 1
+    REDUCE_MIN = 2
+    REDUCE_SUM = 3
+
+
+@dataclass
+class ReduceParam:
+    name: str = ""
+    reduceType: ReduceType = ReduceType.REDUCE_UNDEFINED
+    axis: list[int] = field(default_factory=list)
+
+
+@dataclass
+class AclNnBincountParam:
+    name: str = ""
+    minlength: int = 0
+
+
+@dataclass
+class AclNnCumsumParam:
+    name: str = ""
+    dim: int = 0
+    outTensorType: AclDataType = AclDataType.ACL_DT_UNDEFINED
+
+
 @dataclass
 class ZerosParam:
     name: str = ""
     size: list[int] = field(default_factory=list)
     outTensorType: AclDataType = AclDataType.ACL_DT_UNDEFINED
+
+
+@dataclass
+class RenormalizeParam:
+    name: str = ""
+    dim: int = 0
+
+
+@dataclass
+class PrepareMoeParam:
+    name: str = ""
+    numExperts: int = 0
+
+
+@dataclass
+class AclNnMoeInitRoutingParam:
+    name: str = ""
+    activeNum: int = 10240
+    numExperts: int = 0
+
+
+@dataclass
+class AclNnGroupedMatmulParam:
+    name: str = ""
+    splitItem: int = 0
 
 
 def custom_asdict_factory(data):

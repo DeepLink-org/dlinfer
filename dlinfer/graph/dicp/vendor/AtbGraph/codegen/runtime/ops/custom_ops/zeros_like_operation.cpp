@@ -5,6 +5,7 @@
 #include "aclnnop/aclnn_zero.h"
 #include "ops/operation_creator.h"
 #include "third_party/acl/inc/acl/acl_base.h"
+#include "utils/common.h"
 #include "utils/log.h"
 
 namespace dicp {
