@@ -4,7 +4,7 @@ tp_config:
     cogvlm2-llama3-chat-19B: 2
 
 graph_config:
-    internlm2-chat-7b: True
+    internlm3-8b-instruct: True
     Meta-Llama-3-8B-Instruct: True
     Mixtral-8x7B-Instruct-v0.1: True
     Qwen2.5-7B-Instruct: True
@@ -13,10 +13,10 @@ graph_config:
     InternVL2-26B: True
 
 pytorch_chat_model:
+    - internlm_model/internlm3-8b-instruct
     - llama_model_data/Meta-Llama-3-8B-Instruct
     - mixtral_model_data/Mixtral-8x7B-Instruct-v0.1
     - qwen_model_data/Qwen2.5-7B-Instruct
-    # - qwen_model_data/Qwen-14B-Chat
 
 pytorch_vl_model:
     - internvl_model_data/InternVL2-26B
