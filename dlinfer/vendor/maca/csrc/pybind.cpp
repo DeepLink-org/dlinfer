@@ -1,6 +1,7 @@
 // 2024 - Modified by MetaX Integrated Circuits (Shanghai) Co., Ltd. All Rights Reserved.
 #include <torch/extension.h>
 
+#include "cache.h"
 #include "moe/moe_ops.h"
 #include "ops.h"
 
@@ -18,6 +19,21 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     // vLLM custom ops
     pybind11::module ops = m.def_submodule("ops", "vLLM custom operators");
 
+    // Attention ops
+    // Compute the attention between an input query and the cached
+    // keys/values using PagedAttention.
+    ops.def("paged_attention_v1",
+            &paged_attention_v1,
+            "paged_attention_v1("
+            "    Tensor! out, Tensor query, Tensor key_cache,"
+            "    Tensor value_cache, int num_kv_heads, float scale,"
+            "    Tensor block_tables, Tensor seq_lens, int block_size,"
+            "    int max_seq_len, Tensor? alibi_slopes,"
+            "    str kv_cache_dtype, float k_scale, float v_scale,"
+            "    int tp_rank, int blocksparse_local_blocks,"
+            "    int blocksparse_vert_stride, int blocksparse_block_size,"
+            "    int blocksparse_head_sliding_step) -> ()");
+
     // Rotary embedding
     // Apply GPT-NeoX or GPT-J style rotary embedding to query and key.
     ops.def("rotary_embedding",
@@ -27,15 +43,15 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
             "                 Tensor cos, Tensor sin,"
             "                 bool is_neox) -> ()");
 
-    // Apply GPT-NeoX or GPT-J style rotary embedding to query and key
-    // (supports multiple loras).
-    ops.def("batched_rotary_embedding",
-            &batched_rotary_embedding,
-            "batched_rotary_embedding(Tensor positions, Tensor! query,"
-            "                         Tensor! key, int head_size,"
-            "                         Tensor cos_sin_cache, bool is_neox,"
-            "                         int rot_dim,"
-            "                         Tensor cos_sin_cache_offsets) -> ()");
+    // Cache ops
+    ops.def("reshape_and_cache_new",
+            &reshape_and_cache_new,
+            "reshape_and_cache_new(Tensor key, Tensor value,"
+            "                  Tensor! key_cache, Tensor! value_cache,"
+            "                  Tensor slot_mapping,"
+            "                  str kv_cache_dtype,"
+            "                  float kv_scale,"
+            "                  float v_scale) -> ()");
 
     // Aligning the number of tokens to be processed by each expert such
     // that it is divisible by the block size.
