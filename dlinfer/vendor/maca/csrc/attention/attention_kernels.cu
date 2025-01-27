@@ -1537,6 +1537,9 @@ void paged_attention_v1_launcher(
     case 256:
       LAUNCH_PAGED_ATTENTION_V1_32N(256);
       break;
+    case 576:
+      LAUNCH_PAGED_ATTENTION_V1_32N(576);
+      break;
     default:
       TORCH_CHECK(false, "Unsupported head size: ", head_size);
       break;
