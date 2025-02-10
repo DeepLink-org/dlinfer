@@ -123,29 +123,26 @@ def prefill_attention(
         for i in range(batch):
             end = start + seq_qlen_list[i]
             single_seqlen = int(seq_qlen_list[i])
-
-            single_q = query[start:end].view(1, single_seqlen, -1)
-            single_k = key[start:end].reshape(1, single_seqlen, -1)
-            single_v = value[start:end].reshape(1, single_seqlen, -1)
-            single_o = attn_output[start:end].view(1, single_seqlen, -1)
-
+            single_q = (
+                query[start:end].view(single_seqlen, num_q_heads, -1).transpose(0, 1)
+            )
+            single_k = (
+                key[start:end].view(single_seqlen, num_kv_heads, -1).transpose(0, 1)
+            )
+            single_v = (
+                value[start:end].view(single_seqlen, num_kv_heads, -1).transpose(0, 1)
+            )
+            single_out = attn_output[start:end, :].view(single_seqlen, num_q_heads, -1)
             start = end
-            actual_seq_lengths = seq_qlen_list[i : i + 1]
-
-            torch.ops.npu_ext.npu_prompt_flash_attention_out(
-                single_q,
-                single_k,
-                single_v,
-                single_o,
-                padding_mask=None,
-                atten_mask=None,
-                actual_seq_lengths=actual_seq_lengths,
-                num_heads=num_q_heads,
-                scale_value=scale_value,
-                pre_tokens=2147473647,
-                next_tokens=0,
-                input_layout="BSH",
-                num_key_value_heads=num_kv_heads,
+            attn_weights = (
+                torch.matmul(single_q, single_k.transpose(-2, -1)) * scale_value
+            )
+            attn_weights += attn_mask[i].unsqueeze(0)
+            attn_probs = torch.softmax(attn_weights, dim=-1, dtype=torch.float32).to(
+                query.dtype
+            )
+            single_out[:] = (
+                torch.matmul(attn_probs, single_v).transpose(0, 1).contiguous()
             )
     else:
         raise ValueError(
