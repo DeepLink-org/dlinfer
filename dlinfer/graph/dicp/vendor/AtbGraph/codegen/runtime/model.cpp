@@ -5,9 +5,8 @@
 #include <algorithm>
 #include <fstream>
 
-#include "torch_npu/csrc/framework/OpCommand.h"
-
 #include "ops/operation_creator.h"
+#include "torch_npu/csrc/framework/OpCommand.h"
 #include "utils/config.h"
 #include "utils/log.h"
 #include "utils/tensor_utils.h"
@@ -141,7 +140,7 @@ atb::Tensor Model::CreateInternalTensorFromDesc(const atb::TensorDesc& tensorDes
 }
 
 Model::Model(const std::string& modelId, const std::string& modelPath) : modelId_(modelId), modelPath_(modelPath) {
-    const char *envStr = std::getenv("DICP_USE_TORCH_NPU_LAUNCHER");
+    const char* envStr = std::getenv("DICP_USE_TORCH_NPU_LAUNCHER");
     UseTorchNpuLauncher_ = (envStr != nullptr && std::string(envStr) == "1");
     auto st = BuildGraph();
     DICP_LOG_IF(st != atb::NO_ERROR, ERROR) << modelId_ << " init graph:\n" << graph_.ToString();

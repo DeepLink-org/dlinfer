@@ -86,7 +86,9 @@ class AtenToAtbTransformer(SingleOpTransformer):
     def __init__(self, gm):
         super().__init__(gm, conversions)
         self._register_binary_ops()
-        self.use_torch_npu_launcher = os.getenv("DICP_USE_TORCH_NPU_LAUNCHER", "0") != "0"
+        self.use_torch_npu_launcher = (
+            os.getenv("DICP_USE_TORCH_NPU_LAUNCHER", "0") != "0"
+        )
         self.graph_op_group = None
 
     def get_proxy(self, target, args, kwargs=immutable_dict()):
@@ -370,9 +372,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
         add = self.get_proxy(atb_op.Add, (x1, x2))
         if self.use_torch_npu_launcher and len(self.graph_op_group) > 0:
             op_tuple = tuple(self.graph_op_group.values())
-            graph = self.get_proxy(atb_op.Graph,
-                                   op_tuple,
-                                   {"output": add})
+            graph = self.get_proxy(atb_op.Graph, op_tuple, {"output": add})
         self.graph_op_group = OrderedDict()
         norm = self.get_proxy(atb_op.RmsNorm, (add, gamma, epsilon))
         # FIXME(tangzhiyi11): Temporarily disable graph op for MOE precision issues
