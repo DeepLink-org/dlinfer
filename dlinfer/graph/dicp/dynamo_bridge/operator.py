@@ -71,24 +71,7 @@ class Operator(ABC):
 
         fake_mode = self.get_fake_mode_from_args(new_args)
 
-        def make_faketensor(x):
-            if not isinstance(x, torch.Tensor) or (
-                isinstance(x, FakeTensor) and x.fake_mode == fake_mode
-            ):
-                return x
-            if isinstance(x, FakeTensor):
-                x.fake_mode = fake_mode
-                return x
-            return FakeTensor.from_tensor(x, fake_mode)
-
-        def make_cpu(x):
-            if isinstance(x, torch.Tensor):
-                return x.to("cpu")
-            return x
-
         with fake_mode:
-            new_args = tree_map(make_faketensor, new_args)
-            new_args = tree_map(make_cpu, new_args)
             try:
                 if hasattr(self, "infer_result"):
                     return self.infer_result(*new_args, **kwargs)
