@@ -6,7 +6,12 @@ from typing import Optional, Type, TypeVar, Any, List
 from lmdeploy.lite.quantization.modules.linear import WeightOnlyQLinear
 from lmdeploy.lite.utils.cal_qparams import QParams
 from lmdeploy.pytorch.distributed import get_world_rank
-from lmdeploy.pytorch.nn.linear import _chunk_align, MergedAwqLinear, AwqLinear
+from lmdeploy.pytorch.nn.linear import (
+    _chunk_align,
+    MergedAwqLinear,
+    AwqLinear,
+    QKVAwqLinear,
+)
 
 
 def AscendWeightOnlyQLinear__init__(
@@ -136,7 +141,7 @@ def AscendMergedAwqLinear__init__(
     self.split_section_wz = [size // elem_per_int for size in all_out_features]
 
     all_out_features = self._update_all_out_features(
-        all_out_features, w_bit, group_size, replicate
+        all_out_features, w_bit, group_size
     )
     self.all_out_features = all_out_features
     self.replicate = replicate
@@ -239,3 +244,4 @@ WeightOnlyQLinear.from_linear = classmethod(AscendWeightOnlyQLinear_from_linear)
 MergedAwqLinear.__init__ = AscendMergedAwqLinear__init__
 MergedAwqLinear.weight_loader = AscendMergedAwqLinear_weight_loader
 AwqLinear.create_weights = AscendAwqLinear_create_weights
+QKVAwqLinear.weight_loader = AscendMergedAwqLinear_weight_loader
