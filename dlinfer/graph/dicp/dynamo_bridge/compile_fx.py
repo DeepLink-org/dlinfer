@@ -80,7 +80,6 @@ def compile_fx_inner(
 
     gt = GraphTransformer(gm, backend)
     gt.transform()
-    gt.infer_shape_dtype(gt.gm)
     compiled_fn = gt.compile_to_fn()
 
     # aot autograd needs to know to pass in inputs as a list
