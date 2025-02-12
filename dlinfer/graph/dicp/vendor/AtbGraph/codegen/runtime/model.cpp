@@ -105,7 +105,7 @@ uint64_t Graph::findMaxUsedNodeId(const atb::Tensor& tensor, uint64_t startNodeI
 
                 int outTensorIdx = -1;
                 if (checkInplaceOutput(tensor, node, outTensorIdx)) {
-                    inplaceTensorsToCheck.push_back(std::make_pair(node.outTensors[outTensorIdx], nodeId));
+                    inplaceTensorsToCheck.emplace_back(node.outTensors[outTensorIdx], nodeId);
                 }
                 break;
             }
@@ -120,6 +120,18 @@ uint64_t Graph::findMaxUsedNodeId(const atb::Tensor& tensor, uint64_t startNodeI
     return maxNodeId;
 }
 
+uint64_t Graph::findFirstProducerNodeId(const atb::Tensor& tensor, uint64_t startNodeId) {
+    for (size_t nodeId = startNodeId; nodeId < nodes.size(); ++nodeId) {
+        const auto& node = nodes[nodeId];
+        for (const auto* outTensor : node.outTensors) {
+            if (&tensor == outTensor) {
+                return nodeId;
+            }
+        }
+    }
+    return 0;
+}
+
 void Graph::InitTensorMaxNodeMap() {
     std::map<atb::Tensor*, uint64_t> tensorMaxNodeIdMap;
     maxNodeIdTensorMap.clear();
@@ -127,6 +139,12 @@ void Graph::InitTensorMaxNodeMap() {
     for (size_t i = 0; i < internalTensors.size(); ++i) {
         atb::Tensor& internalTensor = internalTensors[i];
         uint64_t maxNodeId = findMaxUsedNodeId(internalTensor, 0);
+
+        // When internal tensor has no subsequent consumers, find its producer node to determine lifetime
+        if (maxNodeId == 0) {
+            maxNodeId = findFirstProducerNodeId(internalTensor, 0);
+        }
+
         tensorMaxNodeIdMap[&internalTensor] = maxNodeId;
         maxNodeIdTensorMap[maxNodeId].insert(&internalTensor);
     }
