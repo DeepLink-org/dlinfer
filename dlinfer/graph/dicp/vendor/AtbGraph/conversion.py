@@ -339,15 +339,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
 
     @register_conversion("torch.ops.dlinfer.silu_and_mul.default")
     def silu_and_mul(self, gate_up, dim):
-        split = self.get_proxy(atb_op.SplitSharing, (gate_up, [1, 1], dim))
-        gate = self.get_proxy(atb_op.GetItem, (split, 0))
-        up = self.get_proxy(atb_op.GetItem, (split, 1))
-        act = self.get_proxy(atb_op.Swish, (gate,))
-        mul = self.get_proxy(atb_op.Mul, (act, up))
-        graph = self.get_proxy(
-            atb_op.Graph, (split, gate, up, act, mul), {"output": mul}
-        )
-        return mul
+        return self.get_proxy(atb_op.Swiglu, (gate_up, dim))
 
     @register_conversion("torch.ops.dlinfer.add_rms_norm.default")
     def dlinfer_add_rms_norm(self, x1, x2, gamma, epsilon):
