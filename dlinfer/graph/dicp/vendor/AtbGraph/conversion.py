@@ -582,9 +582,6 @@ class AtenToAtbTransformer(SingleOpTransformer):
     def dlinfer_linear(self, x, weight, bias, all_reduce):
         if all_reduce == False:
             return self.get_proxy(atb_op.Linear, (x, weight, bias, False, True))
-        # else:
-        #     linear_res = self.get_proxy(atb_op.Linear, (x, weight, bias, False, True))
-        #     return self.get_proxy(atb_op.AllReduce, (linear_res, "sum"))
         return self.get_proxy(atb_op.LinearAllReduce, (x, weight, bias))
 
     @register_conversion(torch.ops.aten.index.Tensor)
