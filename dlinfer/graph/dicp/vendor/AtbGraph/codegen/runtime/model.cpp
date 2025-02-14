@@ -6,6 +6,7 @@
 #include <fstream>
 
 #include "ops/operation_creator.h"
+#include "torch_npu/csrc/framework/OpCommand.h"
 #include "utils/config.h"
 #include "utils/log.h"
 #include "utils/tensor_utils.h"
@@ -157,6 +158,8 @@ atb::Tensor Model::CreateInternalTensorFromDesc(const atb::TensorDesc& tensorDes
 }
 
 Model::Model(const std::string& modelId, const std::string& modelPath) : modelId_(modelId), modelPath_(modelPath) {
+    const char* envStr = std::getenv("DICP_USE_TORCH_NPU_LAUNCHER");
+    UseTorchNpuLauncher_ = (envStr != nullptr && std::string(envStr) == "1");
     auto st = BuildGraph();
     DICP_LOG_IF(st != atb::NO_ERROR, ERROR) << modelId_ << " init graph:\n" << graph_.ToString();
     graph_.Init();
@@ -279,7 +282,22 @@ atb::Status Model::ExecuteNode(int nodeId) {
 
     DICP_LOG(INFO) << modelId_ << "execute node[" << nodeId << "] start";
 
-    st = node.operation->Execute(node.variantPack, (uint8_t*)(node.workspace), node.workspaceSize, context_);
+    if (UseTorchNpuLauncher_) {
+        at_npu::native::OpCommand cmd;
+        std::string taskName = "DicpDecoderModel_" + modelId_ + std::to_string(nodeId);
+        std::function<int()> task = [&]() {
+            atb::Status tmp_st = node.operation->Execute(node.variantPack, (uint8_t*)(node.workspace), node.workspaceSize, context_);
+            if (tmp_st != 0) {
+                DICP_LOG(ERROR) << "op command execute node[" << nodeId << "] fail, error code: " << st;
+            }
+            return 0;
+        };
+        cmd.Name(taskName);
+        cmd.SetCustomHandler(task);
+        cmd.Run();
+    } else {
+        st = node.operation->Execute(node.variantPack, (uint8_t*)(node.workspace), node.workspaceSize, context_);
+    }
     if (st != 0) {
         DICP_LOG(ERROR) << "execute node[" << nodeId << "] fail, error code: " << st;
     }
