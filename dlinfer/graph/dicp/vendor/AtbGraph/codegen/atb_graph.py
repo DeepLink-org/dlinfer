@@ -1,10 +1,10 @@
 import copy
 import torch
 import json
-import time
-from typing import List, Dict, Set
+from typing import List, Dict, Set, Tuple, Optional, Iterable
 from collections import OrderedDict, defaultdict
 from functools import lru_cache
+import contextlib
 
 from dlinfer.graph.dicp.vendor.AtbGraph.codegen import atb_infer_param as infer_param
 from dlinfer.graph.dicp.dynamo_bridge.utils import process_sym_name
@@ -142,9 +142,9 @@ class SqueezeOperation(Operation):
         self.target_reshape_info = {}
 
 
-class GraphOpearation(Operation):
+class GraphOperation(Operation):
     def __init__(self, name: str):
-        super().__init__(name, "graphOpearation")
+        super().__init__(name, "GraphOperation")
         self.op_name = name
         self.op_type = "graphOperation"
         self.nodes: OrderedDict[str, Operation] = OrderedDict()
@@ -347,7 +347,7 @@ class GetItemPass(OptimizationPass):
 
         for name in graph.nodes.keys():
             node = graph.nodes[name]
-            if not isinstance(node, GraphOpearation):
+            if not isinstance(node, GraphOperation):
                 for idx, input in enumerate(node.inputs):
                     if input in getitem_replace:
                         node.inputs[idx] = getitem_replace[input]
@@ -364,236 +364,265 @@ class GetItemPass(OptimizationPass):
 
 
 class ReshapePass(OptimizationPass):
-    def _collect_reshape_nodes(self, graph: Graph) -> tuple[dict, dict, dict]:
-        view_replace = {}
-        unsqueeze_replace = {}
-        squeeze_replace = {}
+    def _collect_reshape_nodes(self, graph: Graph) -> Tuple[Dict[str, Operation], ...]:
+        reshape_ops = {
+            "viewOperation": {},
+            "unsqueezeOperation": {},
+            "squeezeOperation": {},
+        }
 
         for name in list(graph.nodes.keys()):
             node = graph.nodes[name]
-            if node.op_type == "viewOperation":
-                view_replace[node.op_name] = node
-                del graph.nodes[name]
-            elif node.op_type == "unsqueezeOperation":
-                unsqueeze_replace[node.op_name] = node
-                del graph.nodes[name]
-            elif node.op_type == "squeezeOperation":
-                squeeze_replace[node.op_name] = node
+            if node.op_type in reshape_ops:
+                reshape_ops[node.op_type][name] = node
                 del graph.nodes[name]
 
-        return view_replace, unsqueeze_replace, squeeze_replace
+        return tuple(reshape_ops.values())
 
     def _process_reshape_chain(
-        self, input_name: str, reshape_dict: dict, get_reshape_info=None
-    ) -> tuple[str, dict]:
-        if not input_name in reshape_dict:
+        self, input_name: str, reshape_nodes: dict, get_reshape_info=None
+    ) -> Tuple[str, Optional[Dict]]:
+        if input_name not in reshape_nodes:
             return input_name, None
 
+        current_node = reshape_nodes[input_name]
         reshape_info = (
-            get_reshape_info(reshape_dict[input_name])
+            get_reshape_info(current_node)
             if get_reshape_info
-            else reshape_dict[input_name].target_reshape_info
+            else current_node.target_reshape_info
         )
-        target_name = reshape_dict[input_name].inputs[0]
 
-        while target_name in reshape_dict:
-            input_name = target_name
-            target_name = reshape_dict[input_name].inputs[0]
-            if get_reshape_info:
+        target_name = current_node.inputs[0]
+        while target_name in reshape_nodes:
+            current_node = reshape_nodes[target_name]
+            if get_reshape_info and "dim" in reshape_info:
                 reshape_info["dim"].extend(
-                    get_reshape_info(reshape_dict[target_name])["dim"]
+                    get_reshape_info(current_node).get("dim", [])
                 )
+            target_name = current_node.inputs[0]
 
-        if get_reshape_info:
-            reshape_info["dim"] = list(reversed(reshape_info["dim"]))
+        if get_reshape_info and "dim" in reshape_info:
+            reshape_info["dim"].reverse()
 
         return target_name, reshape_info
 
     def _process_node_inputs(
         self, node, view_replace: dict, unsqueeze_replace: dict, squeeze_replace: dict
     ) -> tuple[bool, dict]:
-        need_reshape_input = False
+        reshape_handlers = {
+            "view": (view_replace, None),
+            "unsqueeze": (unsqueeze_replace, lambda x: x.target_reshape_info),
+            "squeeze": (squeeze_replace, lambda x: x.target_reshape_info),
+        }
+
+        need_reshape = False
         reshape_inputs = {}
 
         for idx, input_name in enumerate(node.inputs):
-            target_name = input_name
-            reshape_info = None
+            for op_type, (replace_dict, info_getter) in reshape_handlers.items():
+                if input_name not in replace_dict:
+                    continue
 
-            if input_name in view_replace:
-                target_name, reshape_info = self._process_reshape_chain(
-                    input_name, view_replace
+                target, info = self._process_reshape_chain(
+                    input_name, replace_dict, info_getter
                 )
+                if target != input_name:
+                    node.inputs[idx] = target
+                    if info:
+                        reshape_inputs[idx] = info
+                        need_reshape = True
 
-            elif input_name in unsqueeze_replace:
-                target_name, reshape_info = self._process_reshape_chain(
-                    input_name, unsqueeze_replace, lambda x: x.target_reshape_info
-                )
-
-            elif input_name in squeeze_replace:
-                target_name, reshape_info = self._process_reshape_chain(
-                    input_name, squeeze_replace, lambda x: x.target_reshape_info
-                )
-                if isinstance(
-                    node.inputs, torch.fx.immutable_collections.immutable_list
-                ):
+                if op_type == "squeeze" and isinstance(node.inputs, tuple):
                     node.inputs = list(node.inputs)
+                break
 
-            if target_name != input_name:
-                node.inputs[idx] = target_name
-                if reshape_info:
-                    reshape_inputs[idx] = reshape_info
-                    need_reshape_input = True
-
-        return need_reshape_input, reshape_inputs
+        return need_reshape, reshape_inputs
 
     def _update_node_reshape_inputs(
-        self, node, need_reshape_input: bool, reshape_inputs: dict
+        self, node, need_reshape: bool, reshape_inputs: dict
     ):
-        node.has_reshape_inputs = need_reshape_input
-        node.reshape_inputs = []
-        if need_reshape_input:
-            for idx, _ in enumerate(node.inputs):
-                if idx in reshape_inputs:
-                    node.reshape_inputs.append(reshape_inputs[idx])
-                else:
-                    node.reshape_inputs.append({"reshapeType": "None"})
-
-    def _process_graph_operation_outputs(
-        self,
-        node: GraphOpearation,
-        view_replace: dict,
-        unsqueeze_replace: dict,
-        squeeze_replace: dict,
-    ):
-        for idx, output in enumerate(node.outputs):
-            target_name = output
-
-            if output in view_replace:
-                target_name, _ = self._process_reshape_chain(output, view_replace)
-            elif output in unsqueeze_replace:
-                target_name, _ = self._process_reshape_chain(output, unsqueeze_replace)
-            elif output in squeeze_replace:
-                target_name, _ = self._process_reshape_chain(output, squeeze_replace)
-
-            if target_name != output:
-                node.outputs[idx] = target_name
+        node.has_reshape_inputs = need_reshape
+        node.reshape_inputs = (
+            [
+                reshape_inputs.get(idx, {"reshapeType": "None"})
+                for idx in range(len(node.inputs))
+            ]
+            if need_reshape
+            else []
+        )
 
     def run(self, graph: Graph, context: dict) -> Graph:
-        view_replace, unsqueeze_replace, squeeze_replace = self._collect_reshape_nodes(
-            graph
-        )
-        for name, node in graph.nodes.items():
-            if not isinstance(node, GraphOpearation):
-                need_reshape_input, reshape_inputs = self._process_node_inputs(
-                    node, view_replace, unsqueeze_replace, squeeze_replace
-                )
-                self._update_node_reshape_inputs(
-                    node, need_reshape_input, reshape_inputs
-                )
+        view, unsqueeze, squeeze = self._collect_reshape_nodes(graph)
+
+        for node in graph.nodes.values():
+            if isinstance(node, GraphOperation):
+                self._process_graph_outputs(node, view, unsqueeze, squeeze)
             else:
-                self._process_graph_operation_outputs(
-                    node, view_replace, unsqueeze_replace, squeeze_replace
+                need_reshape, reshape_map = self._process_node_inputs(
+                    node, view, unsqueeze, squeeze
                 )
+                self._update_node_reshape_inputs(node, need_reshape, reshape_map)
+
         return graph
+
+    def _process_graph_outputs(
+        self,
+        node: GraphOperation,
+        view: Dict[str, Operation],
+        unsqueeze: Dict[str, Operation],
+        squeeze: Dict[str, Operation],
+    ):
+        replace_dicts = (view, unsqueeze, squeeze)
+        for idx, output in enumerate(node.outputs):
+            for replace_dict in replace_dicts:
+                if output in replace_dict:
+                    target, _ = self._process_reshape_chain(output, replace_dict)
+                    if target != output:
+                        node.outputs[idx] = target
+                    break
 
 
 class GraphOperationPass(OptimizationPass):
-    def _collect_graph_nodes(self, graph: Graph) -> List[GraphOpearation]:
-        return [
-            node for node in graph.nodes.values() if isinstance(node, GraphOpearation)
-        ]
+    def _collect_graph_nodes(self, graph: Graph) -> List[GraphOperation]:
+        return list(n for n in graph.nodes.values() if isinstance(n, GraphOperation))
 
     def _process_node_tensors(
         self, node: Operation
-    ) -> tuple[List[str], List[str], List[str]]:
-        inputs = list(node.inputs)
-        outputs = list(node.outputs)
-        hosts = list(node.host_inputs) if node.has_host_inputs else []
-        return inputs, outputs, hosts
+    ) -> Tuple[List[str], List[str], List[str]]:
+        return (
+            node.inputs.copy(),
+            node.outputs.copy(),
+            node.host_inputs.copy() if node.has_host_inputs else [],
+        )
 
     def _handle_inplace_outputs(self, node: Operation) -> Dict[str, str]:
-        inplace_tensors = {}
-        if node.has_inplace_output:
-            for item in node.inplace_outputs:
-                output_idx = item["output_index"]
-                input_idx = item["input_index"]
-                inplace_tensors[node.outputs[output_idx]] = node.inputs[input_idx]
-        return inplace_tensors
+        if not node.has_inplace_output:
+            return {}
+        return {
+            node.outputs[item.get("output_index", -1)]: node.inputs[
+                item.get("input_index", -1)
+            ]
+            for item in node.inplace_outputs
+            if item.get("output_index") is not None
+            and item.get("input_index") is not None
+        }
+
+    def _update_infer_shape(self, graph_node: GraphOperation):
+        if not graph_node.has_infer_shape:
+            return
+
+        graph_node.infer_shape = {
+            "type": "equal",
+            "value": [
+                self._get_input_index(graph_node, node_id, tensor_id)
+                for node_id, tensor_id in graph_node.infer_shape["value"]
+            ],
+        }
+
+    def _get_input_index(
+        self, graph_node: GraphOperation, node_id: int, tensor_id: int
+    ) -> int:
+        node_name = graph_node.node_names[node_id]
+        input_name = graph_node.nodes[node_name].inputs[tensor_id]
+        try:
+            return graph_node.inputs.index(input_name)
+        except ValueError:
+            return -1
 
     def _update_graph_node(
         self,
-        graph_node: GraphOpearation,
+        graph_node: GraphOperation,
         hosts: List[str],
         inplace_tensors: Dict[str, str],
     ):
         graph_node.node_names = list(graph_node.nodes.keys())
+        self._update_infer_shape(graph_node)
 
-        if graph_node.has_infer_shape:
-            infer_shape = []
-            for node_id, tensor_id in graph_node.infer_shape["value"]:
-                node_name = graph_node.node_names[node_id]
-                input_name = graph_node.nodes[node_name].inputs[tensor_id]
-                infer_shape.append(graph_node.inputs.index(input_name))
-            graph_node.infer_shape = {"type": "equal", "value": infer_shape}
-
-        if hosts:
+        if host_list := self._unique(hosts):
             graph_node.has_host_inputs = True
-            graph_node.host_inputs = hosts
+            graph_node.host_inputs = host_list
 
         if inplace_tensors:
-            graph_node.has_inplace_output = True
-            for output_name, input_name in inplace_tensors.items():
-                if output_name not in graph_node.outputs:
-                    graph_node.outputs.append(output_name)
-                    if output_name in graph_node.internals:
-                        graph_node.internals.remove(output_name)
-                output_idx = graph_node.outputs.index(output_name)
-                input_idx = graph_node.inputs.index(input_name)
-                graph_node.add_inplace_output(output_idx, input_idx)
+            self._process_inplace_tensors(graph_node, inplace_tensors)
 
-    def _process_graph_node(self, graph: Graph, graph_node: GraphOpearation) -> None:
-        all_inputs, all_outputs, all_hosts = [], [], []
+    def _process_inplace_tensors(
+        self, graph_node: GraphOperation, inplace_tensors: Dict[str, str]
+    ):
+        graph_node.has_inplace_output = True
+        for output_name, input_name in inplace_tensors.items():
+            self._update_output_list(graph_node, output_name)
+            self._add_inplace_mapping(graph_node, output_name, input_name)
+
+    def _update_output_list(self, graph_node: GraphOperation, output_name: str):
+        if output_name not in graph_node.outputs:
+            graph_node.outputs.append(output_name)
+            with contextlib.suppress(ValueError):
+                graph_node.internals.remove(output_name)
+
+    def _add_inplace_mapping(
+        self, graph_node: GraphOperation, output_name: str, input_name: str
+    ):
+        output_idx = graph_node.outputs.index(output_name)
+        input_idx = graph_node.inputs.index(input_name)
+        graph_node.add_inplace_output(output_idx, input_idx)
+
+    def _process_graph_node(self, graph: Graph, graph_node: GraphOperation) -> None:
+        accumulators = defaultdict(list)
         inplace_tensors = {}
 
         for node_name in graph_node.node_names:
-            if node_name not in graph.nodes:
+            if (node := graph.nodes.pop(node_name, None)) is None:
                 continue
 
-            node = graph.nodes[node_name]
-            graph_node.nodes[node_name] = node
-            del graph.nodes[node_name]
+            self._process_single_node(
+                graph, graph_node, node, accumulators, inplace_tensors
+            )
 
-            inputs, outputs, hosts = self._process_node_tensors(node)
-            all_inputs.extend(inputs)
-            all_outputs.extend(outputs)
-            all_hosts.extend(hosts)
+        input_set = set(accumulators["outputs"])
+        graph_inputs = [
+            x for x in self._unique(accumulators["inputs"]) if x not in input_set
+        ]
 
-            if node.special_constants_map:
-                graph.update_special_constants(node.special_constants_map)
+        self._finalize_graph_node(
+            graph_node, accumulators, graph_inputs, inplace_tensors
+        )
 
-            inplace_tensors.update(self._handle_inplace_outputs(node))
+    def _process_single_node(
+        self, graph, graph_node, node, accumulators, inplace_tensors
+    ):
+        graph_node.nodes[node.op_name] = node
+        inputs, outputs, hosts = self._process_node_tensors(node)
 
-        all_inputs = list(dict.fromkeys(all_inputs))
-        all_outputs = list(dict.fromkeys(all_outputs))
-        all_hosts = list(dict.fromkeys(all_hosts))
+        accumulators["inputs"].extend(inputs)
+        accumulators["outputs"].extend(outputs)
+        accumulators["hosts"].extend(hosts)
 
-        graph_inputs = [x for x in all_inputs if x not in all_outputs]
+        if node.special_constants_map:
+            graph.special_constants_map.update(node.special_constants_map)
+
+        inplace_tensors.update(self._handle_inplace_outputs(node))
+
+    def _finalize_graph_node(
+        self, graph_node, accumulators, graph_inputs, inplace_tensors
+    ):
         graph_internals = [
             x
-            for x in all_outputs
+            for x in self._unique(accumulators["outputs"])
             if x not in graph_inputs and x not in graph_node.outputs
         ]
 
         graph_node.set_inputs(graph_inputs)
         graph_node.set_outputs(graph_node.outputs + graph_internals)
         graph_node.set_internals([])
+        self._update_graph_node(graph_node, accumulators["hosts"], inplace_tensors)
 
-        self._update_graph_node(graph_node, all_hosts, inplace_tensors)
+    @staticmethod
+    def _unique(items: Iterable) -> List:
+        return list(dict.fromkeys(items))
 
     def run(self, graph: Graph, context: dict) -> Graph:
         for graph_node in self._collect_graph_nodes(graph):
             self._process_graph_node(graph, graph_node)
-
         return graph
 
 
@@ -638,12 +667,14 @@ class OptGraph:
     def _process_node_inputs(
         self, graph: Graph, input_names: List[str], host_tensors: Set[str]
     ) -> tuple[List[Dict], List[str]]:
-        node_inputs_count = {input_name: 0 for input_name in input_names}
+        node_inputs_count = defaultdict(int)
         node_hosts = []
+
+        host_tensors_set = frozenset(host_tensors)
 
         for node_id, node in enumerate(graph.nodes.values()):
             for tensor_id, tensor_name in enumerate(node.inputs):
-                if tensor_name in host_tensors and node.has_host_inputs:
+                if tensor_name in host_tensors_set and node.has_host_inputs:
                     node_hosts.append(
                         {
                             "nodeId": node_id,
@@ -651,13 +682,9 @@ class OptGraph:
                             "tensorName": tensor_name,
                         }
                     )
-                if tensor_name in node_inputs_count:
-                    node_inputs_count[tensor_name] += 1
+                node_inputs_count[tensor_name] += 1
 
-        used_inputs = [
-            input_name for input_name, count in node_inputs_count.items() if count > 0
-        ]
-
+        used_inputs = [k for k in input_names if node_inputs_count[k] > 0]
         return node_hosts, used_inputs
 
     def _categorize_tensors(
