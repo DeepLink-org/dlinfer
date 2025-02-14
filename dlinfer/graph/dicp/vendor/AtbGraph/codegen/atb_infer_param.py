@@ -38,7 +38,7 @@ class ElewiseType(IntEnum):
     ELEWISE_TANH = 20
 
 
-class ActivationType(Enum):
+class ActivationType(IntEnum):
     ACTIVATION_UNDEFINED = 0
     ACTIVATION_RELU = auto()
     ACTIVATION_GELU = auto()
@@ -314,7 +314,7 @@ class AclNnConcatParam:
 
 @dataclass
 class ActivationParam:
-    activationType: str = "ACTIVATION_UNDEFINED"
+    activationType: ActivationType = ActivationType.ACTIVATION_UNDEFINED
     scale: float = 1.0  # for Swish
     dim: int = -1  # for Swiglu
     geluMode: GeLUMode = GeLUMode.TANH_MODE

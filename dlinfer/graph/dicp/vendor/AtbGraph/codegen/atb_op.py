@@ -417,13 +417,14 @@ class AtbOverrides:
         op.host_inputs.append(context_len)
         return op
 
-    def AddRmsNorm(name, x1, x2, gamma, epsilon):
-        op = Operation(name, "AclNnAddRmsNormOperation")
-        param = infer_param.AddRmsNormParam()
-        param.epsilon = epsilon
+    def AddRmsNorm(name, x, residual, gamma, epsilon):
+        op = Operation(name, "RmsNormOperation")
+        param = infer_param.RmsNormParam()
+        param.layerType = infer_param.RmsNormType.RMS_NORM_PRENORM
+        param.preNormParam.epsilon = epsilon
         op.set_param(param)
-        op.set_input([x1, x2, gamma])
-        op.set_output([f"{name}__0", f"{name}__1", f"{name}__2"])
+        op.set_input([x, residual, gamma])
+        op.set_output([f"{name}__0", f"{name}__1"])
         return op
 
     def Transpose(name, x, perm):
@@ -469,7 +470,7 @@ class AtbOverrides:
     def Swish(name, x, scale=1.0, dim=-1):
         op = Operation(name, "ActivationOperation")
         param = infer_param.ActivationParam()
-        param.activationType = infer_param.ActivationType.ACTIVATION_SWISH.value
+        param.activationType = infer_param.ActivationType.ACTIVATION_SWISH
         param.scale = scale
         param.dim = dim
         op.set_param(param)
@@ -955,5 +956,15 @@ class AtbOverrides:
 
         op.set_input([permuted_tokens, sorted_indices, probs])
         op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def Swiglu(name, x, dim):
+        op = Operation(name, "ActivationOperation")
+        param = infer_param.ActivationParam()
+        param.activationType = infer_param.ActivationType.ACTIVATION_SWIGLU_FORWARD
+        param.dim = dim
+        op.set_param(param)
+        op.set_input([x])
         op.set_output([name])
         return op

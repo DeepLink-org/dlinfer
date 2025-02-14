@@ -252,6 +252,16 @@ class RmsNorm(Operator):
         return (x, x)
 
 
+class AddRmsNorm(Operator):
+    def __init__(
+        self,
+    ):
+        super().__init__("AddRmsNorm")
+
+    def infer_result(self, x, residual, gamma, eps):
+        return (x, x)
+
+
 class Rope(Operator):
     def __init__(
         self,
@@ -363,6 +373,16 @@ class Swish(Operator):
 
     def infer_result(self, x, scale=1.0, dim=-1):
         return x
+
+
+class Swiglu(Operator):
+    def __init__(self):
+        super().__init__("Swiglu")
+
+    def infer_result(self, x, dim):
+        x_shape = x.shape
+        x_shape[dim] = x_shape[dim] // 2
+        return torch.empty(x_shape, device=x.device, dtype=x.dtype)
 
 
 class Cast(Operator):
