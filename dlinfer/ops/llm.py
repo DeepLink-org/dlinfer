@@ -21,6 +21,10 @@ __all__ = [
     "weight_quant_matmul",
     "fused_moe",
     "linear",
+    "dynamic_quant",
+    "linear_w8a8",
+    "rms_norm_w8a8",
+    "add_rms_norm_w8a8",
 ]
 
 
@@ -613,3 +617,46 @@ def linear(
         Tensor: The output tensor of linear computation.
     """
     return vendor_ops_registry["linear"](x, weight, bias, all_reduce)
+
+
+def dynamic_quant(
+    x: Tensor, quant_dtype: torch.dtype, quant_granularity: str = "PER_TOKEN"
+) -> Tuple[Tensor, float]:
+    return vendor_ops_registry["dynamic_quant"](x, quant_dtype, quant_granularity)
+
+
+def linear_w8a8(
+    a: Tensor,
+    b: Tensor,
+    rms_scale: float,
+    linear_scale: float,
+    out_dtype: torch.dtype,
+    quant_dtype: torch.dtype,
+    bias: Tensor,
+) -> Tensor:
+    return vendor_ops_registry["linear_w8a8"](
+        a, b, rms_scale, linear_scale, out_dtype, quant_dtype, bias
+    )
+
+
+def rms_norm_w8a8(
+    hidden_states: Tensor,
+    weight: Tensor,
+    epsilon: float,
+    quant_dtype: torch.dtype,
+) -> Tensor:
+    return vendor_ops_registry["rms_norm_w8a8"](
+        hidden_states, weight, epsilon, quant_dtype
+    )
+
+
+def add_rms_norm_w8a8(
+    hidden_states: Tensor,
+    residual: Tensor,
+    weight: Tensor,
+    epsilon: float,
+    quant_dtype: torch.dtype,
+) -> Tuple[Tensor, float, Tensor]:
+    return vendor_ops_registry["add_rms_norm_w8a8"](
+        hidden_states, residual, weight, epsilon, quant_dtype
+    )
