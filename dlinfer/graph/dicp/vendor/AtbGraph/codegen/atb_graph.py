@@ -540,10 +540,8 @@ def parse_graph(
                         input_idx
                     ]
 
-        graph_inputs = list(set(graph_inputs))
-        graph_outputs = list(set(graph_outputs))
-        graph_internals = list(set(graph_internals))
-        graph_hosts = list(set(graph_hosts))
+        graph_inputs = list(dict.fromkeys(graph_inputs))
+        graph_hosts = list(dict.fromkeys(graph_hosts))
 
         graph_inputs = [x for x in graph_inputs if x not in graph_outputs]
         for k, v in inplace_tensor_to_real_tensor.items():
@@ -560,9 +558,11 @@ def parse_graph(
             for x in graph_outputs
             if x not in graph_inputs and x not in graph_node.outputs
         ]
+        graph_outputs = list(dict.fromkeys(graph_outputs + graph_internals))
 
         graph_node.set_inputs(graph_inputs)
-        graph_node.set_internals(graph_internals)
+        graph_node.set_internals([])
+        graph_node.set_outputs(graph_outputs)
         graph_node.node_names = list(graph_node.nodes.keys())
         if graph_node.has_infer_shape:
             infer_shape = []
