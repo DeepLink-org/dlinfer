@@ -626,7 +626,7 @@ class GraphOperationPass(OptimizationPass):
         return graph
 
 
-class OptGraph:
+class GraphOptimizer:
     def __init__(
         self, original_graph: Graph, input_names: List[str], output_names: List[str]
     ):
@@ -740,7 +740,7 @@ def parse_graph(
     output_data_nodes,
     py_output_names,
 ):
-    optimizer = OptGraph(graph, input_names, output_names)
+    optimizer = GraphOptimizer(graph, input_names, output_names)
     optimized_graph = optimizer.optimize()
 
     output_tensor_descs = make_output_tensor_desc(
