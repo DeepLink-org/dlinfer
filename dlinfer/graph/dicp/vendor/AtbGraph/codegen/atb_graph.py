@@ -1,8 +1,10 @@
 import copy
 import torch
 import json
-from typing import List
-from collections import OrderedDict
+import time
+from typing import List, Dict, Set
+from collections import OrderedDict, defaultdict
+from functools import lru_cache
 
 from dlinfer.graph.dicp.vendor.AtbGraph.codegen import atb_infer_param as infer_param
 from dlinfer.graph.dicp.dynamo_bridge.utils import process_sym_name
@@ -279,25 +281,11 @@ def get_input_data_node(node_list, node_name):
 def make_output_tensor_desc(
     output_names,
     output_data_nodes,
-    input_data_nodes,
-    graph_outputs,
-    inplace_tensor_dict,
-    inplace_tensor_with_shape_dict,
 ):
     output_tensor_descs = {"param": {}, "create": {}}
 
     def process_node(output_name, node, input_name=None, need_reshape=False):
         dims, dim_num = get_shape(node)
-        dims_prod = " * ".join(dims)
-        if node.name in inplace_tensor_with_shape_dict:
-            target_shape = [str(x) for x in inplace_tensor_with_shape_dict[node.name]]
-            if "-1" in target_shape:
-                other_prod = " * ".join(x for x in target_shape if x != "-1")
-                negtive_idx = target_shape.index("-1")
-                target_shape[negtive_idx] = f"({dims_prod}) // ({other_prod})"
-            dims = target_shape
-            dim_num = len(target_shape)
-            need_reshape = True
         dims_str = f'[{",".join(dims)}]'
         dtype = get_dtype(node)
         info = f""" {{"format": {AclFormat.ACL_FORMAT_ND.value}, "dtype": {dtype}, "dimNum": {dim_num}, "dims": {dims_str} }} """
@@ -312,22 +300,409 @@ def make_output_tensor_desc(
 
     for idx, output in enumerate(output_data_nodes):
         output_name = output_names[idx]
-        if output_name in inplace_tensor_dict:
-            input_name = inplace_tensor_dict[output_name]
-            input_node = get_input_data_node(input_data_nodes, input_name)
-            assert input_node is not None
-            process_node(output_name, input_node, input_name)
-        else:
-            process_node(output_name, output)
-
-    for output in graph_outputs:
-        if output not in output_names:
-            input_name = inplace_tensor_dict[output]
-            input_node = get_input_data_node(input_data_nodes, input_name)
-            assert input_node is not None
-            process_node(output, input_node, input_name)
+        process_node(output_name, output)
 
     return output_tensor_descs
+
+
+class OptimizationPass:
+    def run(self, graph: Graph, context: dict) -> Graph:
+        raise NotImplementedError
+
+    def _validate(self, graph: Graph):
+        pass
+
+
+class TuplePass(OptimizationPass):
+    def run(self, graph: Graph, context: dict) -> Graph:
+        tuple_replace = {}
+        for name in list(graph.nodes.keys()):
+            node = graph.nodes[name]
+            if isinstance(node, TupleOperation):
+                op_name = node.op_name
+                for idx, input in enumerate(node.inputs):
+                    key_name = f"{op_name}__{idx}"
+                    tuple_replace[key_name] = input
+                del graph.nodes[name]
+
+        context["tuple_replace"] = tuple_replace
+        return graph
+
+
+class GetItemPass(OptimizationPass):
+    def run(self, graph: Graph, context: dict) -> Graph:
+        getitem_replace = {}
+        tuple_replace = context.get("tuple_replace", {})
+
+        for name in list(graph.nodes.keys()):
+            node = graph.nodes[name]
+            if isinstance(node, GetItemOperation):
+                real_name = f"{node.inputs[0]}__{node.index}"
+                if real_name in tuple_replace:
+                    real_name = tuple_replace[real_name]
+                if real_name in getitem_replace:
+                    real_name = getitem_replace[real_name]
+                getitem_replace[node.outputs[0]] = real_name
+                del graph.nodes[name]
+
+        for name in graph.nodes.keys():
+            node = graph.nodes[name]
+            if not isinstance(node, GraphOpearation):
+                for idx, input in enumerate(node.inputs):
+                    if input in getitem_replace:
+                        node.inputs[idx] = getitem_replace[input]
+            else:
+                for idx, output in enumerate(node.outputs):
+                    if output in getitem_replace:
+                        node.outputs[idx] = getitem_replace[output]
+
+        for idx, output in enumerate(context["output_names"]):
+            if output in getitem_replace:
+                context["output_names"][idx] = getitem_replace[output]
+        context["getitem_replace"] = getitem_replace
+        return graph
+
+
+class ReshapePass(OptimizationPass):
+    def _collect_reshape_nodes(self, graph: Graph) -> tuple[dict, dict, dict]:
+        view_replace = {}
+        unsqueeze_replace = {}
+        squeeze_replace = {}
+
+        for name in list(graph.nodes.keys()):
+            node = graph.nodes[name]
+            if node.op_type == "viewOperation":
+                view_replace[node.op_name] = node
+                del graph.nodes[name]
+            elif node.op_type == "unsqueezeOperation":
+                unsqueeze_replace[node.op_name] = node
+                del graph.nodes[name]
+            elif node.op_type == "squeezeOperation":
+                squeeze_replace[node.op_name] = node
+                del graph.nodes[name]
+
+        return view_replace, unsqueeze_replace, squeeze_replace
+
+    def _process_reshape_chain(
+        self, input_name: str, reshape_dict: dict, get_reshape_info=None
+    ) -> tuple[str, dict]:
+        if not input_name in reshape_dict:
+            return input_name, None
+
+        reshape_info = (
+            get_reshape_info(reshape_dict[input_name])
+            if get_reshape_info
+            else reshape_dict[input_name].target_reshape_info
+        )
+        target_name = reshape_dict[input_name].inputs[0]
+
+        while target_name in reshape_dict:
+            input_name = target_name
+            target_name = reshape_dict[input_name].inputs[0]
+            if get_reshape_info:
+                reshape_info["dim"].extend(
+                    get_reshape_info(reshape_dict[target_name])["dim"]
+                )
+
+        if get_reshape_info:
+            reshape_info["dim"] = list(reversed(reshape_info["dim"]))
+
+        return target_name, reshape_info
+
+    def _process_node_inputs(
+        self, node, view_replace: dict, unsqueeze_replace: dict, squeeze_replace: dict
+    ) -> tuple[bool, dict]:
+        need_reshape_input = False
+        reshape_inputs = {}
+
+        for idx, input_name in enumerate(node.inputs):
+            target_name = input_name
+            reshape_info = None
+
+            if input_name in view_replace:
+                target_name, reshape_info = self._process_reshape_chain(
+                    input_name, view_replace
+                )
+
+            elif input_name in unsqueeze_replace:
+                target_name, reshape_info = self._process_reshape_chain(
+                    input_name, unsqueeze_replace, lambda x: x.target_reshape_info
+                )
+
+            elif input_name in squeeze_replace:
+                target_name, reshape_info = self._process_reshape_chain(
+                    input_name, squeeze_replace, lambda x: x.target_reshape_info
+                )
+                if isinstance(
+                    node.inputs, torch.fx.immutable_collections.immutable_list
+                ):
+                    node.inputs = list(node.inputs)
+
+            if target_name != input_name:
+                node.inputs[idx] = target_name
+                if reshape_info:
+                    reshape_inputs[idx] = reshape_info
+                    need_reshape_input = True
+
+        return need_reshape_input, reshape_inputs
+
+    def _update_node_reshape_inputs(
+        self, node, need_reshape_input: bool, reshape_inputs: dict
+    ):
+        node.has_reshape_inputs = need_reshape_input
+        node.reshape_inputs = []
+        if need_reshape_input:
+            for idx, _ in enumerate(node.inputs):
+                if idx in reshape_inputs:
+                    node.reshape_inputs.append(reshape_inputs[idx])
+                else:
+                    node.reshape_inputs.append({"reshapeType": "None"})
+
+    def _process_graph_operation_outputs(
+        self,
+        node: GraphOpearation,
+        view_replace: dict,
+        unsqueeze_replace: dict,
+        squeeze_replace: dict,
+    ):
+        for idx, output in enumerate(node.outputs):
+            target_name = output
+
+            if output in view_replace:
+                target_name, _ = self._process_reshape_chain(output, view_replace)
+            elif output in unsqueeze_replace:
+                target_name, _ = self._process_reshape_chain(output, unsqueeze_replace)
+            elif output in squeeze_replace:
+                target_name, _ = self._process_reshape_chain(output, squeeze_replace)
+
+            if target_name != output:
+                node.outputs[idx] = target_name
+
+    def run(self, graph: Graph, context: dict) -> Graph:
+        view_replace, unsqueeze_replace, squeeze_replace = self._collect_reshape_nodes(
+            graph
+        )
+        for name, node in graph.nodes.items():
+            if not isinstance(node, GraphOpearation):
+                need_reshape_input, reshape_inputs = self._process_node_inputs(
+                    node, view_replace, unsqueeze_replace, squeeze_replace
+                )
+                self._update_node_reshape_inputs(
+                    node, need_reshape_input, reshape_inputs
+                )
+            else:
+                self._process_graph_operation_outputs(
+                    node, view_replace, unsqueeze_replace, squeeze_replace
+                )
+        return graph
+
+
+class GraphOperationPass(OptimizationPass):
+    def _collect_graph_nodes(self, graph: Graph) -> List[GraphOpearation]:
+        return [
+            node for node in graph.nodes.values() if isinstance(node, GraphOpearation)
+        ]
+
+    def _process_node_tensors(
+        self, node: Operation
+    ) -> tuple[List[str], List[str], List[str]]:
+        inputs = list(node.inputs)
+        outputs = list(node.outputs)
+        hosts = list(node.host_inputs) if node.has_host_inputs else []
+        return inputs, outputs, hosts
+
+    def _handle_inplace_outputs(self, node: Operation) -> Dict[str, str]:
+        inplace_tensors = {}
+        if node.has_inplace_output:
+            for item in node.inplace_outputs:
+                output_idx = item["output_index"]
+                input_idx = item["input_index"]
+                inplace_tensors[node.outputs[output_idx]] = node.inputs[input_idx]
+        return inplace_tensors
+
+    def _update_graph_node(
+        self,
+        graph_node: GraphOpearation,
+        hosts: List[str],
+        inplace_tensors: Dict[str, str],
+    ):
+        graph_node.node_names = list(graph_node.nodes.keys())
+
+        if graph_node.has_infer_shape:
+            infer_shape = []
+            for node_id, tensor_id in graph_node.infer_shape["value"]:
+                node_name = graph_node.node_names[node_id]
+                input_name = graph_node.nodes[node_name].inputs[tensor_id]
+                infer_shape.append(graph_node.inputs.index(input_name))
+            graph_node.infer_shape = {"type": "equal", "value": infer_shape}
+
+        if hosts:
+            graph_node.has_host_inputs = True
+            graph_node.host_inputs = hosts
+
+        if inplace_tensors:
+            graph_node.has_inplace_output = True
+            for output_name, input_name in inplace_tensors.items():
+                if output_name not in graph_node.outputs:
+                    graph_node.outputs.append(output_name)
+                    if output_name in graph_node.internals:
+                        graph_node.internals.remove(output_name)
+                output_idx = graph_node.outputs.index(output_name)
+                input_idx = graph_node.inputs.index(input_name)
+                graph_node.add_inplace_output(output_idx, input_idx)
+
+    def _process_graph_node(self, graph: Graph, graph_node: GraphOpearation) -> None:
+        all_inputs, all_outputs, all_hosts = [], [], []
+        inplace_tensors = {}
+
+        for node_name in graph_node.node_names:
+            if node_name not in graph.nodes:
+                continue
+
+            node = graph.nodes[node_name]
+            graph_node.nodes[node_name] = node
+            del graph.nodes[node_name]
+
+            inputs, outputs, hosts = self._process_node_tensors(node)
+            all_inputs.extend(inputs)
+            all_outputs.extend(outputs)
+            all_hosts.extend(hosts)
+
+            if node.special_constants_map:
+                graph.update_special_constants(node.special_constants_map)
+
+            inplace_tensors.update(self._handle_inplace_outputs(node))
+
+        all_inputs = list(dict.fromkeys(all_inputs))
+        all_outputs = list(dict.fromkeys(all_outputs))
+        all_hosts = list(dict.fromkeys(all_hosts))
+
+        graph_inputs = [x for x in all_inputs if x not in all_outputs]
+        graph_internals = [
+            x
+            for x in all_outputs
+            if x not in graph_inputs and x not in graph_node.outputs
+        ]
+
+        graph_node.set_inputs(graph_inputs)
+        graph_node.set_outputs(graph_node.outputs + graph_internals)
+        graph_node.set_internals([])
+
+        self._update_graph_node(graph_node, all_hosts, inplace_tensors)
+
+    def run(self, graph: Graph, context: dict) -> Graph:
+        for graph_node in self._collect_graph_nodes(graph):
+            self._process_graph_node(graph, graph_node)
+
+        return graph
+
+
+class OptGraph:
+    def __init__(
+        self, original_graph: Graph, input_names: List[str], output_names: List[str]
+    ):
+        self.original_graph = original_graph
+        self.input_names = input_names.copy()
+        self.output_names = output_names.copy()
+        self.passes = [TuplePass(), GetItemPass(), ReshapePass(), GraphOperationPass()]
+        self.context = defaultdict(dict)
+        self.context.update(
+            {
+                "input_names": self.input_names,
+                "output_names": self.output_names,
+            }
+        )
+
+    def optimize(self) -> Graph:
+        processed_graph = copy.deepcopy(self.original_graph)
+        for pass_instance in self.passes:
+            processed_graph = pass_instance.run(processed_graph, self.context)
+        return self._finalize_graph(processed_graph)
+
+    def _collect_tensors(self, graph: Graph) -> tuple[Set[str], Set[str]]:
+        all_tensors = set()
+        host_tensors = set()
+
+        for node in graph.nodes.values():
+            all_tensors.update(node.inputs)
+            all_tensors.update(node.outputs)
+
+            if node.has_host_inputs:
+                host_tensors.update(node.host_inputs)
+
+            if node.special_constants_map:
+                graph.update_special_constants(node.special_constants_map)
+
+        return all_tensors, host_tensors
+
+    def _process_node_inputs(
+        self, graph: Graph, input_names: List[str], host_tensors: Set[str]
+    ) -> tuple[List[Dict], List[str]]:
+        node_inputs_count = {input_name: 0 for input_name in input_names}
+        node_hosts = []
+
+        for node_id, node in enumerate(graph.nodes.values()):
+            for tensor_id, tensor_name in enumerate(node.inputs):
+                if tensor_name in host_tensors and node.has_host_inputs:
+                    node_hosts.append(
+                        {
+                            "nodeId": node_id,
+                            "tensorId": tensor_id,
+                            "tensorName": tensor_name,
+                        }
+                    )
+                if tensor_name in node_inputs_count:
+                    node_inputs_count[tensor_name] += 1
+
+        used_inputs = [
+            input_name for input_name, count in node_inputs_count.items() if count > 0
+        ]
+
+        return node_hosts, used_inputs
+
+    def _categorize_tensors(
+        self,
+        all_tensors: Set[str],
+        node_inputs: List[str],
+        output_names: List[str],
+        special_constants: Dict,
+    ) -> tuple[List[str], List[str]]:
+        node_outputs = list(output_names)
+        node_internals = []
+
+        for tensor in all_tensors:
+            if (
+                tensor not in node_inputs
+                and tensor not in node_outputs
+                and tensor not in special_constants
+            ):
+                node_internals.append(tensor)
+
+        return node_outputs, node_internals
+
+    def _finalize_graph(self, graph: Graph) -> Graph:
+        input_names = self.context.get("input_names", [])
+        output_names = self.context.get("output_names", [])
+
+        all_tensors, host_tensors = self._collect_tensors(graph)
+
+        node_hosts, node_inputs = self._process_node_inputs(
+            graph, input_names, host_tensors
+        )
+
+        node_outputs, node_internals = self._categorize_tensors(
+            all_tensors, node_inputs, output_names, graph.special_constants_map
+        )
+
+        graph.set_inputs(node_inputs)
+        graph.set_outputs(node_outputs)
+        graph.set_internals(node_internals)
+        graph.set_hosts(node_hosts)
+
+        for name in graph.nodes:
+            graph.nodes[name] = graph.nodes[name].build()
+
+        return graph
 
 
 def parse_graph(
@@ -338,332 +713,19 @@ def parse_graph(
     output_data_nodes,
     py_output_names,
 ):
-    ## define new graph
-    # inplace replace
-    inplace_replace = {}
-    inplace_tensor_to_real_tensor = {}
-    for name in list(graph.nodes.keys()):
-        node = graph.nodes[name]
-        if node.op_type == "inplaceOperation":
-            if node.input_index != -1:
-                inplace_replace[node.outputs[0]] = (
-                    f"{node.inputs[0]}__{node.input_index}"
-                )
-            else:
-                inplace_replace[node.outputs[0]] = node.inputs[0]
-            if node.target_index != -1:
-                inplace_tensor_to_real_tensor[inplace_replace[node.outputs[0]]] = (
-                    f"{node.target}__{node.target_index}"
-                )
-            else:
-                inplace_tensor_to_real_tensor[inplace_replace[node.outputs[0]]] = (
-                    node.target
-                )
-            del graph.nodes[name]
-    for name in graph.nodes.keys():
-        node = graph.nodes[name]
-        if not isinstance(node, GraphOpearation):
-            for idx, input in enumerate(node.inputs):
-                if input in inplace_replace.keys():
-                    node.inputs[idx] = inplace_replace[input]
-            for idx, output in enumerate(node.outputs):
-                if output in inplace_replace.keys():
-                    node.outputs[idx] = inplace_replace[output]
-        else:
-            for idx, output in enumerate(node.outputs):
-                if output in inplace_replace.keys():
-                    node.outputs[idx] = inplace_replace[output]
-
-    # get tuple repalce
-    tuple_replace = {}
-    for name in list(graph.nodes.keys()):
-        node = graph.nodes[name]
-        if node.op_type == "tupleOperation":
-            op_name = node.op_name
-            for idx, input in enumerate(node.inputs):
-                key_name = f"{op_name}__{idx}"
-                tuple_replace[key_name] = input
-            del graph.nodes[name]
-
-    # get item replace
-    getitem_replace = {}
-    for name in list(graph.nodes.keys()):
-        node = graph.nodes[name]
-        if node.op_type == "getitemOperation":
-            real_name = f"{node.inputs[0]}__{node.index}"
-            if real_name in tuple_replace.keys():
-                real_name = tuple_replace[real_name]
-            if real_name in getitem_replace.keys():
-                real_name = getitem_replace[real_name]
-            getitem_replace[node.outputs[0]] = real_name
-            del graph.nodes[name]
-    for name in graph.nodes.keys():
-        node = graph.nodes[name]
-        if not isinstance(node, GraphOpearation):
-            for idx, input in enumerate(node.inputs):
-                if input in getitem_replace.keys():
-                    node.inputs[idx] = getitem_replace[input]
-        else:
-            for idx, output in enumerate(node.outputs):
-                if output in getitem_replace.keys():
-                    node.outputs[idx] = getitem_replace[output]
-    for idx, output in enumerate(output_names):
-        if output in getitem_replace.keys():
-            output_names[idx] = getitem_replace[output]
-
-    # view/unsqueeze/squeeze replace
-    view_replace = {}
-    unsqueeze_replace = {}
-    squeeze_replace = {}
-    for name in list(graph.nodes.keys()):
-        node = graph.nodes[name]
-        if node.op_type == "viewOperation":
-            view_replace[node.op_name] = node
-            del graph.nodes[name]
-        elif node.op_type == "unsqueezeOperation":
-            unsqueeze_replace[node.op_name] = node
-            del graph.nodes[name]
-        elif node.op_type == "squeezeOperation":
-            squeeze_replace[node.op_name] = node
-            del graph.nodes[name]
-    for name in graph.nodes.keys():
-        node = graph.nodes[name]
-        if not isinstance(node, GraphOpearation):
-            need_reshape_input = False
-            reshape_inputs = {}
-            for idx, input in enumerate(node.inputs):
-                if input in view_replace.keys():
-                    reshape_info = view_replace[input].target_reshape_info
-                    target_name = view_replace[input].inputs[0]
-                    while target_name in view_replace.keys():
-                        input = target_name
-                        target_name = view_replace[target_name].inputs[0]
-                    node.inputs[idx] = target_name
-                    reshape_inputs[idx] = reshape_info
-                    need_reshape_input = True
-                elif input in unsqueeze_replace.keys():
-                    reshape_info = unsqueeze_replace[input].target_reshape_info
-                    target_name = unsqueeze_replace[input].inputs[0]
-                    while target_name in unsqueeze_replace.keys():
-                        input = target_name
-                        target_name = unsqueeze_replace[target_name].inputs[0]
-                        reshape_info["dim"].extend(
-                            unsqueeze_replace[target_name].target_reshape_info["dim"]
-                        )
-                    reshape_info["dim"] = list(reversed(reshape_info["dim"]))
-                    node.inputs[idx] = target_name
-                    reshape_inputs[idx] = reshape_info
-                    need_reshape_input = True
-                elif input in squeeze_replace.keys():
-                    reshape_info = squeeze_replace[input].target_reshape_info
-                    target_name = squeeze_replace[input].inputs[0]
-                    while target_name in squeeze_replace.keys():
-                        input = target_name
-                        target_name = squeeze_replace[target_name].inputs[0]
-                        reshape_info["dim"].extend(
-                            squeeze_replace[target_name].target_reshape_info["dim"]
-                        )
-                    reshape_info["dim"] = list(reversed(reshape_info["dim"]))
-                    if isinstance(
-                        node.inputs, torch.fx.immutable_collections.immutable_list
-                    ):
-                        node.inputs = list(node.inputs)
-                    node.inputs[idx] = target_name
-                    reshape_inputs[idx] = reshape_info
-                    need_reshape_input = True
-
-            node.has_reshape_inputs = need_reshape_input
-            node.reshape_inputs = []
-            if need_reshape_input:
-                for idx, input in enumerate(node.inputs):
-                    if idx in reshape_inputs.keys():
-                        node.reshape_inputs.append(reshape_inputs[idx])
-                    else:
-                        node.reshape_inputs.append({"reshapeType": "None"})
-        else:
-            for idx, output in enumerate(node.outputs):
-                if output in view_replace.keys():
-                    target_name = view_replace[input].inputs[0]
-                    while target_name in view_replace.keys():
-                        input = target_name
-                        target_name = view_replace[target_name].inputs[0]
-                    node.outputs[idx] = target_name
-                elif output in unsqueeze_replace.keys():
-                    target_name = unsqueeze_replace[input].inputs[0]
-                    while target_name in unsqueeze_replace.keys():
-                        input = target_name
-                        target_name = unsqueeze_replace[target_name].inputs[0]
-                    node.outputs[idx] = target_name
-                elif output in squeeze_replace.keys():
-                    target_name = squeeze_replace[input].inputs[0]
-                    while target_name in squeeze_replace.keys():
-                        input = target_name
-                        target_name = squeeze_replace[target_name].inputs[0]
-                    node.outputs[idx] = target_name
-    view_replace_name_dict = {}
-    for k, v in view_replace.items():
-        view_replace_name_dict[k] = v.inputs[0]
-
-    # graph operation
-    graph_nodes: List[GraphOpearation] = []
-    for _, node in graph.nodes.items():
-        # if node.op_type == "graphOperation":
-        if isinstance(node, GraphOpearation):
-            graph_nodes.append(node)
-    for graph_node in graph_nodes:
-        graph_inputs = []
-        graph_outputs = []
-        graph_hosts = []
-        graph_internals = []
-        inplace_output_tensors = {}
-        for node_name in graph_node.node_names:
-            if node_name not in graph.nodes.keys():
-                continue
-            graph_node.nodes[node_name] = graph.nodes[node_name]
-            del graph.nodes[node_name]
-            node = graph_node.nodes[node_name]
-            for input in node.inputs:
-                graph_inputs.append(input)
-            for output in node.outputs:
-                graph_outputs.append(output)
-            if node.has_host_inputs:
-                graph_hosts.extend(node.host_inputs)
-            # handle special constant
-            if node.special_constants_map:
-                graph.update_special_constants(node.special_constants_map)
-            # handle inplace output
-            if node.has_inplace_output:
-                for item in node.inplace_outputs:
-                    output_idx = item["output_index"]
-                    input_idx = item["input_index"]
-                    inplace_output_tensors[node.outputs[output_idx]] = node.inputs[
-                        input_idx
-                    ]
-
-        graph_inputs = list(dict.fromkeys(graph_inputs))
-        graph_hosts = list(dict.fromkeys(graph_hosts))
-
-        graph_inputs = [x for x in graph_inputs if x not in graph_outputs]
-        for k, v in inplace_tensor_to_real_tensor.items():
-            v_in_input = v in graph_inputs
-            if not v_in_input:
-                while v in view_replace_name_dict.keys() and not v_in_input:
-                    v = view_replace_name_dict[v]
-                    v_in_input = v in graph_inputs
-            if v_in_input and k not in graph_node.outputs:
-                graph_node.outputs.append(k)
-
-        graph_internals = [
-            x
-            for x in graph_outputs
-            if x not in graph_inputs and x not in graph_node.outputs
-        ]
-        graph_outputs = list(dict.fromkeys(graph_outputs + graph_internals))
-
-        graph_node.set_inputs(graph_inputs)
-        graph_node.set_internals([])
-        graph_node.set_outputs(graph_outputs)
-        graph_node.node_names = list(graph_node.nodes.keys())
-        if graph_node.has_infer_shape:
-            infer_shape = []
-            for item in graph_node.infer_shape["value"]:
-                node_id, tensor_id = item
-                node_name = graph_node.node_names[node_id]
-                input_name = graph_node.nodes[node_name].inputs[tensor_id]
-                infer_shape.append(graph_node.inputs.index(input_name))
-            graph_node.infer_shape = {"type": "equal", "value": infer_shape}
-        if len(graph_hosts) > 0:
-            graph_node.has_host_inputs = True
-            graph_node.host_inputs = graph_hosts
-        if len(inplace_output_tensors) > 0:
-            graph_node.has_inplace_output = True
-            for output_name, input_name in inplace_output_tensors.items():
-                if output_name not in graph_node.outputs:
-                    graph_node.outputs.append(output_name)
-                    graph_node.internals.remove(output_name)
-
-                output_idx = graph_node.outputs.index(output_name)
-                input_idx = graph_node.inputs.index(input_name)
-                graph_node.add_inplace_output(output_idx, input_idx)
-
-    ## run graph
-    inplace_tensor_with_reshape = {}
-    for inplace_tensor, target_tensor in inplace_tensor_to_real_tensor.items():
-        if target_tensor in getitem_replace.keys():
-            target_tensor = getitem_replace[target_tensor]
-        if target_tensor in view_replace.keys():
-            target_shape = view_replace[target_tensor].target_shape
-            while target_tensor in view_replace.keys():
-                target_tensor = view_replace[target_tensor].inputs[0]
-            inplace_tensor_with_reshape[target_tensor] = target_shape
-        inplace_tensor_to_real_tensor[inplace_tensor] = target_tensor
-
-    all_tensors = []
-    host_tensors = []
-    for name, node in graph.nodes.items():
-        all_tensors.extend(node.inputs)
-        all_tensors.extend(node.outputs)
-        if node.has_host_inputs:
-            host_tensors.extend(node.host_inputs)
-        # handle special constant
-        if node.special_constants_map:
-            graph.update_special_constants(node.special_constants_map)
-    all_tensors = list(set(all_tensors))
-    host_tensors = list(set(host_tensors))
-
-    node_count = 0
-    node_hosts = []
-    node_inputs = []
-    node_inputs_count = {}
-    for input in input_names:
-        node_inputs_count[input] = 0
-
-    for name, node in graph.nodes.items():
-        for ti, t_name in enumerate(node.inputs):
-            if t_name in host_tensors and node.has_host_inputs:
-                node_hosts.append(
-                    {"nodeId": node_count, "tensorId": ti, "tensorName": t_name}
-                )
-            # elif t_name in node_inputs_count.keys():
-            #     node_inputs_count[t_name] = node_inputs_count[t_name] + 1
-            if t_name in node_inputs_count.keys():
-                node_inputs_count[t_name] = node_inputs_count[t_name] + 1
-        node_count = node_count + 1
-    for tensor, count in node_inputs_count.items():
-        if count > 0:
-            node_inputs.append(tensor)
-
-    node_outputs = copy.deepcopy(output_names)
-    node_internals = []
-    for k, v in inplace_tensor_to_real_tensor.items():
-        if v in node_inputs and k not in node_outputs:
-            node_outputs.append(k)
-    for tensor in all_tensors:
-        if (
-            tensor not in node_inputs
-            and tensor not in node_outputs
-            and tensor not in graph.special_constants_map
-        ):
-            node_internals.append(tensor)
-    graph.set_inputs(node_inputs)
-    graph.set_outputs(node_outputs)
-    graph.set_internals(node_internals)
-    graph.set_hosts(node_hosts)
-    for name in graph.nodes.keys():
-        graph.nodes[name] = graph.nodes[name].build()
+    optimizer = OptGraph(graph, input_names, output_names)
+    optimized_graph = optimizer.optimize()
 
     output_tensor_descs = make_output_tensor_desc(
-        output_names,
+        optimizer.context.get("output_names", {}),
         output_data_nodes,
-        input_data_nodes,
-        node_outputs,
-        inplace_tensor_to_real_tensor,
-        inplace_tensor_with_reshape,
     )
 
+    getitem_replace = optimizer.context.get("getitem_replace", {})
     for idx, tensor in enumerate(py_output_names):
-        if tensor in getitem_replace.keys():
+        if tensor in getitem_replace:
             py_output_names[idx] = getitem_replace[tensor]
-    graph.extend_inputs(graph.special_constants_map.keys())
 
-    return graph, output_tensor_descs, py_output_names
+    optimized_graph.extend_inputs(optimized_graph.special_constants_map.keys())
+
+    return optimized_graph, output_tensor_descs, py_output_names
