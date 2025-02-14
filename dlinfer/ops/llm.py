@@ -21,7 +21,7 @@ __all__ = [
     "weight_quant_matmul",
     "fused_moe",
     "linear",
-    "per_token_quant_int8",
+    "dynamic_quant",
     "linear_w8a8",
     "rms_norm_w8a8",
     "add_rms_norm_w8a8",
@@ -619,10 +619,10 @@ def linear(
     return vendor_ops_registry["linear"](x, weight, bias, all_reduce)
 
 
-def per_token_quant_int8(
-    x: Tensor,
+def dynamic_quant(
+    x: Tensor, quant_dtype: torch.dtype, quant_granularity: str = "PER_TOKEN"
 ) -> Tuple[Tensor, float]:
-    return vendor_ops_registry["per_token_quant_int8"](x)
+    return vendor_ops_registry["dynamic_quant"](x, quant_dtype, quant_granularity)
 
 
 def linear_w8a8(

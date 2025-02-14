@@ -27,7 +27,7 @@ __all__ = [
     "moe_gating_topk_softmax",
     "linear",
     "weight_quant_matmul",
-    "per_token_quant_int8",
+    "dynamic_quant",
     "linear_w8a8",
     "rms_norm_w8a8",
     "add_rms_norm_w8a8",
@@ -410,9 +410,11 @@ def weight_quant_matmul(
 
 
 @register_ops(vendor_ops_registry)
-def per_token_quant_int8(
-    x: Tensor,
+def dynamic_quant(
+    x: Tensor, quant_dtype: torch.dtype, quant_granularity: str = "PER_TOKEN"
 ):
+    assert quant_dtype == torch.int8
+    assert quant_granularity == "PER_TOKEN"
     x, input_scale, _ = vllm._custom_ops.scaled_int8_quant(x, None)
     return x, input_scale
 
