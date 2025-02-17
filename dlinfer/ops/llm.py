@@ -623,7 +623,7 @@ def dynamic_quant(
     x: Tensor, quant_dtype: torch.dtype, quant_granularity: str = "PER_TOKEN"
 ) -> Tuple[Tensor, float]:
     """
-     Perform dynamic quantization on a tensor.
+    Perform dynamic quantization on a tensor.
 
     Args:
         x (Tensor): The input tensor to be quantized.
@@ -635,7 +635,10 @@ def dynamic_quant(
             - "PER_TENSOR": Quantize the entire tensor as a whole.
 
     Returns:
-        Tensor: The quantized tensor.
+        Tuple[Tensor, float]: A tuple containing:
+            - The quantized tensor.
+            - The scaling factor used during quantization.
+
     """
     return vendor_ops_registry["dynamic_quant"](x, quant_dtype, quant_granularity)
 
@@ -716,7 +719,7 @@ def add_rms_norm_w8a8(
         Tuple[Tensor, float, Tensor]: A tuple containing:
             - The RMS-normalized, residual-added, and quantized tensor.
             - The scaling factor used during quantization.
-            - The residual.
+            - The residual tensor.
     """
     return vendor_ops_registry["add_rms_norm_w8a8"](
         hidden_states, residual, weight, epsilon, quant_dtype
