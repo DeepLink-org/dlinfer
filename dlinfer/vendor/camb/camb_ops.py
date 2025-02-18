@@ -303,12 +303,12 @@ def moe_gating_topk_softmax(router_logits: Tensor, topk: int) -> Tuple[Tensor, T
 @register_ops(vendor_ops_registry)
 def fused_moe(
     hidden_states: Tensor,
-    top_k: int,
-    topk_ids: Tensor,
-    topk_weights: Tensor,
     gate_up_weights: Tensor,
     down_weights: Tensor,
-    renormalize: bool = False,
+    topk_weights: Tensor,
+    topk_ids: Tensor,
+    top_k: int,
+    renormalize: bool,
 ) -> Tensor:
     num_experts = gate_up_weights.shape[0]
     if renormalize:
