@@ -368,6 +368,27 @@ def fused_moe(
     return out
 
 
+def _process_input_dim(x: Tensor, scale: Optional[Tensor] = None):
+    """
+    NOTE: Since torch_mlu_ops matmul kernels requires input to be tow dimension.
+    we need to reshape the input tensor to 2D tensor if it is 3D tensor.
+    scale is used for smooth_matmul and also has shape constraint.
+    """
+    bsz, seq_len = None, None
+    if x.dim() == 3:
+        bsz, seq_len, _ = x.size()
+        x = x.view(bsz * seq_len, -1)
+        if scale is not None:
+            scale = scale.view(bsz * seq_len)
+    return x, scale, bsz, seq_len
+
+
+def _process_output_dim(out: Tensor, bsz: int, seq_len: int):
+    if bsz is not None and seq_len is not None:
+        return out.view(bsz, seq_len, -1)
+    return out
+
+
 @register_ops(vendor_ops_registry)
 def linear(
     x: Tensor,
@@ -375,28 +396,12 @@ def linear(
     bias: Optional[Tensor],
     all_reduce: Optional[bool],
 ) -> Tensor:
-    if x.dim() == 2:
-        if all_reduce:
-            cncl_comm = (
-                torch.distributed.distributed_c10d._world.default_pg._get_backend(
-                    x.device
-                ).get_cncl_comm(x.device.index)
-            )
-            out = tmo.matmul_allreduce(cncl_comm, x, weight, bias)
-        else:
-            out = tmo.matmul(x, weight, bias)
-    elif x.dim() == 3:
-        bsz, seq_len, _ = x.size()
-        x_reshaped = x.view(bsz * seq_len, -1)
-        if all_reduce:
-            cncl_comm = (
-                torch.distributed.distributed_c10d._world.default_pg._get_backend(
-                    x.device
-                ).get_cncl_comm(x.device.index)
-            )
-            out = tmo.matmul_allreduce(cncl_comm, x_reshaped, weight, bias).view(
-                bsz, seq_len, -1
-            )
-        else:
-            out = tmo.matmul(x_reshaped, weight, bias).view(bsz, seq_len, -1)
-    return out
+    x, _, bsz, seq_len = _process_input_dim(x, None)
+    if all_reduce:
+        cncl_comm = torch.distributed.distributed_c10d._world.default_pg._get_backend(
+            x.device
+        ).get_cncl_comm(x.device.index)
+        out = tmo.matmul_allreduce(cncl_comm, x, weight, bias)
+    else:
+        out = tmo.matmul(x, weight, bias)
+    return _process_output_dim(out, bsz, seq_len)
