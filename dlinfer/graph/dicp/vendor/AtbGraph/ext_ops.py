@@ -48,7 +48,7 @@ def allreduce(
 
 @allreduce.impl_abstract()
 def atb_allreduce_abstract(x, reduce_type):
-    return torch.ops._c10d_functional.all_reduce.default(x, reduce_type, 0)
+    return torch.ops._c10d_functional.all_reduce.default(x, reduce_type, "0")
 
 
 @allreduce.impl(["cpu", "cuda"])

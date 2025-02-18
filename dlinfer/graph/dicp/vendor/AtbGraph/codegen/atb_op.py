@@ -523,7 +523,7 @@ class AtbOverrides:
         param.concatDim = dim
         param.inputNum = len(x)
 
-        op.set_input(x)
+        op.set_input(list(x))
         op.set_param(param)
         op.set_output([name])
         return op
