@@ -17,7 +17,15 @@ __all__ = [
     "moe_gating_topk_softmax",
     "fused_moe",
     "linear",
+    "dynamic_quant",
+    "linear_w8a8",
+    "rms_norm_w8a8",
+    "add_rms_norm_w8a8",
 ]
+
+smooth_dic = (
+    {}
+)  # NOTE: This is a global variable that is used in the dynamic_quant function
 
 
 @register_ops(vendor_ops_registry)
@@ -368,6 +376,26 @@ def fused_moe(
     return out
 
 
+def _process_input_dim(x: Tensor, scale: Optional[Tensor] = None):
+    """
+    NOTE: Since torch_mlu_ops matmul kernels requires input to be tow dimension.
+    we need to reshape the input tensor to 2D tensor if it is 3D tensor.
+    """
+    bsz, seq_len = None, None
+    if x.dim() == 3:
+        bsz, seq_len, _ = x.size()
+        x = x.view(bsz * seq_len, -1)
+        if scale is not None:
+            scale = scale.view(bsz * seq_len)
+    return x, scale, bsz, seq_len
+
+
+def _process_output_dim(out: Tensor, bsz: int, seq_len: int):
+    if bsz is not None and seq_len is not None:
+        return out.view(bsz, seq_len, -1)
+    return out
+
+
 @register_ops(vendor_ops_registry)
 def linear(
     x: Tensor,
@@ -375,28 +403,92 @@ def linear(
     bias: Optional[Tensor],
     all_reduce: Optional[bool],
 ) -> Tensor:
-    if x.dim() == 2:
-        if all_reduce:
-            cncl_comm = (
-                torch.distributed.distributed_c10d._world.default_pg._get_backend(
-                    x.device
-                ).get_cncl_comm(x.device.index)
-            )
-            out = tmo.matmul_allreduce(cncl_comm, x, weight, bias)
-        else:
-            out = tmo.matmul(x, weight, bias)
-    elif x.dim() == 3:
-        bsz, seq_len, _ = x.size()
-        x_reshaped = x.view(bsz * seq_len, -1)
-        if all_reduce:
-            cncl_comm = (
-                torch.distributed.distributed_c10d._world.default_pg._get_backend(
-                    x.device
-                ).get_cncl_comm(x.device.index)
-            )
-            out = tmo.matmul_allreduce(cncl_comm, x_reshaped, weight, bias).view(
-                bsz, seq_len, -1
-            )
-        else:
-            out = tmo.matmul(x_reshaped, weight, bias).view(bsz, seq_len, -1)
-    return out
+    x, _, bsz, seq_len = _process_input_dim(x, None)
+    if all_reduce:
+        cncl_comm = torch.distributed.distributed_c10d._world.default_pg._get_backend(
+            x.device
+        ).get_cncl_comm(x.device.index)
+        out = tmo.matmul_allreduce(cncl_comm, x, weight, bias)
+    else:
+        out = tmo.matmul(x, weight, bias)
+    return _process_output_dim(out, bsz, seq_len)
+
+
+@register_ops(vendor_ops_registry)
+def dynamic_quant(
+    x: Tensor, quant_dtype: torch.dtype, quant_granularity: str = "PER_TOKEN"
+):
+    assert quant_dtype == torch.int8
+    assert quant_granularity == "PER_TOKEN"
+    if x.shape[-1] in smooth_dic:
+        smooth = smooth_dic[x.shape[-1]]
+    else:
+        smooth = torch.ones(x.shape[-1], dtype=torch.float32, device=x.device)
+        smooth_dic[x.shape[-1]] = smooth
+    return tmo.per_token_smooth_quantize(x, smooth=smooth)
+
+
+@register_ops(vendor_ops_registry)
+def linear_w8a8(
+    a: Tensor,
+    b: Tensor,
+    rms_scale: float,
+    linear_scale: float,
+    out_dtype: torch.dtype,
+    quant_dtype: torch.dtype = torch.int8,
+    bias: Tensor = None,
+):
+    assert quant_dtype == torch.int8
+    input_quant, input_scale, bsz, seq_len = _process_input_dim(a, rms_scale)
+    out = tmo.smooth_quant_matmul(
+        input_quant, input_scale, b, linear_scale, out_dtype, bias
+    )
+    return _process_output_dim(out, bsz, seq_len)
+
+
+@register_ops(vendor_ops_registry)
+def rms_norm_w8a8(
+    hidden_states: Tensor,
+    weight: Tensor,
+    epsilon: float,
+    quant_dtype: torch.dtype = torch.int8,
+):
+    assert quant_dtype == torch.int8
+    store_output_before_norm = False
+    normed_hidden_states = tmo.fused_rms_norm(
+        hidden_states,
+        None,
+        weight,
+        None,
+        None,
+        epsilon,
+        store_output_before_norm,
+        None,
+        None,
+    )
+    x, rms_scale = dynamic_quant(normed_hidden_states, quant_dtype, "PER_TOKEN")
+    return x, rms_scale
+
+
+@register_ops(vendor_ops_registry)
+def add_rms_norm_w8a8(
+    hidden_states: Tensor,
+    residual: Tensor,
+    weight: Tensor,
+    epsilon: float,
+    quant_dtype: torch.dtype = torch.int8,
+):
+    assert quant_dtype == torch.int8
+    store_output_before_norm = True
+    normed_hidden_states, added_hidden_states = tmo.fused_rms_norm(
+        hidden_states,
+        residual,
+        weight,
+        None,
+        None,
+        epsilon,
+        store_output_before_norm,
+        None,
+    )
+    x, rms_scale = dynamic_quant(normed_hidden_states, quant_dtype, "PER_TOKEN")
+    return x, rms_scale, added_hidden_states
