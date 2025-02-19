@@ -6,13 +6,16 @@ import torch.distributed as dist
 
 from vllm import _custom_ops as custom_ops
 from flash_attn import flash_attn_varlen_func
+from vllm.attention.ops.prefix_prefill import context_attention_fwd
 
 from dlinfer.vendor import vendor_ops_registry
 from dlinfer.utils.registry import register_ops
 from dlinfer.utils.type_annotation import Tensor, Optional, Sequence, Tuple
 
 from .maca_extension import ops as maca_ext_ops
-from .context_flashattention import context_attention_fwd as context_attention_fwd
+from .context_flashattention import (
+    context_attention_fwd as context_attention_fwd_mla,
+)
 
 
 __all__ = [
@@ -120,8 +123,9 @@ def prefill_attention(
     if softmax_scale is None:
         softmax_scale = float(1 / math.sqrt(key.size(-1)))
 
-    # for deepseek v2 lite.
-    if query.shape[-1] == 576:
+    is_mla = key.size(-1) != value.size(-1)
+
+    if is_mla:
         batch_size = kv_seq_len.size(0)
         head_dim = query.shape[-1]
         nope_size = value.shape[-1]
@@ -152,8 +156,7 @@ def prefill_attention(
 
         # (seq_len, num_head, head_dim)
         attn_output = attn_output.transpose(1, 2).flatten(0, 1)
-        attn_output = attn_output[..., :nope_size].contiguous()
-        attn_output = attn_output.to(input_type)
+        attn_output = attn_output[..., :nope_size].to(input_type)
         return attn_output
 
     # for cogvlm vl part.
@@ -228,8 +231,9 @@ def paged_decode_attention(
     block_size = value_cache.size(-2)
     output = torch.empty_like(query)
 
-    # for deepseek v2 lite.
-    if query.size(-1) == 576:
+    is_mla = query.size(-1) == 576
+
+    if is_mla:
         value_cache = key_cache.transpose(2, 3).reshape(
             -1, num_kv_heads, 576, block_size
         )
@@ -254,7 +258,10 @@ def paged_decode_attention(
         1,  # blocksparse_block_size
         1,  # blocksparse_head_sliding_step
     )
-    return output[..., :512]
+    if is_mla:
+        return output[..., :512]
+    else:
+        return output
 
 
 @register_ops(vendor_ops_registry)
@@ -285,23 +292,40 @@ def paged_prefill_attention(
     if softmax_scale is None:
         softmax_scale = float(1 / math.sqrt(query.size(-1)))
 
-    num_blocks = key_cache.shape[0]
-    key_cache = key_cache.permute(0, 1, 2, 4, 3)
-    key_cache = key_cache.reshape(num_blocks, num_kv_heads, -1, block_size)
-
-    if query.size(-1) == 576:
-        value_cache = key_cache
-    else:
-        value_cache = value_cache.permute(0, 1, 3, 2)
-
+    output = torch.empty_like(query)
     context_lens = kv_seq_len - q_seq_len
 
-    output = torch.empty_like(query)
+    is_mla = key.size(-1) != value.size(-1)
+
+    if is_mla:
+        num_blocks = key_cache.shape[0]
+        key_cache = key_cache.permute(0, 1, 2, 4, 3).reshape(
+            num_blocks, num_kv_heads, -1, block_size
+        )
+        value_cache = key_cache
+        context_attention_fwd_mla(
+            query,
+            key,
+            value,
+            output,
+            key_cache,
+            value_cache,
+            b_loc=block_table,
+            b_start_loc=q_start_loc,
+            b_seq_len=kv_seq_len,
+            b_ctx_len=context_lens,
+            max_input_len=max_q_seq_len,
+            alibi_slopes=alibi_slopes,
+        )
+        return output[..., :512]
+
+    value_cache = value_cache.permute(0, 1, 3, 2)
     context_attention_fwd(
         query,
         key,
         value,
         output,
+        "auto",
         key_cache,
         value_cache,
         b_loc=block_table,
@@ -311,7 +335,7 @@ def paged_prefill_attention(
         max_input_len=max_q_seq_len,
         alibi_slopes=alibi_slopes,
     )
-    return output[..., :512]
+    return output
 
 
 @register_ops(vendor_ops_registry)
