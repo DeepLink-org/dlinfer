@@ -8,10 +8,10 @@
 #include "ops/operation_creator.h"
 #include "torch_npu/csrc/framework/OpCommand.h"
 #include "utils/config.h"
+#include "utils/global_dict.h"
 #include "utils/log.h"
 #include "utils/tensor_utils.h"
 #include "utils/workspace.h"
-
 namespace dicp {
 
 static bool IsTensorDescEqual(const atb::TensorDesc& tensorDesc, const atb::Tensor& atbTensor) {
@@ -161,6 +161,9 @@ Model::Model(const std::string& modelId, const std::string& modelPath) : modelId
     const char* envStr = std::getenv("DICP_USE_TORCH_NPU_LAUNCHER");
     UseTorchNpuLauncher_ = (envStr != nullptr && std::string(envStr) == "1");
     auto st = BuildGraph();
+
+    RegisterToGlobalDict(modelId_);
+
     DICP_LOG_IF(st != atb::NO_ERROR, ERROR) << modelId_ << " init graph:\n" << graph_.ToString();
     graph_.Init();
     DICP_LOG(INFO) << modelId_ << " init graph:\n" << graph_.ToString();
@@ -248,6 +251,15 @@ atb::Status Model::Execute(atb::Context* context, std::vector<atb::Tensor>& inTe
         auto tensorId = getValue<int32_t>(node, "tensorId");
         auto value = getValue<std::vector<int32_t>>(node, "value");
         nodeHostTensorMap_[nodeId][tensorId] = value;
+    }
+
+    // set global dict
+    SetGlobalDict(modelId_);
+    auto& symInputs = GetGlobalDictData();
+    for (const auto& node : paramJson["symInputs"]) {
+        auto key = getValue<std::string>(node, "name");
+        auto value = getValue<int32_t>(node, "value");
+        symInputs[key] = value;
     }
 
     ClearInternalTensors();

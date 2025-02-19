@@ -10,7 +10,7 @@ from dlinfer.graph.dicp.vendor.AtbGraph.codegen.atb_graph import (
     Operation,
     SqueezeOperation,
     GetItemOperation,
-    GraphOpearation,
+    GraphOperation,
     UnsqueezeOperation,
     InplaceOperation,
     ViewOperation,
@@ -303,7 +303,7 @@ class AtbOverrides:
                     continue
             graph_output_names.append(str(x))
 
-        op = GraphOpearation(name)
+        op = GraphOperation(name)
         op.set_node_names(list(args))
         op.set_output(graph_output_names)
         if infer_shape:
@@ -524,7 +524,7 @@ class AtbOverrides:
         param.concatDim = dim
         param.inputNum = len(x)
 
-        op.set_input(x)
+        op.set_input(list(x))
         op.set_param(param)
         op.set_output([name])
         return op
