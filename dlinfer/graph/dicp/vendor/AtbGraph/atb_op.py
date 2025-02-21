@@ -654,5 +654,5 @@ class NewEmpty(Operator):
     def __init__(self):
         super().__init__("NewEmpty")
 
-    def infer_result(self, x, size, size_for_infer):
-        return x.new_empty(size_for_infer)
+    def infer_result(self, x, size):
+        return x.new_empty(size)
