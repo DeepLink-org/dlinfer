@@ -173,7 +173,7 @@ class AtbCodegen(torch.fx.Interpreter):
                     value = self.sym_to_inputs[key]
                     call_body.writeline(f"{key} = {value}")
                     call_body.writeline(
-                        f"""symInputs.append('{{ "name": "{key}", "value": ' + str({key}) + ' }}')"""
+                        f"""symInputs.append('{{ "name": "{value}", "value": ' + str({key}) + ' }}')"""
                     )
 
         # gen fixed output shape

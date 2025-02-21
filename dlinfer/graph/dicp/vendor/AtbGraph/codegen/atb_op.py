@@ -968,3 +968,13 @@ class AtbOverrides:
         op.set_input([x])
         op.set_output([name])
         return op
+
+    def NewEmpty(name, x, size):
+        op = Operation(name, "NewEmptyOperation")
+        param = infer_param.NewEmptyParam()
+        param.name = name
+        param.size = [str(x) for x in size]
+        op.set_input([x])
+        op.set_param(param)
+        op.set_output([name])
+        return op
