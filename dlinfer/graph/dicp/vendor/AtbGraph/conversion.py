@@ -713,13 +713,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
 
     @register_conversion(torch.ops.aten.new_empty.default)
     def aten_new_empty(self, x, size, pin_memory=False):
-        processed_size = []
-        for item in size:
-            if isinstance(item, torch.fx.Proxy):
-                processed_size.append(str(item.node.meta["val"]))
-            else:
-                processed_size.append(str(item))
-        return self.get_proxy(atb_op.NewEmpty, (x, processed_size, size))
+        return self.get_proxy(atb_op.NewEmpty, (x, size))
 
 
 class ViewSymIntTransformer(torch.fx.Transformer):
