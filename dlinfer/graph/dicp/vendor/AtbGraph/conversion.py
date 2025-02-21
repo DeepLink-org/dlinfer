@@ -711,6 +711,16 @@ class AtenToAtbTransformer(SingleOpTransformer):
     def aten_zeros_like_default(self, x, pin_memory=False):
         return self.get_proxy(atb_op.ZerosLike, (x,))
 
+    @register_conversion(torch.ops.aten.new_empty.default)
+    def aten_new_empty(self, x, size, pin_memory=False):
+        processed_size = []
+        for item in size:
+            if isinstance(item, torch.fx.Proxy):
+                processed_size.append(str(item.node.meta["val"]))
+            else:
+                processed_size.append(str(item))
+        return self.get_proxy(atb_op.NewEmpty, (x, processed_size, size))
+
 
 class ViewSymIntTransformer(torch.fx.Transformer):
     def call_function(self, target, args, kwargs):
