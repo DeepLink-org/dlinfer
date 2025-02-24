@@ -443,6 +443,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
         max_kv_seq_len,
         block_size,
         mask,
+        softmax_scale,
         is_unpaged_prefill,
         kv_scales,
         kv_zeros,
