@@ -191,10 +191,16 @@ class AtenToAtbTransformer(SingleOpTransformer):
                     ),
                 ),
             )
-        out = self.get_proxy(
-            atb_op.ReshapeAndCache,
-            (key, value, key_cache, value_cache, kv_indices, is_mla),
-        )
+            out = self.get_proxy(
+                atb_op.ReshapeAndCache,
+                (key, value, key_cache, value_cache, kv_indices),
+            )
+        else:
+            out = self.get_proxy(
+                atb_op.MlaReshapeAndCache,
+                (key, key_cache, kv_indices),
+            )
+            out = self.get_proxy(atb_op.Tuple, (out, value_cache))
         return out
 
     @register_conversion("torch.ops.dlinfer.paged_decode_attention.default")

@@ -297,8 +297,16 @@ class ReshapeAndCache(Operator):
     def __init__(self):
         super().__init__("ReshapeAndCache")
 
-    def infer_result(self, key, value, key_cache, value_cache, kv_indices, is_mla):
+    def infer_result(self, key, value, key_cache, value_cache, kv_indices):
         return key_cache, value_cache
+
+
+class MlaReshapeAndCache(Operator):
+    def __init__(self):
+        super().__init__("MlaReshapeAndCache")
+
+    def infer_result(self, key, key_cache, kv_indices):
+        return key_cache
 
 
 class PagedAttention(Operator):

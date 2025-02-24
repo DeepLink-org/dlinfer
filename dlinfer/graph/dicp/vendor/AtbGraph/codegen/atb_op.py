@@ -392,20 +392,26 @@ class AtbOverrides:
         op.host_inputs.append(seqlen)
         return op
 
-    def ReshapeAndCache(name, key, value, key_cache, value_cache, kv_indices, is_mla):
+    def ReshapeAndCache(name, key, value, key_cache, value_cache, kv_indices):
         op = Operation(name, "ReshapeAndCacheOperation")
         param = infer_param.ReshapeAndCacheParam()
-        if is_mla:
-            param.KvCacheCfg = infer_param.ReshapeAndCacheKvCacheCfg.K_CACHE_V_BYPASS
-            op.set_input([key, key_cache, kv_indices])
-            op.set_output([name])
-            op.add_inplace_output(0, 1)
-        else:
-            param.KvCacheCfg = infer_param.ReshapeAndCacheKvCacheCfg.K_CACHE_V_CACHE
-            op.set_input([key, value, key_cache, value_cache, kv_indices])
-            op.set_output([f"{name}__0", f"{name}__1"])
-            op.add_inplace_output(0, 2)
-            op.add_inplace_output(1, 3)
+        param.KvCacheCfg = infer_param.ReshapeAndCacheKvCacheCfg.K_CACHE_V_CACHE
+        op.set_input([key, value, key_cache, value_cache, kv_indices])
+        op.set_output([f"{name}__0", f"{name}__1"])
+        op.add_inplace_output(0, 2)
+        op.add_inplace_output(1, 3)
+
+        op.set_param(param)
+        op.has_inplace_output = True
+        return op
+
+    def MlaReshapeAndCache(name, key, key_cache, kv_indices):
+        op = Operation(name, "ReshapeAndCacheOperation")
+        param = infer_param.ReshapeAndCacheParam()
+        param.KvCacheCfg = infer_param.ReshapeAndCacheKvCacheCfg.K_CACHE_V_BYPASS
+        op.set_input([key, key_cache, kv_indices])
+        op.set_output([name])
+        op.add_inplace_output(0, 1)
 
         op.set_param(param)
         op.has_inplace_output = True
