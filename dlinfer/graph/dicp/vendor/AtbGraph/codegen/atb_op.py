@@ -759,30 +759,54 @@ class AtbOverrides:
         op.target_reshape_info = {
             "reshapeType": "view",
             "dimNum": len(size),
-            "dims": size,
+            "dims": [str(x) for x in size],
         }
         return op
 
-    def Unsqueeze(name, input, dim):
-        op = UnsqueezeOperation(name)
-        op.add_input(input)
-        op.add_output(name)
-        op.dim = [dim]
-        op.target_reshape_info = {
-            "reshapeType": "unsqueeze",
-            "dim": [dim],
-        }
+    def Unsqueeze(name, input, dim, target_shape=None):
+        if target_shape is None:
+            op = UnsqueezeOperation(name)
+            op.add_input(input)
+            op.add_output(name)
+            op.dim = [dim]
+            op.target_reshape_info = {
+                "reshapeType": "unsqueeze",
+                "dim": [dim],
+            }
+        else:
+            size = target_shape
+            op = ViewOperation(name)
+            op.add_input(input)
+            op.add_output(name)
+            op.target_shape = size
+            op.target_reshape_info = {
+                "reshapeType": "view",
+                "dimNum": len(size),
+                "dims": [str(x) for x in size],
+            }
         return op
 
-    def Squeeze(name, input, dim):
-        op = SqueezeOperation(name)
-        op.add_input(input)
-        op.add_output(name)
-        op.dim = [dim]
-        op.target_reshape_info = {
-            "reshapeType": "squeeze",
-            "dim": [dim],
-        }
+    def Squeeze(name, input, dim, target_shape=None):
+        if target_shape is None:
+            op = SqueezeOperation(name)
+            op.add_input(input)
+            op.add_output(name)
+            op.dim = [dim]
+            op.target_reshape_info = {
+                "reshapeType": "squeeze",
+                "dim": [dim],
+            }
+        else:
+            size = target_shape
+            op = ViewOperation(name)
+            op.add_input(input)
+            op.add_output(name)
+            op.target_shape = size
+            op.target_reshape_info = {
+                "reshapeType": "view",
+                "dimNum": len(size),
+                "dims": [str(x) for x in size],
+            }
         return op
 
     def ReduceSum(name, x, dim):

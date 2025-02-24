@@ -175,6 +175,9 @@ class AtbCodegen(torch.fx.Interpreter):
                     call_body.writeline(
                         f"""symInputs.append('{{ "name": "{value}", "value": ' + str({key}) + ' }}')"""
                     )
+                    call_body.writeline(
+                        f"""symInputs.append('{{ "name": "{key}", "value": ' + str({key}) + ' }}')"""
+                    )
 
         # gen fixed output shape
         graph_input_names = self.atb_graph.inputs
