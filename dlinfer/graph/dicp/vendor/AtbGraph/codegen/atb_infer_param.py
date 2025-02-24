@@ -197,11 +197,17 @@ class ReshapeAndCacheCompressType(IntEnum):
     COMPRESS_TYPE_KVHEAD = 1
 
 
+class ReshapeAndCacheKvCacheCfg(IntEnum):
+    K_CACHE_V_CACHE = 0
+    K_CACHE_V_BYPASS = 1
+
+
 @dataclass
 class ReshapeAndCacheParam:
     compressType: ReshapeAndCacheCompressType = (
         ReshapeAndCacheCompressType.COMPRESS_TYPE_UNDEFINED
     )
+    KvCacheCfg: ReshapeAndCacheKvCacheCfg = ReshapeAndCacheKvCacheCfg.K_CACHE_V_CACHE
 
 
 class PagedAttentionMaskType(IntEnum):
@@ -231,6 +237,7 @@ class PagedAttentionParam:
     headNum: int = 0
     qkScale: float = 1.0
     kvHeadNum: int = 0
+    mlaVHeadSize: int = 0
     maskType: PagedAttentionMaskType = PagedAttentionMaskType.UNDEFINED
     batchRunStatusEnable: bool = False
     quantType: PagedAttentionQuantType = PagedAttentionQuantType.TYPE_QUANT_UNDEFINED
@@ -602,6 +609,28 @@ class ZerosParam:
     name: str = ""
     size: list[int] = field(default_factory=list)
     outTensorType: AclDataType = AclDataType.ACL_DT_UNDEFINED
+
+
+@dataclass
+class NewEmptyParam:
+    name: str = ""
+    size: list[int] = field(default_factory=list)
+
+
+@dataclass
+class SliceScatterParam:
+    name: str = ""
+    dim: int = 0
+    start: int = 0
+    end: int = -1
+    step: int = 1
+    rank: int = 0
+
+
+@dataclass
+class AclNnInplaceIndexCopyParam:
+    name: str = ""
+    dim: int = 0
 
 
 @dataclass

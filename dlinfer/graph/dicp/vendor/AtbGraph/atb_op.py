@@ -289,14 +289,15 @@ class SelfAttentionPAEncoder(Operator):
     def infer_result(
         self, query, key, value, seqlen, mask, q_head_num, kv_head_num, scale
     ):
-        return query
+        head_size_v = value.shape[-1] // kv_head_num
+        return query.new_empty((query.shape[0], q_head_num * head_size_v))
 
 
 class ReshapeAndCache(Operator):
     def __init__(self):
         super().__init__("ReshapeAndCache")
 
-    def infer_result(self, key, value, key_cache, value_cache, kv_indices):
+    def infer_result(self, key, value, key_cache, value_cache, kv_indices, is_mla):
         return key_cache, value_cache
 
 
@@ -315,8 +316,10 @@ class PagedAttention(Operator):
         q_head_num,
         kv_head_num,
         scale,
+        head_size,
+        head_size_v,
     ):
-        return query
+        return query.new_empty((query.shape[0], q_head_num, head_size_v))
 
 
 class Transpose(Operator):
@@ -564,6 +567,30 @@ class ZerosLike(Operator):
 
     def infer_result(self, x):
         return x
+
+
+class NewEmpty(Operator):
+    def __init__(self):
+        super().__init__("NewEmpty")
+
+    def infer_result(self, x, size):
+        return x.new_empty(size)
+
+
+class SliceScatter(Operator):
+    def __init__(self):
+        super().__init__("SliceScatter")
+
+    def infer_result(self, x, data, dim, start, end, step, rank):
+        return torch.slice_scatter(x, data, dim=dim, start=start, end=end, step=step)
+
+
+class AclNnInplaceIndexCopy(Operator):
+    def __init__(self):
+        super().__init__("AclNnInplaceIndexCopy")
+
+    def infer_result(self, x, data, dim=0, start=None, end=None, step=1, index=None):
+        return torch.slice_scatter(x, data, dim=dim, start=start, end=end, step=step)
 
 
 class Renormalize(Operator):

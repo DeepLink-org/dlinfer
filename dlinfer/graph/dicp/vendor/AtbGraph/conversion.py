@@ -168,7 +168,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
     ):
         key_cache_shape = key_cache.node.meta["val"].shape
         key_shape = key.node.meta["val"].shape
-        key_cache_reshaped = self.get_proxy(
+        key_cache = self.get_proxy(
             atb_op.View,
             (
                 key_cache,
@@ -177,21 +177,23 @@ class AtenToAtbTransformer(SingleOpTransformer):
         )
         value_cache_shape = value_cache.node.meta["val"].shape
         value_shape = value.node.meta["val"].shape
-        value_cache_reshaped = self.get_proxy(
-            atb_op.View,
-            (
-                value_cache,
+        is_mla = key_shape[-1] != value_shape[-1]
+        if not is_mla:
+            value_cache = self.get_proxy(
+                atb_op.View,
                 (
-                    value_cache_shape[0],
-                    value_cache_shape[1],
-                    value_shape[-2],
-                    value_shape[-1],
+                    value_cache,
+                    (
+                        value_cache_shape[0],
+                        value_cache_shape[1],
+                        value_shape[-2],
+                        value_shape[-1],
+                    ),
                 ),
-            ),
-        )
+            )
         out = self.get_proxy(
             atb_op.ReshapeAndCache,
-            (key, value, key_cache_reshaped, value_cache_reshaped, kv_indices),
+            (key, value, key_cache, value_cache, kv_indices, is_mla),
         )
         return out
 
@@ -214,19 +216,23 @@ class AtenToAtbTransformer(SingleOpTransformer):
         kv_zeros,
         quant_bits,
     ):
-        q_head_num = num_q_heads
-        kv_head_num = num_kv_heads
         scale = 1.0 / math.sqrt(query.node.meta["val"].shape[-1])
         k_shape = list(key_cache.node.meta["val"].shape)
         v_shape = list(value_cache.node.meta["val"].shape)
+        head_size = query.node.meta["val"].shape[-1]
         is_kv_require_reshape = len(k_shape) == 3 or len(v_shape) == 3
         if is_kv_require_reshape:
+            head_size_v = v_shape[-1] // num_kv_heads
             key_cache = self.get_proxy(
-                atb_op.View, (key_cache, (k_shape[0], k_shape[1], kv_head_num, -1))
+                atb_op.View,
+                (key_cache, (k_shape[0], k_shape[1], num_kv_heads, head_size)),
             )
             value_cache = self.get_proxy(
-                atb_op.View, (value_cache, (v_shape[0], v_shape[1], kv_head_num, -1))
+                atb_op.View,
+                (value_cache, (v_shape[0], v_shape[1], num_kv_heads, head_size_v)),
             )
+        else:
+            head_size_v = v_shape[-1]
         out = self.get_proxy(
             atb_op.PagedAttention,
             (
@@ -236,9 +242,11 @@ class AtenToAtbTransformer(SingleOpTransformer):
                 block_table,
                 kv_seq_len,
                 None,
-                q_head_num,
-                kv_head_num,
+                num_q_heads,
+                num_kv_heads,
                 scale,
+                head_size,
+                head_size_v,
             ),
         )
         return out
@@ -479,23 +487,21 @@ class AtenToAtbTransformer(SingleOpTransformer):
         if query.node.meta["val"].dtype != mask.node.meta["val"].dtype:
             mask = self.get_proxy(atb_op.Cast, (mask, query.node.meta["val"].dtype))
         if is_unpaged_prefill:
-            k_shape = key.node.meta["val"].shape
-            num_q_heads = query.node.meta["val"].shape[-2]
-            num_kv_heads = k_shape[-2]
-            kv_head_size = k_shape[-1]
+            _, num_q_heads, head_size = query.node.meta["val"].shape
+            _, num_kv_heads, head_size_v = value.node.meta["val"].shape
 
-            query = self.get_proxy(
-                atb_op.View, (query, [-1, num_q_heads * kv_head_size])
-            )
-            key = self.get_proxy(atb_op.View, (key, [-1, num_kv_heads * kv_head_size]))
+            query = self.get_proxy(atb_op.View, (query, [-1, num_q_heads * head_size]))
+            key = self.get_proxy(atb_op.View, (key, [-1, num_kv_heads * head_size]))
             value = self.get_proxy(
-                atb_op.View, (value, [-1, num_kv_heads * kv_head_size])
+                atb_op.View, (value, [-1, num_kv_heads * head_size_v])
             )
 
             out = self.get_proxy(
                 atb_op.SelfAttentionPAEncoder,
                 (query, key, value, kv_seq_len, mask, num_q_heads, num_kv_heads, scale),
             )
+            if head_size != head_size_v:
+                out = self.get_proxy(atb_op.View, (out, [-1, num_q_heads, head_size_v]))
         else:
             q_shape = list(query.node.meta["val"].shape)
             scale = 1.0 / math.sqrt(q_shape[-1])
@@ -738,6 +744,22 @@ class AtenToAtbTransformer(SingleOpTransformer):
     @register_conversion(torch.ops.aten.new_empty.default)
     def aten_new_empty(self, x, size, pin_memory=False):
         return self.get_proxy(atb_op.NewEmpty, (x, size))
+
+    @register_conversion(torch.ops.aten.slice_scatter.default)
+    def aten_slice_scatter(self, x, data, dim=0, start=None, end=None, step=1):
+        rank = len(x.node.meta["val"].shape)
+        out_dtype = fx_traceback.get_current_meta()["val"].dtype
+        x = self.get_proxy(atb_op.Cast, (x, torch.float))
+        data = self.get_proxy(atb_op.Cast, (data, torch.float))
+        return self.get_proxy(
+            atb_op.Cast,
+            (
+                self.get_proxy(
+                    atb_op.SliceScatter, (x, data, dim, start, end, step, rank)
+                ),
+                out_dtype,
+            ),
+        )
 
 
 class ViewSymIntTransformer(torch.fx.Transformer):

@@ -116,3 +116,17 @@ class TorchInplaceScatterTensor(BackendPatternBase):
     @staticmethod
     def replacement(x, dim, index, src):
         return torch.ops.atb.inplace_scatter.default(x, dim, index, src)
+
+
+# deepseek
+@register_torch_pattern_1
+class TorchViewUnsqueeze(BackendPatternBase):
+    @staticmethod
+    def pattern(x, size1, size2):
+        view = torch.ops.aten.view.default(x, (size1, size2))
+        unsqueeze = torch.ops.aten.unsqueeze.default(view, 0)
+        return unsqueeze
+
+    @staticmethod
+    def replacement(x, size1, size2):
+        return torch.ops.aten.view.default(x, (1, size1, size2))

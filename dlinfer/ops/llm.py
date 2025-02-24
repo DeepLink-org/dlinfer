@@ -204,9 +204,34 @@ def fill_kv_cache(
     )
 
 
+def paged_decode_attention_impl_abstract_func(
+    query: Tensor,
+    key_cache: Tensor,
+    value_cache: Tensor,
+    block_table: Tensor,
+    block_size: int,
+    kv_seq_len: Tensor,
+    max_kv_seq_len: int,
+    num_q_heads: int,
+    num_kv_heads: int,
+    softmax_scale: Optional[float],
+    alibi_slopes: Optional[Sequence[float]],
+    attn_output: Optional[Tensor],
+    kv_scales: Optional[Tensor],
+    kv_zeros: Optional[Tensor],
+    quant_bits: Optional[int],
+):
+    assert len(value_cache.shape) in (3, 4)
+    if len(value_cache.shape) == 3:
+        head_size_v = value_cache.shape[-1] // num_kv_heads
+    else:
+        head_size_v = value_cache.shape[-1]
+    return query.new_empty(query.shape[0], num_q_heads, head_size_v)
+
+
 @register_custom_op(
     "dlinfer::paged_decode_attention",
-    ["query"],
+    impl_abstract_func=paged_decode_attention_impl_abstract_func,
     default_value={
         "softmax_scale": None,
         "alibi_slopes": None,
@@ -588,7 +613,6 @@ def linear_impl_abstract_func(
 ) -> Tensor:
     shape_x = x.shape
     shape_w = weight.shape
-    rank_x = len(x.shape)
     rank_w = len(weight.shape)
     assert rank_w == 2, "weight in linear must be a 2D tensor"
     cx = shape_x[-1]
