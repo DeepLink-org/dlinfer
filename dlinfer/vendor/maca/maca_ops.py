@@ -102,7 +102,7 @@ def prefill_attention(
     value: Tensor,
     q_start_loc: Tensor,
     q_seq_len: Tensor,
-    max_q_seq_len: int,
+    max_q_seq_len: Tensor,
     num_q_heads: int,
     num_kv_heads: int,
     attn_mask: Sequence[Optional[Tensor]],
@@ -207,7 +207,7 @@ def paged_decode_attention(
     block_table: Optional[Tensor],
     block_size: int,
     kv_seq_len: Tensor,
-    max_kv_seq_len: int,
+    max_kv_seq_len: Tensor,
     num_q_heads: int,
     num_kv_heads: int,
     softmax_scale: Optional[float],
@@ -225,7 +225,7 @@ def paged_decode_attention(
     num_kv_heads = value_cache.size(1)
     block_size = value_cache.size(2)
     output = torch.empty_like(query)
-    custom_ops.paged_attention_v1(
+    maca_ext_ops.paged_attention_v1(
         output,
         query,
         key_cache,
@@ -263,8 +263,8 @@ def paged_prefill_attention(
     q_seq_len: Tensor,
     kv_seq_len: Tensor,
     cu_seq_lens_kv: Tensor,
-    max_q_seq_len: int,
-    max_kv_seq_len: int,
+    max_q_seq_len: Tensor,
+    max_kv_seq_len: Tensor,
     num_q_heads: int,
     num_kv_heads: int,
     attn_mask: Sequence[Optional[Tensor]],

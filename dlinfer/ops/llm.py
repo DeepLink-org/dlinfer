@@ -110,8 +110,8 @@ def prefill_attention(
     value: Tensor,
     q_start_loc: Tensor,
     q_seq_len: Tensor,
-    max_q_seq_len: int,
-    num_q_heads: int,
+    max_q_seq_len: Tensor,
+    num_q_heads: Tensor,
     num_kv_heads: int,
     attn_mask: Sequence[Optional[Tensor]],
     softmax_scale: Optional[float],
@@ -128,7 +128,7 @@ def prefill_attention(
         value (Tensor): The value tensor.
         q_start_loc (Tensor): The start location of each query sequence.
         q_seq_len (Tensor): The length of each query sequence.
-        max_q_seq_len (int): The maximum length of any query sequence.
+        max_q_seq_len (Tensor): The maximum length of any query sequence.
         num_q_heads (int): The number of query heads.
         num_kv_heads (int): The number of key/value heads.
         attn_mask (Sequence[Optional[Tensor]]): A sequence of optional attention masks, one for each batch.
@@ -223,7 +223,7 @@ def paged_decode_attention(
     block_table: Tensor,
     block_size: int,
     kv_seq_len: Tensor,
-    max_kv_seq_len: int,
+    max_kv_seq_len: Tensor,
     num_q_heads: int,
     num_kv_heads: int,
     softmax_scale: Optional[float],
@@ -245,7 +245,7 @@ def paged_decode_attention(
                               block in the key/value cache.
         block_size (int): The size of each block in the input sequence.
         kv_seq_len (Tensor): The length of each key/value sequence.
-        max_kv_seq_len (int): The maximum length of any key/value sequence.
+        max_kv_seq_len (Tensor): The maximum length of any key/value sequence.
         num_q_heads (int): The number of query heads.
         num_kv_heads (int): The number of key/value heads.
         softmax_scale (Optional[float]): The scale factor to apply to the attention logits before the softmax.
@@ -301,8 +301,8 @@ def paged_prefill_attention(
     q_seq_len: Tensor,
     kv_seq_len: Tensor,
     cu_seq_lens_kv: Tensor,
-    max_q_seq_len: int,
-    max_kv_seq_len: int,
+    max_q_seq_len: Tensor,
+    max_kv_seq_len: Tensor,
     num_q_heads: int,
     num_kv_heads: int,
     attn_mask: Sequence[Optional[Tensor]],
@@ -328,8 +328,8 @@ def paged_prefill_attention(
         q_seq_len (Tensor): The length of each query sequence.
         kv_seq_len (Tensor): The length of each key/value sequence.
         cu_seq_lens_kv (Tensor): The cumulative sequence lengths of the key/value sequences.
-        max_q_seq_len (int): The maximum length of any query sequence.
-        max_kv_seq_len (int): The maximum length of any key/value sequence.
+        max_q_seq_len (Tensor): The maximum length of any query sequence.
+        max_kv_seq_len (Tensor): The maximum length of any key/value sequence.
         num_q_heads (int): The number of query heads.
         num_kv_heads (int): The number of key/value heads.
         attn_mask (Sequence[Optional[Tensor]]): A sequence of optional attention masks, one for each batch.

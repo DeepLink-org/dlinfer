@@ -1463,7 +1463,7 @@ template <typename T, typename CACHE_T, int BLOCK_SIZE,
 void paged_attention_v1_launcher(
     torch::Tensor& out, torch::Tensor& query, torch::Tensor& key_cache,
     torch::Tensor& value_cache, int num_kv_heads, float scale,
-    torch::Tensor& block_tables, torch::Tensor& seq_lens, int max_seq_len,
+    torch::Tensor& block_tables, torch::Tensor& seq_lens, torch::Tensor& max_seq_len,
     const c10::optional<torch::Tensor>& alibi_slopes, float k_scale,
     float v_scale, const int tp_rank, const int blocksparse_local_blocks,
     const int blocksparse_vert_stride, const int blocksparse_block_size,
@@ -1494,8 +1494,9 @@ void paged_attention_v1_launcher(
 
   constexpr int NUM_WARPS = NUM_THREADS / WARP_SIZE;
   int padded_max_seq_len =
-      DIVIDE_ROUND_UP(max_seq_len, BLOCK_SIZE) * BLOCK_SIZE;
+      DIVIDE_ROUND_UP(512, BLOCK_SIZE) * BLOCK_SIZE;
   int logits_size = padded_max_seq_len * sizeof(float);
+
   int V_VEC_SIZE = 16 / sizeof(CACHE_T);
   int NUM_V_VECS_PER_THREAD = head_size / V_VEC_SIZE;
   int NUM_COLS_PER_ITER = MAX(WARP_SIZE / NUM_V_VECS_PER_THREAD, 1);
@@ -1590,7 +1591,7 @@ void paged_attention_v1(
     double scale,
     torch::Tensor& block_tables,  // [num_seqs, max_num_blocks_per_seq]
     torch::Tensor& seq_lens,      // [num_seqs]
-    int64_t block_size, int64_t max_seq_len,
+    int64_t block_size, torch::Tensor& max_seq_len,
     const c10::optional<torch::Tensor>& alibi_slopes,
     const std::string& kv_cache_dtype, double k_scale, double v_scale,
     const int64_t tp_rank, const int64_t blocksparse_local_blocks,
