@@ -222,7 +222,11 @@ class AtenToAtbTransformer(SingleOpTransformer):
         kv_zeros,
         quant_bits,
     ):
-        scale = 1.0 / math.sqrt(query.node.meta["val"].shape[-1])
+        scale = (
+            1.0 / math.sqrt(query.node.meta["val"].shape[-1])
+            if softmax_scale is None
+            else softmax_scale
+        )
         k_shape = list(key_cache.node.meta["val"].shape)
         v_shape = list(value_cache.node.meta["val"].shape)
         head_size = query.node.meta["val"].shape[-1]
@@ -479,11 +483,6 @@ class AtenToAtbTransformer(SingleOpTransformer):
         kv_zeros,
         quant_bits,
     ):
-        # k_cache = self.get_proxy(atb_op.View, (k_cache, [-1, block_size, num_kv_heads, kv_head_size]))
-        # v_cache = self.get_proxy(atb_op.View, (v_cache, [-1, block_size, num_kv_heads, kv_head_size]))
-        # fill_kv_cache = self.get_proxy(atb_op.ReshapeAndCache, (key, value, k_cache, v_cache, kv_start_indices_1d))
-        # inplace1 = self.get_proxy(atb_op.Inplace, (fill_kv_cache, k_cache, 0))
-        # inplace2 = self.get_proxy(atb_op.Inplace, (fill_kv_cache, v_cache, 1))
         mask = mask[0]
         scale = (
             softmax_scale
@@ -510,7 +509,6 @@ class AtenToAtbTransformer(SingleOpTransformer):
                 out = self.get_proxy(atb_op.View, (out, [-1, num_q_heads, head_size_v]))
         else:
             q_shape = list(query.node.meta["val"].shape)
-            scale = 1.0 / math.sqrt(q_shape[-1])
             k_cache_shape = list(k_cache.node.meta["val"].shape)
             k_shape = list(key.node.meta["val"].shape)
             v_cache_shape = list(v_cache.node.meta["val"].shape)
