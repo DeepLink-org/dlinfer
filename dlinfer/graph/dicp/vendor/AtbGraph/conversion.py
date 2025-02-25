@@ -455,7 +455,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
         # inplace1 = self.get_proxy(atb_op.Inplace, (fill_kv_cache, k_cache, 0))
         # inplace2 = self.get_proxy(atb_op.Inplace, (fill_kv_cache, v_cache, 1))
         mask = mask[0]
-        scale = 1.0 / math.sqrt(query.node.meta["val"].shape[-1])
+        scale = softmax_scale if softmax_scale else 1.0 / math.sqrt(query.node.meta["val"].shape[-1])
         if query.node.meta["val"].dtype != mask.node.meta["val"].dtype:
             mask = self.get_proxy(atb_op.Cast, (mask, query.node.meta["val"].dtype))
         if is_unpaged_prefill:
