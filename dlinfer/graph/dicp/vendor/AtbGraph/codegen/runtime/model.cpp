@@ -538,18 +538,37 @@ void Model::SetupReshapeFunctions(const nlohmann::json& reshapeInputs, atb::SVec
 
 void Model::SetupViewReshape(const nlohmann::json& reshapeInput, atb::ReshapeFunc& func) {
     auto dimNum = getValue<int32_t>(reshapeInput, "dimNum");
-    auto dims = getValue<std::vector<int32_t>>(reshapeInput, "dims");
+    auto dims_str = getValue<std::vector<std::string>>(reshapeInput, "dims");
+    std::vector<int64_t> dims;
+    dims.reserve(dims_str.size());
+    std::unordered_map<int64_t, std::string> dynamic_dims;
     bool needInferDim = false;
     size_t dimNeedInfer = 0;
-    for (size_t i = 0; i < dims.size(); ++i) {
-        if (dims[i] == -1) {
+    for (size_t i = 0; i < dims_str.size(); ++i) {
+        if (dims_str[i] == "-1") {
             needInferDim = true;
             dimNeedInfer = i;
-            break;
+            dims.push_back(-1);
+        } else if (!dims_str[i].empty() && !std::isdigit(dims_str[i][0])) {
+            dynamic_dims[i] = dims_str[i];
+            dims.push_back(-2);
+        } else {
+            dims.push_back(std::stoll(dims_str[i]));
         }
     }
     func = [=](const atb::Dims& oldShape, atb::Dims& newShape) {
         newShape.dimNum = dimNum;
+        if (dynamic_dims.size() > 0) {
+            auto& global_dict = GetGlobalDictData();
+            for (auto& d : dynamic_dims) {
+                auto it = global_dict.find(d.second);
+                if (it != global_dict.end()) {
+                    newShape.dims[d.first] = it->second;
+                } else {
+                    DICP_LOG(ERROR) << "cannot find key " << d.second << " in global_dict";
+                }
+            }
+        }
         if (needInferDim) {
             int64_t totalValue = 1;
             int64_t otherProd = 1;
@@ -557,14 +576,18 @@ void Model::SetupViewReshape(const nlohmann::json& reshapeInput, atb::ReshapeFun
                 totalValue *= oldShape.dims[i];
             }
             for (size_t i = 0; i < dims.size(); ++i) {
-                if (i != dimNeedInfer) {
+                if (dims[i] == -1) {
+                    continue;
+                } else if (dims[i] == -2) {
+                    otherProd *= newShape.dims[i];
+                } else if (i != dimNeedInfer) {
                     otherProd *= dims[i];
                 }
             }
             newShape.dims[dimNeedInfer] = totalValue / otherProd;
         }
         for (size_t i = 0; i < dims.size(); ++i) {
-            if (dims[i] != -1) {
+            if (dims[i] != -1 && dims[i] != -2) {
                 newShape.dims[i] = dims[i];
             }
         }

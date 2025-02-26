@@ -629,6 +629,12 @@ class AclNnGroupedMatmulParam:
     splitItem: int = 0
 
 
+@dataclass
+class NewEmptyParam:
+    name: str = ""
+    size: list[str] = field(default_factory=list)
+
+
 def custom_asdict_factory(data):
     def convert_value(obj):
         if isinstance(obj, IntEnum):
