@@ -6,6 +6,8 @@ from dlinfer.vendor import vendor_ops_registry
 from dlinfer.utils.registry import register_ops
 from dlinfer.utils.type_annotation import Tensor, Optional, Sequence, Tuple
 
+from .__init__ import SMOOTH_VEC
+
 __all__ = [
     "add_rms_norm",
     "apply_rotary_pos_emb",
@@ -22,10 +24,6 @@ __all__ = [
     "rms_norm_w8a8",
     "add_rms_norm_w8a8",
 ]
-
-smooth_dic = (
-    {}
-)  # NOTE: This is a global variable that is used in the dynamic_quant function
 
 
 @register_ops(vendor_ops_registry)
@@ -420,11 +418,12 @@ def dynamic_quant(
 ):
     assert quant_dtype == torch.int8
     assert quant_granularity == "PER_TOKEN"
-    if x.shape[-1] in smooth_dic:
-        smooth = smooth_dic[x.shape[-1]]
+    global SMOOTH_VEC
+    if x.shape[-1] <= SMOOTH_VEC.shape[0]:
+        smooth = SMOOTH_VEC[: x.shape[-1]]
     else:
         smooth = torch.ones(x.shape[-1], dtype=torch.float32, device=x.device)
-        smooth_dic[x.shape[-1]] = smooth
+        SMOOTH_VEC = smooth
     return tmo.per_token_smooth_quantize(x, smooth=smooth)
 
 
