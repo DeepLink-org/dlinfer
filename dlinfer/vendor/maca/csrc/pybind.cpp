@@ -18,6 +18,21 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     // vLLM custom ops
     pybind11::module ops = m.def_submodule("ops", "vLLM custom operators");
 
+    // Attention ops
+    // Compute the attention between an input query and the cached
+    // keys/values using PagedAttention.
+    ops.def("paged_attention_v1",
+            &paged_attention_v1,
+            "paged_attention_v1("
+            "    Tensor! out, Tensor query, Tensor key_cache,"
+            "    Tensor value_cache, int num_kv_heads, float scale,"
+            "    Tensor block_tables, Tensor seq_lens, int block_size,"
+            "    Tensor max_seq_len, Tensor? alibi_slopes,"
+            "    str kv_cache_dtype, float k_scale, float v_scale,"
+            "    int tp_rank, int blocksparse_local_blocks,"
+            "    int blocksparse_vert_stride, int blocksparse_block_size,"
+            "    int blocksparse_head_sliding_step) -> ()");
+
     // Rotary embedding
     // Apply GPT-NeoX or GPT-J style rotary embedding to query and key.
     ops.def("rotary_embedding",
