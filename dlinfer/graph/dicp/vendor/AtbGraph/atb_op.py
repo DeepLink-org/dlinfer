@@ -287,9 +287,18 @@ class SelfAttentionPAEncoder(Operator):
         super().__init__("SelfAttentionPAEncoder")
 
     def infer_result(
-        self, query, key, value, seqlen, mask, q_head_num, kv_head_num, scale
+        self,
+        query,
+        key,
+        value,
+        seqlen,
+        mask,
+        q_head_num,
+        kv_head_num,
+        head_size,
+        head_size_v,
+        scale,
     ):
-        head_size_v = value.shape[-1] // kv_head_num
         return query.new_empty((query.shape[0], q_head_num * head_size_v))
 
 
@@ -575,14 +584,6 @@ class ZerosLike(Operator):
 
     def infer_result(self, x):
         return x
-
-
-class NewEmpty(Operator):
-    def __init__(self):
-        super().__init__("NewEmpty")
-
-    def infer_result(self, x, size):
-        return x.new_empty(size)
 
 
 class SliceScatter(Operator):
