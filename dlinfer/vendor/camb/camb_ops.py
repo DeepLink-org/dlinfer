@@ -381,7 +381,7 @@ def _process_input_dim(x: Tensor, scale: Optional[Tensor] = None):
     original_shape = x.shape
     x = x.view(-1, x.shape[-1])
     if scale is not None:
-        scale = scale.view(-1)        
+        scale = scale.view(-1)
     return x, scale, original_shape
 
 
