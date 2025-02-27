@@ -379,15 +379,20 @@ def linear(
     weight: Tensor,
     bias: Optional[Tensor],
     all_reduce: Optional[bool],
+    out: Optional[Tensor]=None,
+    async_op: Optional[bool]=False,
 ) -> Tensor:
     if os.getenv("DLINER_LINEAR_USE_NN_LAYOUT", "0") == "1":
-        out = torch.matmul(x, weight)
+        if out is None:
+            out = torch.matmul(x, weight)
+        else:
+            torch.matmul(x, weight, out=out)
         if bias is not None:
             out += bias
     else:
         out = torch.nn.functional.linear(x, weight, bias)
     if all_reduce:
-        dist.all_reduce(out)
+        dist.all_reduce(out, async_op=async_op)
     return out
 
 

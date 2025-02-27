@@ -603,6 +603,8 @@ def linear(
     weight: Tensor,
     bias: Optional[Tensor],
     all_reduce: Optional[bool],
+    out: Optional[Tensor]=None,
+    async_op: Optional[bool]=False,
 ) -> Tensor:
     """
     Complete a linear computation.
@@ -616,7 +618,7 @@ def linear(
     Returns:
         Tensor: The output tensor of linear computation.
     """
-    return vendor_ops_registry["linear"](x, weight, bias, all_reduce)
+    return vendor_ops_registry["linear"](x, weight, bias, all_reduce, out, async_op)
 
 
 def dynamic_quant(
