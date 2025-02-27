@@ -503,7 +503,18 @@ class AtenToAtbTransformer(SingleOpTransformer):
 
             out = self.get_proxy(
                 atb_op.SelfAttentionPAEncoder,
-                (query, key, value, kv_seq_len, mask, num_q_heads, num_kv_heads, scale),
+                (
+                    query,
+                    key,
+                    value,
+                    kv_seq_len,
+                    mask,
+                    num_q_heads,
+                    num_kv_heads,
+                    head_size,
+                    head_size_v,
+                    scale,
+                ),
             )
             if head_size != head_size_v:
                 out = self.get_proxy(atb_op.View, (out, [-1, num_q_heads, head_size_v]))

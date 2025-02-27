@@ -366,7 +366,17 @@ class AtbOverrides:
         return op
 
     def SelfAttentionPAEncoder(
-        name, query, key, value, seqlen, mask, q_head_num, kv_head_num, scale
+        name,
+        query,
+        key,
+        value,
+        seqlen,
+        mask,
+        q_head_num,
+        kv_head_num,
+        head_size,
+        head_size_v,
+        scale,
     ):
         op = Operation(name, "SelfAttentionOperation")
         param = infer_param.SelfAttentionParam()
@@ -376,15 +386,22 @@ class AtbOverrides:
         param.clampType = infer_param.SelfAttentionClampType.CLAMP_TYPE_UNDEFINED
         param.headNum = q_head_num
         param.kvHeadNum = kv_head_num
+        param.mlaVHeadSize = 0 if head_size == head_size_v else head_size_v
         param.qkScale = scale
         param.isTriuMask = 1
 
         if mask is not None:
             param.maskType = infer_param.SelfAttentionMaskType.MASK_TYPE_NORM
-            op.set_input([query, key, value, mask, seqlen])
+            if param.mlaVHeadSize == 0:
+                op.set_input([query, key, value, mask, seqlen])
+            else:
+                op.set_input([query, key, mask, seqlen])
         else:
             param.maskType = infer_param.SelfAttentionMaskType.MASK_TYPE_UNDEFINED
-            op.set_input([query, key, value, seqlen])
+            if param.mlaVHeadSize == 0:
+                op.set_input([query, key, value, seqlen])
+            else:
+                op.set_input([query, key, seqlen])
 
         op.set_param(param)
         op.set_output([name])
@@ -924,17 +941,6 @@ class AtbOverrides:
         op = Operation(name, "ZerosLikeOperation")
         param = infer_param.OnlyNameParam()
         param.name = name
-
-        op.set_input([x])
-        op.set_param(param)
-        op.set_output([name])
-        return op
-
-    def NewEmpty(name, x, size):
-        op = Operation(name, "NewEmptyOperation")
-        param = infer_param.NewEmptyParam()
-        param.name = name
-        param.size = size
 
         op.set_input([x])
         op.set_param(param)

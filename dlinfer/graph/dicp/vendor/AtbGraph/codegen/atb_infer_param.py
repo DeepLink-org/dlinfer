@@ -180,6 +180,7 @@ class SelfAttentionMaskType(IntEnum):
 class SelfAttentionParam:
     headNum: int = 0
     kvHeadNum: int = 0
+    mlaVHeadSize: int = 0
     qScale: float = 1.0
     qkScale: float = 1.0
     batchRunStatusEnable: bool = False
