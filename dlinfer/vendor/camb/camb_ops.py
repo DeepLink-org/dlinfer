@@ -378,18 +378,16 @@ def _process_input_dim(x: Tensor, scale: Optional[Tensor] = None):
     NOTE: Since torch_mlu_ops matmul kernels requires input to be tow dimension.
     we need to reshape the input tensor to 2D tensor if it is 3D tensor.
     """
-    bsz, seq_len = None, None
-    if x.dim() == 3:
-        bsz, seq_len, _ = x.size()
-        x = x.view(bsz * seq_len, -1)
-        if scale is not None:
-            scale = scale.view(bsz * seq_len)
-    return x, scale, bsz, seq_len
+    original_shape = x.shape
+    x = x.view(-1, x.shape[-1])
+    if scale is not None:
+        scale = scale.view(-1)        
+    return x, scale, original_shape
 
 
-def _process_output_dim(out: Tensor, bsz: int, seq_len: int):
-    if bsz is not None and seq_len is not None:
-        return out.view(bsz, seq_len, -1)
+def _process_output_dim(out: Tensor, original_shape: Tuple[int, ...]):
+    if original_shape is not None:
+        return out.view(*original_shape[:-1], -1)
     return out
 
 
@@ -400,7 +398,7 @@ def linear(
     bias: Optional[Tensor],
     all_reduce: Optional[bool],
 ) -> Tensor:
-    x, _, bsz, seq_len = _process_input_dim(x, None)
+    x, _, original_shape = _process_input_dim(x, None)
     if all_reduce:
         cncl_comm = torch.distributed.distributed_c10d._world.default_pg._get_backend(
             x.device
@@ -408,7 +406,7 @@ def linear(
         out = tmo.matmul_allreduce(cncl_comm, x, weight, bias)
     else:
         out = tmo.matmul(x, weight, bias)
-    return _process_output_dim(out, bsz, seq_len)
+    return _process_output_dim(out, original_shape)
 
 
 @register_ops(vendor_ops_registry)
@@ -438,11 +436,11 @@ def linear_w8a8(
     bias: Tensor = None,
 ):
     assert quant_dtype == torch.int8
-    input_quant, input_scale, bsz, seq_len = _process_input_dim(a, rms_scale)
+    input_quant, input_scale, original_shape = _process_input_dim(a, rms_scale)
     out = tmo.smooth_quant_matmul(
         input_quant, input_scale, b, linear_scale, out_dtype, bias
     )
-    return _process_output_dim(out, bsz, seq_len)
+    return _process_output_dim(out, original_shape)
 
 
 @register_ops(vendor_ops_registry)
