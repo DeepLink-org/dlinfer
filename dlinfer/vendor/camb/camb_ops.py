@@ -418,10 +418,12 @@ def dynamic_quant(
     assert quant_dtype == torch.int8
     assert quant_granularity == "PER_TOKEN"
     from . import SMOOTH_VEC
+
     if x.shape[-1] > SMOOTH_VEC.shape[0]:
         from . import update_smooth
+
         SMOOTH_VEC = update_smooth(x.shape[-1])
-    smooth = SMOOTH_VEC[: x.shape[-1]]        
+    smooth = SMOOTH_VEC[: x.shape[-1]]
     return tmo.per_token_smooth_quantize(x, smooth=smooth)
 
 
