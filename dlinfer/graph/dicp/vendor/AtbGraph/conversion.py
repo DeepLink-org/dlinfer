@@ -518,11 +518,19 @@ class AtenToAtbTransformer(SingleOpTransformer):
 
     @register_conversion(torch.ops.aten.unsqueeze.default)
     def unsqueeze(self, x, dim):
-        return self.get_proxy(atb_op.Unsqueeze, (x, dim))
+        x_shape = list(x.node.meta["val"].shape)
+        target_dim = dim if dim >= 0 else dim + len(x_shape) + 1
+        x_shape.insert(target_dim, 1)
+        x_shape = [str(x) for x in x_shape]
+        return self.get_proxy(atb_op.Unsqueeze, (x, dim, x_shape))
 
     @register_conversion(torch.ops.aten.squeeze.dim)
     def squeeze(self, x, dim):
-        return self.get_proxy(atb_op.Squeeze, (x, dim))
+        x_shape = list(x.node.meta["val"].shape)
+        target_dim = dim if dim >= 0 else dim + len(x_shape)
+        x_shape.pop(target_dim)
+        x_shape = [str(x) for x in x_shape]
+        return self.get_proxy(atb_op.Squeeze, (x, dim, x_shape))
 
     @register_conversion(torch.ops.aten.select.int)
     def select_int(self, x, dim, index):
@@ -710,6 +718,10 @@ class AtenToAtbTransformer(SingleOpTransformer):
     @register_conversion(torch.ops.aten.zeros_like.default)
     def aten_zeros_like_default(self, x, pin_memory=False):
         return self.get_proxy(atb_op.ZerosLike, (x,))
+
+    @register_conversion(torch.ops.aten.new_empty.default)
+    def aten_new_empty(self, x, size, pin_memory=False):
+        return self.get_proxy(atb_op.NewEmpty, (x, size))
 
 
 class ViewSymIntTransformer(torch.fx.Transformer):
