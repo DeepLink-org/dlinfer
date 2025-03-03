@@ -339,7 +339,7 @@ class Unsqueeze(Operator):
     def __init__(self):
         super().__init__("Unsqueeze")
 
-    def infer_result(self, x, dim):
+    def infer_result(self, x, dim, target_shape=None):
         return x.unsqueeze(dim)
 
 
@@ -347,7 +347,7 @@ class Squeeze(Operator):
     def __init__(self):
         super().__init__("Squeeze")
 
-    def infer_result(self, x, dim):
+    def infer_result(self, x, dim, target_shape=None):
         return x.squeeze(dim)
 
 
@@ -648,3 +648,11 @@ class AclNnMoeTokenUnpermute(Operator):
         tokens_num = probs.size(0)
         hidden_size = permuted_tokens.size(1)
         return permuted_tokens.new_empty((tokens_num, hidden_size))
+
+
+class NewEmpty(Operator):
+    def __init__(self):
+        super().__init__("NewEmpty")
+
+    def infer_result(self, x, size):
+        return x.new_empty(size)
