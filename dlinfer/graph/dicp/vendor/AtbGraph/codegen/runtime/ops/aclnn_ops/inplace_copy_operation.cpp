@@ -1,4 +1,5 @@
 #include "inplace_copy_operation.h"
+
 #include "aclnnop/aclnn_copy.h"
 #include "utils/log.h"
 
@@ -11,8 +12,7 @@ AclNnInplaceCopyOperation::AclNnInplaceCopyOperation(const std::string& name) : 
 
 AclNnInplaceCopyOperation::~AclNnInplaceCopyOperation() {}
 
-atb::Status AclNnInplaceCopyOperation::InferShape(const atb::SVector<atb::TensorDesc>& inTensorDescs,
-                                                       atb::SVector<atb::TensorDesc>& outTensorDescs) const {
+atb::Status AclNnInplaceCopyOperation::InferShape(const atb::SVector<atb::TensorDesc>& inTensorDescs, atb::SVector<atb::TensorDesc>& outTensorDescs) const {
     outTensorDescs.at(0).format = inTensorDescs.at(0).format;
     outTensorDescs.at(0).shape.dimNum = inTensorDescs.at(0).shape.dimNum;
     outTensorDescs.at(0).dtype = inTensorDescs.at(0).dtype;
