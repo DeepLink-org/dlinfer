@@ -295,9 +295,9 @@ class SelfAttentionPAEncoder(Operator):
         mask,
         q_head_num,
         kv_head_num,
+        scale,
         head_size,
         head_size_v,
-        scale,
     ):
         return query.new_empty((query.shape[0], q_head_num, head_size_v))
 
