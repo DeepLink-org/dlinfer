@@ -9,8 +9,7 @@ namespace dicp {
 
 class SliceScatterOperation : public AclNnOperation {
 public:
-    explicit SliceScatterOperation(const std::string& name, std::vector<int64_t> beginVec, std::vector<int64_t> endVec, std::vector<int64_t> stridesVec,
-                                   std::vector<int64_t> axesVec);
+    explicit SliceScatterOperation(const std::string& name, int64_t dim, int64_t start, int64_t end, int64_t step);
     ~SliceScatterOperation() override;
 
     std::string GetName() const override;
@@ -20,8 +19,9 @@ public:
 
 protected:
     std::string opName_;
+    int64_t dim_, start_, end_, step_;
     mutable std::vector<int64_t> beginVec_, endVec_, stridesVec_, axesVec_;
-    mutable aclIntArray *begin_, *end_, *strides_, *axes_;
+    mutable aclIntArray *beginArray_, *endArray_, *stridesArray_, *axesArray_;
 
     int SetAclNnWorkspaceExecutor(uint64_t& workspaceSize) override;
     int CallAclExecute(uint8_t* workspace, uint64_t workspaceSize, aclOpExecutor* aclExecutor, aclrtStream stream) override;

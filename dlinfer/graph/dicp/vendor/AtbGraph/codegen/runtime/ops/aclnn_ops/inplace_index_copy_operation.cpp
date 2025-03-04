@@ -2,13 +2,10 @@
 
 #include "aclnnop/aclnn_index_copy.h"
 #include "utils/log.h"
-#include "utils/tensor_utils.h"
 
 namespace dicp {
 
-const int NUM0 = 0;
 const int NUM1 = 1;
-const int NUM2 = 2;
 const int NUM3 = 3;
 
 AclNnInplaceIndexCopyOperation::AclNnInplaceIndexCopyOperation(const std::string& name, int64_t dim) : AclNnOperation(name), dim_(dim) {}
@@ -32,7 +29,8 @@ uint32_t AclNnInplaceIndexCopyOperation::GetOutputNum() const { return NUM1; }
 
 int AclNnInplaceIndexCopyOperation::SetAclNnWorkspaceExecutor(uint64_t& workspaceSize) {
     DICP_LOG(INFO) << opName_ << " aclnnInplaceIndexCopyGetWorkspaceSize start";
-    int ret = aclnnInplaceIndexCopyGetWorkspaceSize(aclInTensors_.at(0).tensor, dim_, index_, aclInTensors_.at(2).tensor, &workspaceSize, &aclExecutor_);
+    int ret = aclnnInplaceIndexCopyGetWorkspaceSize(
+        aclInTensors_.at(0).tensor, dim_, aclInTensors_.at(1).tensor, aclInTensors_.at(2).tensor, &workspaceSize, &aclExecutor_);
     DICP_LOG(INFO) << opName_ << " aclnnInplaceIndexCopyGetWorkspaceSize end, ret:" << ret << ", workspaceSize:" << workspaceSize
                    << ", aclExecutor:" << aclExecutor_;
     return ret;

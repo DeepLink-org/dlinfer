@@ -625,7 +625,6 @@ class SliceScatterParam:
     start: int = 0
     end: int = -1
     step: int = 1
-    rank: int = 0
 
 
 @dataclass

@@ -299,7 +299,7 @@ class SelfAttentionPAEncoder(Operator):
         head_size_v,
         scale,
     ):
-        return query.new_empty((query.shape[0], q_head_num * head_size_v))
+        return query.new_empty((query.shape[0], q_head_num, head_size_v))
 
 
 class ReshapeAndCache(Operator):
@@ -590,7 +590,7 @@ class SliceScatter(Operator):
     def __init__(self):
         super().__init__("SliceScatter")
 
-    def infer_result(self, x, data, dim, start, end, step, rank):
+    def infer_result(self, x, data, dim, start, end, step):
         return torch.slice_scatter(x, data, dim=dim, start=start, end=end, step=step)
 
 
@@ -692,3 +692,19 @@ class NewEmpty(Operator):
 
     def infer_result(self, x, size):
         return x.new_empty(size)
+
+
+class EmptyLike(Operator):
+    def __init__(self):
+        super().__init__("NewEmpty")
+
+    def infer_result(self, x, size):
+        return x
+
+
+class AclNnInplaceCopy(Operator):
+    def __init__(self):
+        super().__init__("AclNnInplaceCopy")
+
+    def infer_result(self, dest, src):
+        return dest

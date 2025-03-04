@@ -928,7 +928,7 @@ class AtbOverrides:
         op.set_output([name])
         return op
 
-    def SliceScatter(name, x, data, dim, start, end, step, rank):
+    def SliceScatter(name, x, data, dim, start, end, step):
         op = Operation(name, "SliceScatterOperation")
         param = infer_param.SliceScatterParam()
         param.name = name
@@ -936,7 +936,6 @@ class AtbOverrides:
         param.start = start
         param.end = end
         param.step = step
-        param.rank = rank
 
         op.set_input([x, data])
         op.set_param(param)
@@ -1064,6 +1063,15 @@ class AtbOverrides:
         param.name = name
         param.size = [str(x) for x in size]
         op.set_input([x])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def AclNnInplaceCopy(name, dest, src):
+        op = Operation(name, "AclNnInplaceCopyOperation")
+        param = infer_param.OnlyNameParam()
+        param.name = name
+        op.set_input([dest, src])
         op.set_param(param)
         op.set_output([name])
         return op
