@@ -6,11 +6,8 @@
 #include <unistd.h>
 
 #include <cstring>
-#include <iostream>
-#include <sstream>
 #include <vector>
 
-#include "acl/acl.h"
 #include "aclnnop/aclnn_permute.h"
 #include "utils/common.h"
 #include "utils/log.h"

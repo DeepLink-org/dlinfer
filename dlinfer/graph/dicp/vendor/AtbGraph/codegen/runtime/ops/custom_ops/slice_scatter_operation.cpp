@@ -10,14 +10,27 @@
 
 namespace dicp {
 
+const int NUM0 = 0;
 const int NUM1 = 1;
 const int NUM2 = 2;
 
-SliceScatterOperation::SliceScatterOperation(const std::string& name, std::vector<int64_t> beginVec, std::vector<int64_t> endVec,
-                                             std::vector<int64_t> stridesVec, std::vector<int64_t> axesVec)
-    : AclNnOperation(name), opName_(name), beginVec_(beginVec), endVec_(endVec), stridesVec_(stridesVec), axesVec_(axesVec) {}
+SliceScatterOperation::SliceScatterOperation(const std::string& name, int64_t dim, int64_t start, int64_t end, int64_t step)
+    : AclNnOperation(name), opName_(name), dim_(dim), start_(start), end_(end), step_(step) {}
 
-SliceScatterOperation::~SliceScatterOperation() {}
+SliceScatterOperation::~SliceScatterOperation() {
+    if (beginArray_ != nullptr) {
+        aclDestroyIntArray(beginArray_);
+    }
+    if (endArray_ != nullptr) {
+        aclDestroyIntArray(endArray_);
+    }
+    if (stridesArray_ != nullptr) {
+        aclDestroyIntArray(stridesArray_);
+    }
+    if (axesArray_ != nullptr) {
+        aclDestroyIntArray(axesArray_);
+    }
+}
 
 std::string SliceScatterOperation::GetName() const { return opName_; }
 
@@ -26,16 +39,22 @@ atb::Status SliceScatterOperation::InferShape(const atb::SVector<atb::TensorDesc
     outTensorDescs.at(0).format = inTensorDescs.at(0).format;
     outTensorDescs.at(0).shape.dimNum = inTensorDescs.at(0).shape.dimNum;
     outTensorDescs.at(0).dtype = inTensorDescs.at(0).dtype;
+    auto rank = inTensorDescs.at(0).shape.dimNum;
+    beginVec_.resize(rank), endVec_.resize(rank);
+    stridesVec_.resize(rank), axesVec_.resize(rank);
     for (size_t i = 0; i < outTensorDescs.at(0).shape.dimNum; ++i) {
         outTensorDescs.at(0).shape.dims[i] = inTensorDescs.at(0).shape.dims[i];
-        endVec_.at(i) = endVec_[i] == -1 ? inTensorDescs.at(0).shape.dims[i] : endVec_[i];
+        beginVec_.at(i) = i == dim_ ? start_ : NUM0;
+        endVec_.at(i) = i == dim_ ? end_ : outTensorDescs.at(0).shape.dims[i];
+        stridesVec_.at(i) = NUM1;
+        axesVec_.at(i) = i;
     }
     DICP_LOG(INFO) << "SliceScatterOperationCreate: name: " << opName_ << ", begin:" << vectorToString(beginVec_) << ", end:" << vectorToString(endVec_)
                    << ", strides:" << vectorToString(stridesVec_) << ", axes:" << vectorToString(axesVec_);
-    begin_ = aclCreateIntArray(beginVec_.data(), beginVec_.size());
-    end_ = aclCreateIntArray(endVec_.data(), endVec_.size());
-    strides_ = aclCreateIntArray(stridesVec_.data(), stridesVec_.size());
-    axes_ = aclCreateIntArray(axesVec_.data(), axesVec_.size());
+    beginArray_ = aclCreateIntArray(beginVec_.data(), beginVec_.size());
+    endArray_ = aclCreateIntArray(endVec_.data(), endVec_.size());
+    stridesArray_ = aclCreateIntArray(stridesVec_.data(), stridesVec_.size());
+    axesArray_ = aclCreateIntArray(axesVec_.data(), axesVec_.size());
     return 0;
 }
 
@@ -46,7 +65,7 @@ uint32_t SliceScatterOperation::GetOutputNum() const { return NUM1; }
 int SliceScatterOperation::SetAclNnWorkspaceExecutor(uint64_t& workspaceSize) {
     DICP_LOG(INFO) << opName_ << " aclnnStridedSliceAssignV2GetWorkspaceSize start";
     int ret = aclnnStridedSliceAssignV2GetWorkspaceSize(
-        aclInTensors_.at(0).tensor, aclInTensors_.at(1).tensor, begin_, end_, strides_, axes_, &workspaceSize, &aclExecutor_);
+        aclInTensors_.at(0).tensor, aclInTensors_.at(1).tensor, beginArray_, endArray_, stridesArray_, axesArray_, &workspaceSize, &aclExecutor_);
     DICP_LOG(INFO) << opName_ << " aclnnStridedSliceAssignV2GetWorkspaceSize end, ret:" << ret << ", workspaceSize:" << workspaceSize
                    << ", aclExecutor:" << aclExecutor_;
 
@@ -62,45 +81,24 @@ int SliceScatterOperation::CallAclExecute(uint8_t* workspace, uint64_t workspace
 
 atb::Operation* SliceScatterOperationCreate(const nlohmann::json& paramJson) {
     std::string opName;
-    int64_t dim, start, end, step, rank;
-    std::vector<int64_t> beginVec, endVec, stridesVec, axesVec;
+    int64_t dim, start, end, step;
     if (paramJson.contains("name")) {
         opName = paramJson["name"].get<std::string>();
-    }
-    if (paramJson.contains("rank")) {
-        rank = paramJson["rank"].get<std::int64_t>();
-        axesVec.resize(rank);
-        for (size_t i = 0; i < rank; ++i) {
-            axesVec[i] = i;
-        }
     }
     if (paramJson.contains("dim")) {
         dim = paramJson["dim"].get<std::int64_t>();
     }
     if (paramJson.contains("start")) {
         start = paramJson["start"].get<std::int64_t>();
-        beginVec.resize(rank);
-        for (size_t i = 0; i < rank; ++i) {
-            beginVec[i] = i == dim ? start : 0;
-        }
     }
     if (paramJson.contains("end")) {
         end = paramJson["end"].get<std::int64_t>();
-        endVec.resize(rank);
-        for (size_t i = 0; i < rank; ++i) {
-            endVec[i] = i == dim ? end : -1;
-        }
     }
     if (paramJson.contains("step")) {
         step = paramJson["step"].get<std::int64_t>();
-        stridesVec.resize(rank);
-        for (size_t i = 0; i < rank; ++i) {
-            stridesVec[i] = i == dim ? step : 1;
-        }
     }
-    DICP_LOG(INFO) << "SliceScatterOperationCreate: name: " << opName << ", begin:" << vectorToString(beginVec) << ", end:" << vectorToString(endVec)
-                   << ", strides:" << vectorToString(stridesVec);
-    atb::Operation* op = new SliceScatterOperation(opName, beginVec, endVec, stridesVec, axesVec);
+    DICP_LOG(INFO) << "SliceScatterOperationCreate: name: " << opName << ", dim:" << dim << ", start:" << start << ", end:" << end << ", step:" << step;
+    atb::Operation* op = new SliceScatterOperation(opName, dim, start, end, step);
     return op;
 }
 

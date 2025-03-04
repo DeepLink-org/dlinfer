@@ -7,7 +7,6 @@
 
 #include "ops/operation_creator.h"
 #include "torch_npu/csrc/framework/OpCommand.h"
-#include "utils/config.h"
 #include "utils/global_dict.h"
 #include "utils/log.h"
 #include "utils/tensor_utils.h"

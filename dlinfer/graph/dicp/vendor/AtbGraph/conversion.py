@@ -121,11 +121,6 @@ class AtenToAtbTransformer(SingleOpTransformer):
 
     @register_conversion("torch.ops.lmdeploy.apply_rotary_pos_emb.default")
     def apply_rotary_pos_emb(self, q, k, cos, sin, q_out, k_out):
-        if (q_out is not None) or (k_out is not None):
-            raise RuntimeError(
-                "apply_rotary_pos_emb doesn't support outplace version in graph mode"
-            )
-
         q_shape = list(q.node.meta["val"].shape)
         k_shape = list(k.node.meta["val"].shape)
         is_qk_require_reshape = len(q_shape) == 3
@@ -148,6 +143,16 @@ class AtenToAtbTransformer(SingleOpTransformer):
             out_k = self.get_proxy(atb_op.GetItem, (out, 1))
             out_k = self.get_proxy(atb_op.View, (out_k, (-1, k_shape[1], k_shape[2])))
             out = self.get_proxy(atb_op.Tuple, (out_q, out_k))
+        if (q_out is not None) and (k_out is not None):
+            self.get_proxy(
+                atb_op.AclNnInplaceCopy,
+                (q_out, self.get_proxy(atb_op.GetItem, (out, 0))),
+            )
+            self.get_proxy(
+                atb_op.AclNnInplaceCopy,
+                (k_out, self.get_proxy(atb_op.GetItem, (out, 1))),
+            )
+            out = self.get_proxy(atb_op.Tuple, (q_out, k_out))
         return out
 
     @register_conversion("torch.ops.atb.inplace_div.default")
@@ -495,12 +500,6 @@ class AtenToAtbTransformer(SingleOpTransformer):
             _, num_q_heads, head_size = query.node.meta["val"].shape
             _, num_kv_heads, head_size_v = value.node.meta["val"].shape
 
-            query = self.get_proxy(atb_op.View, (query, [-1, num_q_heads * head_size]))
-            key = self.get_proxy(atb_op.View, (key, [-1, num_kv_heads * head_size]))
-            value = self.get_proxy(
-                atb_op.View, (value, [-1, num_kv_heads * head_size_v])
-            )
-
             out = self.get_proxy(
                 atb_op.SelfAttentionPAEncoder,
                 (
@@ -516,8 +515,6 @@ class AtenToAtbTransformer(SingleOpTransformer):
                     scale,
                 ),
             )
-            if head_size != head_size_v:
-                out = self.get_proxy(atb_op.View, (out, [-1, num_q_heads, head_size_v]))
         else:
             q_shape = list(query.node.meta["val"].shape)
             k_cache_shape = list(k_cache.node.meta["val"].shape)
@@ -609,6 +606,10 @@ class AtenToAtbTransformer(SingleOpTransformer):
     @register_conversion(torch.ops.aten.copy.default)
     def aten_copy(self, x, src):
         return src
+
+    @register_conversion(torch.ops.aten.copy_.default)
+    def aten_copy_(self, dest, src):
+        return self.get_proxy(atb_op.AclNnInplaceCopy, (dest, src))
 
     @register_conversion(torch.ops.aten.clone.default)
     def aten_clone(self, x, memory_format=torch.contiguous_format):
@@ -762,19 +763,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
 
     @register_conversion(torch.ops.aten.slice_scatter.default)
     def aten_slice_scatter(self, x, data, dim=0, start=None, end=None, step=1):
-        rank = len(x.node.meta["val"].shape)
-        out_dtype = fx_traceback.get_current_meta()["val"].dtype
-        x = self.get_proxy(atb_op.Cast, (x, torch.float))
-        data = self.get_proxy(atb_op.Cast, (data, torch.float))
-        return self.get_proxy(
-            atb_op.Cast,
-            (
-                self.get_proxy(
-                    atb_op.SliceScatter, (x, data, dim, start, end, step, rank)
-                ),
-                out_dtype,
-            ),
-        )
+        return self.get_proxy(atb_op.SliceScatter, (x, data, dim, start, end, step))
 
 
 class ViewSymIntTransformer(torch.fx.Transformer):
