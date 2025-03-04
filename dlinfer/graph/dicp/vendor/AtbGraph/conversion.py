@@ -494,12 +494,11 @@ class AtenToAtbTransformer(SingleOpTransformer):
             if softmax_scale
             else 1.0 / math.sqrt(query.node.meta["val"].shape[-1])
         )
+        _, num_q_heads, head_size = query.node.meta["val"].shape
+        _, num_kv_heads, head_size_v = value.node.meta["val"].shape
         if query.node.meta["val"].dtype != mask.node.meta["val"].dtype:
             mask = self.get_proxy(atb_op.Cast, (mask, query.node.meta["val"].dtype))
         if is_unpaged_prefill:
-            _, num_q_heads, head_size = query.node.meta["val"].shape
-            _, num_kv_heads, head_size_v = value.node.meta["val"].shape
-
             out = self.get_proxy(
                 atb_op.SelfAttentionPAEncoder,
                 (
@@ -510,18 +509,14 @@ class AtenToAtbTransformer(SingleOpTransformer):
                     mask,
                     num_q_heads,
                     num_kv_heads,
+                    scale,
                     head_size,
                     head_size_v,
-                    scale,
                 ),
             )
         else:
-            q_shape = list(query.node.meta["val"].shape)
             k_cache_shape = list(k_cache.node.meta["val"].shape)
-            k_shape = list(key.node.meta["val"].shape)
             v_cache_shape = list(v_cache.node.meta["val"].shape)
-            num_q_heads = q_shape[-2]
-            num_kv_heads = k_shape[-2]
 
             is_kv_require_reshape = len(k_cache_shape) == 3 or len(v_cache_shape) == 3
             if is_kv_require_reshape:
@@ -545,6 +540,8 @@ class AtenToAtbTransformer(SingleOpTransformer):
                     num_q_heads,
                     num_kv_heads,
                     scale,
+                    head_size,
+                    head_size_v,
                 ),
             )
         # graph = self.get_proxy(atb_op.Graph, (out,), {"output": [out]})

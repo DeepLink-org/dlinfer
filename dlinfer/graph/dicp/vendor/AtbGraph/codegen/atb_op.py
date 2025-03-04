@@ -374,9 +374,9 @@ class AtbOverrides:
         mask,
         q_head_num,
         kv_head_num,
+        scale,
         head_size,
         head_size_v,
-        scale,
     ):
         op = Operation(name, "SelfAttentionOperation")
         param = infer_param.SelfAttentionParam()
