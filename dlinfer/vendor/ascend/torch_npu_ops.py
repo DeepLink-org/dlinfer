@@ -100,7 +100,11 @@ def prefill_attention(
         value = value.view(value.shape[0] * value.shape[1], num_kv_heads, -1)
     scale_value = softmax_scale if softmax_scale else 1.0 / math.sqrt(query.shape[-1])
     # some vl models pass a fp16 mask from lmdeploy in vision part of prefill phase.
-    attn_mask_ = None if (attn_mask is None or len(attn_mask) == 0) else attn_mask[0].to(torch.bool)
+    attn_mask_ = (
+        None
+        if (attn_mask is None or len(attn_mask) == 0)
+        else attn_mask[0].to(torch.bool)
+    )
     attn_output.view(query.shape)[:] = torch.ops.npu.npu_fusion_attention(
         query,
         key,

@@ -362,9 +362,9 @@ class AtenToAtbTransformer(SingleOpTransformer):
     @register_conversion(torch.ops.aten.split.Tensor)
     def split_tensor(self, x, size, dim):
         assert isinstance(size, int)
-        rank = len(x.node.meta['val'].shape)
+        rank = len(x.node.meta["val"].shape)
         dim = dim if dim > 0 else dim + rank
-        split_dim_shape = x.node.meta['val'].shape[dim]
+        split_dim_shape = x.node.meta["val"].shape[dim]
         sizes = []
         while split_dim_shape > 0:
             sizes.append(min(size, split_dim_shape))
