@@ -349,11 +349,27 @@ class AtenToAtbTransformer(SingleOpTransformer):
     def aten_view(self, x, size):
         return self.get_proxy(atb_op.View, (x, size))
 
+    @register_conversion(torch.ops.aten._unsafe_view.default)
+    def aten_unsafe_view(self, x, size):
+        return self.get_proxy(atb_op.View, (x, size))
+
     @register_conversion(torch.ops.aten.split_with_sizes.default)
     def split_with_sizes(self, x, size, dim):
         if len(set(size)) == 1 and (len(size) == 2 or len(size) == 3):
             return self.get_proxy(atb_op.SplitSharing, (x, size, dim))
         return self.get_proxy(atb_op.SplitWithSize, (x, size, dim))
+
+    @register_conversion(torch.ops.aten.split.Tensor)
+    def split_tensor(self, x, size, dim):
+        assert isinstance(size, int)
+        rank = len(x.node.meta["val"].shape)
+        dim = dim if dim > 0 else dim + rank
+        split_dim_shape = x.node.meta["val"].shape[dim]
+        sizes = []
+        while split_dim_shape > 0:
+            sizes.append(min(size, split_dim_shape))
+            split_dim_shape -= size
+        return self.get_proxy(atb_op.SplitWithSize, (x, sizes, dim))
 
     @register_conversion("torch.ops.dlinfer.silu_and_mul.default")
     def silu_and_mul(self, gate_up, dim):
@@ -574,7 +590,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
         return src
 
     @register_conversion(torch.ops.aten.clone.default)
-    def aten_clone(self, x):
+    def aten_clone(self, x, memory_format=torch.contiguous_format):
         return x
 
     @register_conversion(torch.ops.aten.alias.default)
