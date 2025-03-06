@@ -14,4 +14,5 @@ def ascend_chatglm2_fill_rope(states: torch.Tensor, rope: torch.Tensor):
 
     return states
 
+
 SelfAttention._fill_rope = ascend_chatglm2_fill_rope
