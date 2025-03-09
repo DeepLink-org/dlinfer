@@ -31,7 +31,7 @@ class AtbCompileJob(DeviceCompileJob):
     def _compile(self):
         try:
             if not hasattr(torch.classes.DICPModel, "DICPModel"):
-                if os.getenv("DICP_USE_TORCH_NPU_LAUNCHER", "0") != "0":
+                if os.getenv("DICP_USE_TORCH_NPU_LAUNCHER", "1") == "1":
                     os.environ["ATB_CONTEXT_HOSTTILING_RING"] = "1"
                     os.environ["ATB_CONTEXT_HOSTTILING_SIZE"] = "102400"
                     os.environ["ATB_WORKSPACE_MEM_ALLOC_GLOBAL"] = "1"
