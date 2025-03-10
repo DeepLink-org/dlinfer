@@ -159,7 +159,7 @@ atb::Tensor Model::CreateInternalTensorFromDesc(const atb::TensorDesc& tensorDes
 
 Model::Model(const std::string& modelId, const std::string& modelPath) : modelId_(modelId), modelPath_(modelPath) {
     const char* envStr = std::getenv("DICP_USE_TORCH_NPU_LAUNCHER");
-    UseTorchNpuLauncher_ = (envStr != nullptr && std::string(envStr) == "1");
+    UseTorchNpuLauncher_ = (envStr == nullptr || std::string(envStr) == "1");
     auto st = BuildGraph();
 
     RegisterToGlobalDict(modelId_);
@@ -300,7 +300,7 @@ atb::Status Model::ExecuteNode(int nodeId) {
         std::function<int()> task = [&]() {
             atb::Status tmp_st = node.operation->Execute(node.variantPack, (uint8_t*)(node.workspace), node.workspaceSize, context_);
             if (tmp_st != 0) {
-                DICP_LOG(ERROR) << "op command execute node[" << nodeId << "] fail, error code: " << st;
+                DICP_LOG(ERROR) << "op command execute node[" << nodeId << "] fail, error code: " << st << "\n please set DICP_USE_TORCH_NPU_LAUNCHER=0 to avoid this error";
             }
             return 0;
         };
