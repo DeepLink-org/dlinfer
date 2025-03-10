@@ -87,7 +87,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
         super().__init__(gm, conversions)
         self._register_binary_ops()
         self.use_torch_npu_launcher = (
-            os.getenv("DICP_USE_TORCH_NPU_LAUNCHER", "0") != "0"
+            os.getenv("DICP_USE_TORCH_NPU_LAUNCHER", "1") == "1"
         )
         self.graph_op_group = None
 
