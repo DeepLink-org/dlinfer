@@ -17,6 +17,9 @@ atb::Operation* PagedAttentionOperationCreate(const nlohmann::json& paramJson) {
         auto value = paramJson["maskType"].get<int32_t>();
         param.maskType = static_cast<atb::infer::PagedAttentionParam::MaskType>(value);
     }
+    if (paramJson.contains("mlaVHeadSize")) {
+        param.mlaVHeadSize = paramJson["mlaVHeadSize"].get<int32_t>();
+    }
     DICP_LOG(INFO) << "PagedAttentionParam: headNum" << param.headNum << " kvHeadNum: " << param.kvHeadNum << " qkScale: " << param.qkScale
                    << " maskType: " << param.maskType;
     atb::Operation* op = nullptr;

@@ -10,6 +10,9 @@ atb::Operation* SelfAttentionOperationCreate(const nlohmann::json& paramJson) {
     if (paramJson.contains("kvHeadNum")) {
         param.kvHeadNum = paramJson["kvHeadNum"].get<int32_t>();
     }
+    if (paramJson.contains("kvHeadNum")) {
+        param.mlaVHeadSize = paramJson["mlaVHeadSize"].get<int32_t>();
+    }
     if (paramJson.contains("qkScale")) {
         param.qkScale = paramJson["qkScale"].get<float>();
     }
