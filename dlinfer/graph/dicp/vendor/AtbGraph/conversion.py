@@ -1,9 +1,12 @@
+import os
 import functools
 import operator
 import torch
 import math
 
 import torch.fx
+from torch.fx.immutable_collections import immutable_dict
+from collections import OrderedDict
 import torch.fx.traceback as fx_traceback
 from dlinfer.graph.dicp.vendor.AtbGraph import atb_op
 
@@ -84,6 +87,20 @@ class AtenToAtbTransformer(SingleOpTransformer):
     def __init__(self, gm):
         super().__init__(gm, conversions)
         self._register_binary_ops()
+        self.use_torch_npu_launcher = (
+            os.getenv("DICP_USE_TORCH_NPU_LAUNCHER", "0") != "0"
+        )
+        self.graph_op_group = None
+
+    def get_proxy(self, target, args, kwargs=immutable_dict()):
+        proxy = super().get_proxy(target, args, kwargs)
+        if self.use_torch_npu_launcher:
+            if target == atb_op.Graph:
+                return proxy
+            if isinstance(self.graph_op_group, OrderedDict):
+                assert id(proxy) not in self.graph_op_group
+                self.graph_op_group[id(proxy)] = proxy
+        return proxy
 
     @register_conversion(torch.ops.atb.linear.default)
     def linear(self, a, b, bias, trans_a, trans_b):
@@ -99,6 +116,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
 
     @register_conversion("torch.ops.dlinfer.rms_norm.default")
     def npu_rms_norm(self, x, w, eps=1e-6):
+        self.graph_op_group = OrderedDict()
         rms_norm = self.get_proxy(atb_op.RmsNorm, (x, w, eps))
         return rms_norm
 
@@ -355,27 +373,39 @@ class AtenToAtbTransformer(SingleOpTransformer):
     def aten_view(self, x, size):
         return self.get_proxy(atb_op.View, (x, size))
 
+    @register_conversion(torch.ops.aten._unsafe_view.default)
+    def aten_unsafe_view(self, x, size):
+        return self.get_proxy(atb_op.View, (x, size))
+
     @register_conversion(torch.ops.aten.split_with_sizes.default)
     def split_with_sizes(self, x, size, dim):
         if len(set(size)) == 1 and (len(size) == 2 or len(size) == 3):
             return self.get_proxy(atb_op.SplitSharing, (x, size, dim))
         return self.get_proxy(atb_op.SplitWithSize, (x, size, dim))
 
+    @register_conversion(torch.ops.aten.split.Tensor)
+    def split_tensor(self, x, size, dim):
+        assert isinstance(size, int)
+        rank = len(x.node.meta["val"].shape)
+        dim = dim if dim > 0 else dim + rank
+        split_dim_shape = x.node.meta["val"].shape[dim]
+        sizes = []
+        while split_dim_shape > 0:
+            sizes.append(min(size, split_dim_shape))
+            split_dim_shape -= size
+        return self.get_proxy(atb_op.SplitWithSize, (x, sizes, dim))
+
     @register_conversion("torch.ops.dlinfer.silu_and_mul.default")
     def silu_and_mul(self, gate_up, dim):
-        split = self.get_proxy(atb_op.SplitSharing, (gate_up, [1, 1], dim))
-        gate = self.get_proxy(atb_op.GetItem, (split, 0))
-        up = self.get_proxy(atb_op.GetItem, (split, 1))
-        act = self.get_proxy(atb_op.Swish, (gate,))
-        mul = self.get_proxy(atb_op.Mul, (act, up))
-        graph = self.get_proxy(
-            atb_op.Graph, (split, gate, up, act, mul), {"output": mul}
-        )
-        return mul
+        return self.get_proxy(atb_op.Swiglu, (gate_up, dim))
 
     @register_conversion("torch.ops.dlinfer.add_rms_norm.default")
     def dlinfer_add_rms_norm(self, x1, x2, gamma, epsilon):
         add = self.get_proxy(atb_op.Add, (x1, x2))
+        if self.use_torch_npu_launcher and len(self.graph_op_group) > 0:
+            op_tuple = tuple(self.graph_op_group.values())
+            graph = self.get_proxy(atb_op.Graph, op_tuple, {"output": add})
+        self.graph_op_group = OrderedDict()
         norm = self.get_proxy(atb_op.RmsNorm, (add, gamma, epsilon))
         # FIXME(tangzhiyi11): Temporarily disable graph op for MOE precision issues
         # graph = self.get_proxy(
@@ -453,6 +483,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
         max_kv_seq_len,
         block_size,
         mask,
+        softmax_scale,
         is_unpaged_prefill,
         kv_scales,
         kv_zeros,
@@ -464,7 +495,11 @@ class AtenToAtbTransformer(SingleOpTransformer):
         # inplace1 = self.get_proxy(atb_op.Inplace, (fill_kv_cache, k_cache, 0))
         # inplace2 = self.get_proxy(atb_op.Inplace, (fill_kv_cache, v_cache, 1))
         mask = mask[0]
-        scale = 1.0 / math.sqrt(query.node.meta["val"].shape[-1])
+        scale = (
+            softmax_scale
+            if softmax_scale
+            else 1.0 / math.sqrt(query.node.meta["val"].shape[-1])
+        )
         if query.node.meta["val"].dtype != mask.node.meta["val"].dtype:
             mask = self.get_proxy(atb_op.Cast, (mask, query.node.meta["val"].dtype))
         if is_unpaged_prefill:
@@ -546,11 +581,19 @@ class AtenToAtbTransformer(SingleOpTransformer):
 
     @register_conversion(torch.ops.aten.unsqueeze.default)
     def unsqueeze(self, x, dim):
-        return self.get_proxy(atb_op.Unsqueeze, (x, dim))
+        x_shape = list(x.node.meta["val"].shape)
+        target_dim = dim if dim >= 0 else dim + len(x_shape) + 1
+        x_shape.insert(target_dim, 1)
+        x_shape = [str(x) for x in x_shape]
+        return self.get_proxy(atb_op.Unsqueeze, (x, dim, x_shape))
 
     @register_conversion(torch.ops.aten.squeeze.dim)
     def squeeze(self, x, dim):
-        return self.get_proxy(atb_op.Squeeze, (x, dim))
+        x_shape = list(x.node.meta["val"].shape)
+        target_dim = dim if dim >= 0 else dim + len(x_shape)
+        x_shape.pop(target_dim)
+        x_shape = [str(x) for x in x_shape]
+        return self.get_proxy(atb_op.Squeeze, (x, dim, x_shape))
 
     @register_conversion(torch.ops.aten.select.int)
     def select_int(self, x, dim, index):
@@ -594,7 +637,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
         return src
 
     @register_conversion(torch.ops.aten.clone.default)
-    def aten_clone(self, x):
+    def aten_clone(self, x, memory_format=torch.contiguous_format):
         return x
 
     @register_conversion(torch.ops.aten.alias.default)
@@ -738,6 +781,10 @@ class AtenToAtbTransformer(SingleOpTransformer):
     @register_conversion(torch.ops.aten.zeros_like.default)
     def aten_zeros_like_default(self, x, pin_memory=False):
         return self.get_proxy(atb_op.ZerosLike, (x,))
+
+    @register_conversion(torch.ops.aten.new_empty.default)
+    def aten_new_empty(self, x, size, pin_memory=False):
+        return self.get_proxy(atb_op.NewEmpty, (x, size))
 
 
 class ViewSymIntTransformer(torch.fx.Transformer):

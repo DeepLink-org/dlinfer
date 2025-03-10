@@ -13,6 +13,10 @@ from dlinfer.utils.registry import register_ops
 from dlinfer.utils.type_annotation import Tensor, Optional, Sequence, Tuple
 
 from .maca_extension import ops as maca_ext_ops
+from .context_flashattention import (
+    context_attention_fwd as context_attention_fwd_mla,
+)
+
 
 __all__ = [
     "add_rms_norm",
@@ -27,6 +31,10 @@ __all__ = [
     "moe_gating_topk_softmax",
     "linear",
     "weight_quant_matmul",
+    "dynamic_quant",
+    "linear_w8a8",
+    "rms_norm_w8a8",
+    "add_rms_norm_w8a8",
 ]
 
 
@@ -115,12 +123,14 @@ def prefill_attention(
     if softmax_scale is None:
         softmax_scale = float(1 / math.sqrt(key.size(-1)))
 
-    # for deepseek v2 lite.
-    if query.shape[-1] == 576:
-        batch_size = kv_seq_len.dim()
+    is_mla = key.size(-1) != value.size(-1)
+
+    if is_mla:
+        batch_size = kv_seq_len.size(0)
         head_dim = query.shape[-1]
         nope_size = value.shape[-1]
         groups = num_q_heads // num_q_heads
+        value = torch.nn.functional.pad(value, [0, head_dim - nope_size], value=0)
 
         input_type = query.dtype
         query = query.to(torch.float32)
@@ -130,7 +140,7 @@ def prefill_attention(
         # (bs, seq_len, num_head, head_dim)
         query = query.view(batch_size, -1, num_q_heads, head_dim)
         key = key.view(batch_size, -1, num_kv_heads, head_dim)
-        value = value.view(batch_size, -1, num_kv_heads, nope_size)
+        value = value.view(batch_size, -1, num_kv_heads, head_dim)
         key = key.repeat(1, 1, groups, 1)
         value = value.repeat(1, 1, groups, 1)
 
@@ -146,9 +156,8 @@ def prefill_attention(
 
         # (seq_len, num_head, head_dim)
         attn_output = attn_output.transpose(1, 2).flatten(0, 1)
-        attn_output = attn_output[..., :nope_size].contiguous()
-        attn_output = attn_output.to(input_type)
-        return attn_output[..., :512].contiguous()
+        attn_output = attn_output[..., :nope_size].to(input_type)
+        return attn_output
 
     # for cogvlm vl part.
     if query.size(-2) != num_q_heads:
@@ -189,7 +198,7 @@ def fill_kv_cache(
     quant_bits: int,
 ) -> Tuple[Tensor, Tensor]:
     kv_indices = kv_indices.squeeze(-1)
-    custom_ops.reshape_and_cache_new(
+    maca_ext_ops.reshape_and_cache_new(
         key, value, key_cache, value_cache, kv_indices, "auto", 1.0, 1.0
     )
     return key_cache, value_cache
@@ -219,9 +228,16 @@ def paged_decode_attention(
         softmax_scale = float(1 / math.sqrt(query.size(-1)))
 
     num_kv_heads = value_cache.size(1)
-    block_size = value_cache.size(2)
+    block_size = value_cache.size(-2)
     output = torch.empty_like(query)
-    custom_ops.paged_attention_v1(
+
+    is_mla = query.size(-1) == 576
+
+    if is_mla:
+        value_cache = key_cache.transpose(2, 3).reshape(
+            -1, num_kv_heads, 576, block_size
+        )
+    maca_ext_ops.paged_attention_v1(
         output,
         query,
         key_cache,
@@ -242,8 +258,10 @@ def paged_decode_attention(
         1,  # blocksparse_block_size
         1,  # blocksparse_head_sliding_step
     )
-
-    return output
+    if is_mla:
+        return output[..., :512]
+    else:
+        return output
 
 
 @register_ops(vendor_ops_registry)
@@ -274,10 +292,34 @@ def paged_prefill_attention(
     if softmax_scale is None:
         softmax_scale = float(1 / math.sqrt(query.size(-1)))
 
-    value_cache = value_cache.permute(0, 1, 3, 2)
+    output = torch.empty_like(query)
     context_lens = kv_seq_len - q_seq_len
 
-    output = torch.empty_like(query)
+    is_mla = key.size(-1) != value.size(-1)
+
+    if is_mla:
+        num_blocks = key_cache.shape[0]
+        key_cache = key_cache.permute(0, 1, 2, 4, 3).reshape(
+            num_blocks, num_kv_heads, -1, block_size
+        )
+        value_cache = key_cache
+        context_attention_fwd_mla(
+            query,
+            key,
+            value,
+            output,
+            key_cache,
+            value_cache,
+            b_loc=block_table,
+            b_start_loc=q_start_loc,
+            b_seq_len=kv_seq_len,
+            b_ctx_len=context_lens,
+            max_input_len=max_q_seq_len,
+            alibi_slopes=alibi_slopes,
+        )
+        return output[..., :512]
+
+    value_cache = value_cache.permute(0, 1, 3, 2)
     context_attention_fwd(
         query,
         key,
@@ -293,8 +335,6 @@ def paged_prefill_attention(
         max_input_len=max_q_seq_len,
         alibi_slopes=alibi_slopes,
     )
-    value_cache = value_cache.permute(0, 1, 3, 2)
-
     return output
 
 
@@ -304,9 +344,13 @@ def rms_norm(
     weight: Tensor,
     epsilon: float,
 ) -> Tensor:
+    input_dtype = hidden_states.dtype
+    hidden_states = hidden_states.to(torch.float32)
+    weight = weight.to(torch.float32)
     output = torch.empty_like(hidden_states)
     custom_ops.rms_norm(output, hidden_states, weight, epsilon)
-    return output
+
+    return output.to(input_dtype)
 
 
 @register_ops(vendor_ops_registry)
@@ -403,3 +447,65 @@ def weight_quant_matmul(
     if bias is not None:
         output += bias
     return output
+
+
+@register_ops(vendor_ops_registry)
+def dynamic_quant(
+    x: Tensor, quant_dtype: torch.dtype, quant_granularity: str = "PER_TOKEN"
+):
+    assert quant_dtype == torch.int8
+    assert quant_granularity == "PER_TOKEN"
+    x, input_scale, _ = vllm._custom_ops.scaled_int8_quant(x, None)
+    return x, input_scale
+
+
+@register_ops(vendor_ops_registry)
+def linear_w8a8(
+    a: Tensor,
+    b: Tensor,
+    rms_scale: float,
+    linear_scale: float,
+    out_dtype: torch.dtype,
+    quant_dtype: torch.dtype = torch.int8,
+    bias: Tensor = None,
+):
+    assert quant_dtype == torch.int8
+    bs, seq_len, head_size = a.size()
+    out = vllm._custom_ops.cutlass_scaled_mm(
+        a.view(-1, head_size),
+        b,
+        scale_a=rms_scale,
+        scale_b=linear_scale,
+        out_dtype=out_dtype,
+        bias=bias,
+    )
+    out = out.view(bs, seq_len, -1)
+    return out
+
+
+@register_ops(vendor_ops_registry)
+def rms_norm_w8a8(
+    hidden_states: Tensor,
+    weight: Tensor,
+    epsilon: float,
+    quant_dtype: torch.dtype = torch.int8,
+):
+    assert quant_dtype == torch.int8
+    x = torch.empty_like(hidden_states)
+    vllm._custom_ops.rms_norm(x, hidden_states, weight, epsilon)
+    x, input_scale, _ = vllm._custom_ops.scaled_int8_quant(x, None)
+    return x, input_scale
+
+
+@register_ops(vendor_ops_registry)
+def add_rms_norm_w8a8(
+    hidden_states: Tensor,
+    residual: Tensor,
+    weight: Tensor,
+    epsilon: float,
+    quant_dtype: torch.dtype = torch.int8,
+):
+    assert quant_dtype == torch.int8
+    vllm._custom_ops.fused_add_rms_norm(hidden_states, residual, weight, epsilon)
+    x, input_scale, _ = vllm._custom_ops.scaled_int8_quant(hidden_states, None)
+    return x, input_scale, residual

@@ -10,7 +10,7 @@ from dlinfer.graph.dicp.vendor.AtbGraph.codegen.atb_graph import (
     Operation,
     SqueezeOperation,
     GetItemOperation,
-    GraphOpearation,
+    GraphOperation,
     UnsqueezeOperation,
     InplaceOperation,
     ViewOperation,
@@ -303,7 +303,7 @@ class AtbOverrides:
                     continue
             graph_output_names.append(str(x))
 
-        op = GraphOpearation(name)
+        op = GraphOperation(name)
         op.set_node_names(list(args))
         op.set_output(graph_output_names)
         if infer_shape:
@@ -417,13 +417,14 @@ class AtbOverrides:
         op.host_inputs.append(context_len)
         return op
 
-    def AddRmsNorm(name, x1, x2, gamma, epsilon):
-        op = Operation(name, "AclNnAddRmsNormOperation")
-        param = infer_param.AddRmsNormParam()
-        param.epsilon = epsilon
+    def AddRmsNorm(name, x, residual, gamma, epsilon):
+        op = Operation(name, "RmsNormOperation")
+        param = infer_param.RmsNormParam()
+        param.layerType = infer_param.RmsNormType.RMS_NORM_PRENORM
+        param.preNormParam.epsilon = epsilon
         op.set_param(param)
-        op.set_input([x1, x2, gamma])
-        op.set_output([f"{name}__0", f"{name}__1", f"{name}__2"])
+        op.set_input([x, residual, gamma])
+        op.set_output([f"{name}__0", f"{name}__1"])
         return op
 
     def Transpose(name, x, perm):
@@ -469,7 +470,7 @@ class AtbOverrides:
     def Swish(name, x, scale=1.0, dim=-1):
         op = Operation(name, "ActivationOperation")
         param = infer_param.ActivationParam()
-        param.activationType = infer_param.ActivationType.ACTIVATION_SWISH.value
+        param.activationType = infer_param.ActivationType.ACTIVATION_SWISH
         param.scale = scale
         param.dim = dim
         op.set_param(param)
@@ -523,7 +524,7 @@ class AtbOverrides:
         param.concatDim = dim
         param.inputNum = len(x)
 
-        op.set_input(x)
+        op.set_input(list(x))
         op.set_param(param)
         op.set_output([name])
         return op
@@ -758,30 +759,54 @@ class AtbOverrides:
         op.target_reshape_info = {
             "reshapeType": "view",
             "dimNum": len(size),
-            "dims": size,
+            "dims": [str(x) for x in size],
         }
         return op
 
-    def Unsqueeze(name, input, dim):
-        op = UnsqueezeOperation(name)
-        op.add_input(input)
-        op.add_output(name)
-        op.dim = [dim]
-        op.target_reshape_info = {
-            "reshapeType": "unsqueeze",
-            "dim": [dim],
-        }
+    def Unsqueeze(name, input, dim, target_shape=None):
+        if target_shape is None:
+            op = UnsqueezeOperation(name)
+            op.add_input(input)
+            op.add_output(name)
+            op.dim = [dim]
+            op.target_reshape_info = {
+                "reshapeType": "unsqueeze",
+                "dim": [dim],
+            }
+        else:
+            size = target_shape
+            op = ViewOperation(name)
+            op.add_input(input)
+            op.add_output(name)
+            op.target_shape = size
+            op.target_reshape_info = {
+                "reshapeType": "view",
+                "dimNum": len(size),
+                "dims": [str(x) for x in size],
+            }
         return op
 
-    def Squeeze(name, input, dim):
-        op = SqueezeOperation(name)
-        op.add_input(input)
-        op.add_output(name)
-        op.dim = [dim]
-        op.target_reshape_info = {
-            "reshapeType": "squeeze",
-            "dim": [dim],
-        }
+    def Squeeze(name, input, dim, target_shape=None):
+        if target_shape is None:
+            op = SqueezeOperation(name)
+            op.add_input(input)
+            op.add_output(name)
+            op.dim = [dim]
+            op.target_reshape_info = {
+                "reshapeType": "squeeze",
+                "dim": [dim],
+            }
+        else:
+            size = target_shape
+            op = ViewOperation(name)
+            op.add_input(input)
+            op.add_output(name)
+            op.target_shape = size
+            op.target_reshape_info = {
+                "reshapeType": "view",
+                "dimNum": len(size),
+                "dims": [str(x) for x in size],
+            }
         return op
 
     def ReduceSum(name, x, dim):
@@ -954,6 +979,26 @@ class AtbOverrides:
         param.name = name
 
         op.set_input([permuted_tokens, sorted_indices, probs])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def Swiglu(name, x, dim):
+        op = Operation(name, "ActivationOperation")
+        param = infer_param.ActivationParam()
+        param.activationType = infer_param.ActivationType.ACTIVATION_SWIGLU_FORWARD
+        param.dim = dim
+        op.set_param(param)
+        op.set_input([x])
+        op.set_output([name])
+        return op
+
+    def NewEmpty(name, x, size):
+        op = Operation(name, "NewEmptyOperation")
+        param = infer_param.NewEmptyParam()
+        param.name = name
+        param.size = [str(x) for x in size]
+        op.set_input([x])
         op.set_param(param)
         op.set_output([name])
         return op

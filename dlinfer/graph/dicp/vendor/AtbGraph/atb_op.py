@@ -252,6 +252,16 @@ class RmsNorm(Operator):
         return (x, x)
 
 
+class AddRmsNorm(Operator):
+    def __init__(
+        self,
+    ):
+        super().__init__("AddRmsNorm")
+
+    def infer_result(self, x, residual, gamma, eps):
+        return (x, x)
+
+
 class Rope(Operator):
     def __init__(
         self,
@@ -329,7 +339,7 @@ class Unsqueeze(Operator):
     def __init__(self):
         super().__init__("Unsqueeze")
 
-    def infer_result(self, x, dim):
+    def infer_result(self, x, dim, target_shape=None):
         return x.unsqueeze(dim)
 
 
@@ -337,7 +347,7 @@ class Squeeze(Operator):
     def __init__(self):
         super().__init__("Squeeze")
 
-    def infer_result(self, x, dim):
+    def infer_result(self, x, dim, target_shape=None):
         return x.squeeze(dim)
 
 
@@ -363,6 +373,16 @@ class Swish(Operator):
 
     def infer_result(self, x, scale=1.0, dim=-1):
         return x
+
+
+class Swiglu(Operator):
+    def __init__(self):
+        super().__init__("Swiglu")
+
+    def infer_result(self, x, dim):
+        x_shape = x.shape
+        x_shape[dim] = x_shape[dim] // 2
+        return torch.empty(x_shape, device=x.device, dtype=x.dtype)
 
 
 class Cast(Operator):
@@ -628,3 +648,11 @@ class AclNnMoeTokenUnpermute(Operator):
         tokens_num = probs.size(0)
         hidden_size = permuted_tokens.size(1)
         return permuted_tokens.new_empty((tokens_num, hidden_size))
+
+
+class NewEmpty(Operator):
+    def __init__(self):
+        super().__init__("NewEmpty")
+
+    def infer_result(self, x, size):
+        return x.new_empty(size)
