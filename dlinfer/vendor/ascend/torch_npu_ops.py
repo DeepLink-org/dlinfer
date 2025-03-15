@@ -483,11 +483,14 @@ def linear(
     weight: Tensor,
     bias: Optional[Tensor],
     all_reduce: Optional[bool],
+    group: Optional[str],
 ) -> Tensor:
     if all_reduce:
-        hcomm_info = torch.distributed.distributed_c10d._world.default_pg._get_backend(
-            x.device
-        ).get_hccl_comm_name(x.device.index)
+        if group and group != "":
+            hcomm_info = group
+        else:
+            group = torch.distributed.distributed_c10d._world.default_pg
+            hcomm_info = group._get_backend(x.device).get_hccl_comm_name(x.device.index)
         out = torch.ops.npu.npu_mm_all_reduce_base(
             x.contiguous(),
             weight.transpose(0, 1),
