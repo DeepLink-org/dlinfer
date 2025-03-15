@@ -25,8 +25,11 @@ atb::Operation* AllReduceOperationCreate(const nlohmann::json& paramJson) {
     if (paramJson.contains("commDomain")) {
         param.commDomain = paramJson["commDomain"].get<std::string>();
     }
+    if (paramJson.contains("rankTableFile")) {
+        param.rankTableFile = paramJson["rankTableFile"].get<std::string>();
+    }
     DICP_LOG(INFO) << "AllReduceParam: rank:" << param.rank << ", rankSize:" << param.rankSize << ", backend:" << param.backend << ", allReduceType"
-                   << param.allReduceType << ". commDomain" << param.commDomain;
+                   << param.allReduceType << ". commDomain" << param.commDomain << ", rankTableFile" << param.rankTableFile;
     atb::Operation* op = nullptr;
 
     CREATE_OPERATION_NO_RETURN(param, &op);

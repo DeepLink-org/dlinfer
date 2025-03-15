@@ -106,8 +106,8 @@ class AtenToAtbTransformer(SingleOpTransformer):
         return self.get_proxy(atb_op.Linear, (a, b, bias, trans_a, trans_b))
 
     @register_conversion(torch.ops.atb.allreduce.default)
-    def allreduce(self, x, reduce_type):
-        return self.get_proxy(atb_op.AllReduce, (x, reduce_type))
+    def allreduce(self, x, reduce_type, group):
+        return self.get_proxy(atb_op.AllReduce, (x, reduce_type, group))
 
     @register_conversion(operator.getitem)
     def identity(self, x, idx):
@@ -600,10 +600,10 @@ class AtenToAtbTransformer(SingleOpTransformer):
         return self.get_proxy(atb_op.View, (x, shape))
 
     @register_conversion("torch.ops.dlinfer.linear.default")
-    def dlinfer_linear(self, x, weight, bias, all_reduce):
+    def dlinfer_linear(self, x, weight, bias, all_reduce, group):
         if all_reduce == False:
             return self.get_proxy(atb_op.Linear, (x, weight, bias, False, True))
-        return self.get_proxy(atb_op.LinearAllReduce, (x, weight, bias))
+        return self.get_proxy(atb_op.LinearAllReduce, (x, weight, bias, group))
 
     @register_conversion(torch.ops.aten.index.Tensor)
     def index_tensor(self, x, indices):
