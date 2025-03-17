@@ -58,12 +58,13 @@ class AtbOverrides:
         param.hasResidual = False
         param.parallelType = infer_param.ParallelType.LINEAR_ALL_REDUCE
         param.commMode = infer_param.CommMode.COMM_MULTI_PROCESS
-        if group and group != "":
-            param.commDomain = group
+
         rank_table_file = os.environ.get("ASCEND_RANK_TABLE_FILE_PATH", None)
         if rank_table_file:
             param.backend = "hccl"
             param.rankTableFile = rank_table_file
+            if group and group != "":
+                param.commDomain = group
         else:
             param.backend = "lccl"
 
@@ -84,13 +85,12 @@ class AtbOverrides:
         param.allReduceType = reduce_type
         param.commMode = infer_param.CommMode.COMM_MULTI_PROCESS
 
-        if group and group != "":
-            param.commDomain = group
-
         rank_table_file = os.environ.get("ASCEND_RANK_TABLE_FILE_PATH", None)
         if rank_table_file is not None:
             param.backend = "hccl"
             param.rankTableFile = rank_table_file
+            if group and group != "":
+                param.commDomain = group
         else:
             param.backend = "lccl"
 
