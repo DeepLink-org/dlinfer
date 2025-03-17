@@ -648,9 +648,20 @@ def linear(
     return vendor_ops_registry["linear"](x, weight, bias, all_reduce, group)
 
 
-def dynamic_quant(
+def dynamic_quant_impl_abstract_func(
     x: Tensor, quant_dtype: torch.dtype, quant_granularity: str = "PER_TOKEN"
-) -> Tuple[Tensor, float]:
+):
+    return x.to(quant_dtype), x.new_empty(x.shape[:-1], dtype=torch.float)
+
+
+@register_custom_op(
+    "dlinfer::dynamic_quant",
+    impl_abstract_func=dynamic_quant_impl_abstract_func,
+    default_value={"quant_granularity": None},
+)
+def dynamic_quant(
+    x: Tensor, quant_dtype: torch.dtype, quant_granularity: str
+) -> Tuple[Tensor, Tensor]:
     """
     Perform dynamic quantization on a tensor.
 
@@ -664,7 +675,7 @@ def dynamic_quant(
             - "PER_TENSOR": Quantize the entire tensor as a whole.
 
     Returns:
-        Tuple[Tensor, float]: A tuple containing:
+        Tuple[Tensor, Tensor]: A tuple containing:
             - The quantized tensor.
             - The scaling factor used during quantization.
 
@@ -672,11 +683,29 @@ def dynamic_quant(
     return vendor_ops_registry["dynamic_quant"](x, quant_dtype, quant_granularity)
 
 
+def linear_w8a8_impl_abstract_func(
+    a: Tensor,
+    b: Tensor,
+    rms_scale: Tensor,
+    linear_scale: Tensor,
+    out_dtype: torch.dtype,
+    quant_dtype: torch.dtype,
+    bias: Tensor,
+) -> Tensor:
+    res_shape = torch.matmul(a, b.transpose(-1, -2)).shape
+    return a.new_empty(res_shape, dtype=out_dtype)
+
+
+@register_custom_op(
+    "dlinfer::linear_w8a8",
+    impl_abstract_func=linear_w8a8_impl_abstract_func,
+    default_value={"bias": None},
+)
 def linear_w8a8(
     a: Tensor,
     b: Tensor,
-    rms_scale: float,
-    linear_scale: float,
+    rms_scale: Tensor,
+    linear_scale: Tensor,
     out_dtype: torch.dtype,
     quant_dtype: torch.dtype,
     bias: Tensor,
@@ -701,12 +730,27 @@ def linear_w8a8(
     )
 
 
+def rms_norm_w8a8_impl_abstract_func(
+    hidden_states: Tensor,
+    weight: Tensor,
+    epsilon: float,
+    quant_dtype: torch.dtype,
+) -> Tuple[Tensor, Tensor]:
+    return hidden_states.to(quant_dtype), hidden_states.new_empty(
+        hidden_states.shape[:-1]
+    )
+
+
+@register_custom_op(
+    "dlinfer::rms_norm_w8a8",
+    impl_abstract_func=rms_norm_w8a8_impl_abstract_func,
+)
 def rms_norm_w8a8(
     hidden_states: Tensor,
     weight: Tensor,
     epsilon: float,
     quant_dtype: torch.dtype,
-) -> Tuple[Tensor, float]:
+) -> Tuple[Tensor, Tensor]:
     """
     Apply RMS normalization to the input tensor and quantizes the result.
 
@@ -717,7 +761,7 @@ def rms_norm_w8a8(
         quant_dtype (torch.dtype): The target data type for the quantized result.
 
      Returns:
-        Tuple[Tensor, float]: A tuple containing:
+        Tuple[Tensor, Tensor]: A tuple containing:
             - The RMS-normalized and quantized tensor.
             - The scaling factor used during quantization.
     """
@@ -726,13 +770,31 @@ def rms_norm_w8a8(
     )
 
 
+def add_rms_norm_w8a8_impl_abstract_func(
+    hidden_states: Tensor,
+    residual: Tensor,
+    weight: Tensor,
+    epsilon: float,
+    quant_dtype: torch.dtype,
+) -> Tuple[Tensor, Tensor, Tensor]:
+    return (
+        hidden_states.to(quant_dtype),
+        hidden_states.new_empty(hidden_states.shape[:-1]),
+        residual,
+    )
+
+
+@register_custom_op(
+    "dlinfer::add_rms_norm_w8a8",
+    impl_abstract_func=add_rms_norm_w8a8_impl_abstract_func,
+)
 def add_rms_norm_w8a8(
     hidden_states: Tensor,
     residual: Tensor,
     weight: Tensor,
     epsilon: float,
     quant_dtype: torch.dtype,
-) -> Tuple[Tensor, float, Tensor]:
+) -> Tuple[Tensor, Tensor, Tensor]:
     """
     Apply RMS normalization to the input tensor, adds a residual connection,
     and quantizes the result.
@@ -745,7 +807,7 @@ def add_rms_norm_w8a8(
         quant_dtype (torch.dtype): The target data type for the quantized result.
 
     Returns:
-        Tuple[Tensor, float, Tensor]: A tuple containing:
+        Tuple[Tensor, Tensor, Tensor]: A tuple containing:
             - The RMS-normalized, residual-added, and quantized tensor.
             - The scaling factor used during quantization.
             - The residual tensor.
