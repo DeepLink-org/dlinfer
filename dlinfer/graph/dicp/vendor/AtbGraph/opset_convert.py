@@ -67,4 +67,5 @@ def atbgraph_opset_convert(
     # For bug in pytorch
     # Avoid for dynamic shape
     GraphTransformer.infer_shape_dtype(gm)
+    gm.print_readable()
     return gm

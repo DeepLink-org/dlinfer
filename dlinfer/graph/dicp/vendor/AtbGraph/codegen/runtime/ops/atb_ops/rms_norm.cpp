@@ -1,3 +1,5 @@
+#include <cstdint>
+
 #include "atb_ops.h"
 
 namespace dicp {
@@ -19,6 +21,14 @@ atb::Operation* RmsNormOperationCreate(const nlohmann::json& paramJson) {
         if (normParamJson.contains("rstd")) {
             auto rstd = normParamJson["rstd"].get<bool>();
             param.normParam.rstd = rstd;
+        }
+        if (normParamJson.contains("quantType")) {
+            auto quantType = normParamJson["quantType"].get<int>();
+            param.normParam.quantType = static_cast<atb::infer::QuantType>(quantType);
+        }
+        if (normParamJson.contains("dynamicQuantType")) {
+            auto dynamicQuantType = normParamJson["dynamicQuantType"].get<int>();
+            param.normParam.dynamicQuantType = static_cast<atb::infer::DynamicQuantType>(dynamicQuantType);
         }
     }
     if (param.layerType == atb::infer::RmsNormParam::RmsNormType::RMS_NORM_PRENORM && paramJson.contains("preNormParam")) {
