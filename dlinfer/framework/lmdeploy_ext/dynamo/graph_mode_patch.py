@@ -5,6 +5,7 @@ from lmdeploy.pytorch.models import deepseek_v2
 from lmdeploy.pytorch.distributed import get_world_rank
 
 
+# patch slice_scatter
 def _apply_mrope_selection(
     hidden_states: torch.Tensor,
     mrope_position_ids: torch.Tensor,
@@ -31,11 +32,13 @@ def _apply_mrope_selection(
     return _cos, _sin
 
 
+# torch==2.3.1 dynamo does not support 'out' parameter in bmm
 def DeepseekV2BMM_forward(self, x: torch.Tensor, output: torch.Tensor):
     out = torch.bmm(x.transpose(0, 1), self.weight).transpose(0, 1)
     output.copy_(out)
 
 
+# replace slice_scatter with cat
 def DeepseekV2Attention__kv_proj(self, hidden_states, nope_size: int):
     """kv proj."""
     # (q_len, 1, nope_size + pe_size)
@@ -49,6 +52,7 @@ def DeepseekV2Attention__kv_proj(self, hidden_states, nope_size: int):
     return key_states, value_states, k_pe
 
 
+# replace slice_scatter with cat
 def DeepseekV2Attention_forward(
     self,
     hidden_states: torch.Tensor,
