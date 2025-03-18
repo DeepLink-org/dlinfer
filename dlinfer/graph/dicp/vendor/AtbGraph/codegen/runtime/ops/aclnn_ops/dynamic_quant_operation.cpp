@@ -29,7 +29,6 @@ atb::Status AclNnDynamicQuantOperation::InferShape(const atb::SVector<atb::Tenso
         outTensorDescs.at(1).shape.dims[i] = inTensorDescs.at(0).shape.dims[i];
     }
 
-
     DICP_LOG(INFO) << opName_ << " infer shape end";
     return 0;
 }
@@ -40,8 +39,10 @@ uint32_t AclNnDynamicQuantOperation::GetOutputNum() const { return NUM2; }
 
 int AclNnDynamicQuantOperation::SetAclNnWorkspaceExecutor(uint64_t& workspaceSize) {
     DICP_LOG(INFO) << opName_ << " aclnnDynamicQuantGetWorkspaceSize start";
-    int ret = aclnnDynamicQuantGetWorkspaceSize(aclInTensors_.at(0).tensor, nullptr, aclOutTensors_.at(0).tensor, aclOutTensors_.at(1).tensor, &workspaceSize, &aclExecutor_);
-    DICP_LOG(INFO) << opName_ << " aclnnDynamicQuantGetWorkspaceSize end, ret:" << ret << ", workspaceSize:" << workspaceSize << ", aclExecutor:" << aclExecutor_;
+    int ret = aclnnDynamicQuantGetWorkspaceSize(
+        aclInTensors_.at(0).tensor, nullptr, aclOutTensors_.at(0).tensor, aclOutTensors_.at(1).tensor, &workspaceSize, &aclExecutor_);
+    DICP_LOG(INFO) << opName_ << " aclnnDynamicQuantGetWorkspaceSize end, ret:" << ret << ", workspaceSize:" << workspaceSize
+                   << ", aclExecutor:" << aclExecutor_;
 
     return ret;
 }
