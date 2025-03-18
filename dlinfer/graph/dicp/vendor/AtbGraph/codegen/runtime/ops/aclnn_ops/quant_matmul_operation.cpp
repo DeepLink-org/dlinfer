@@ -33,8 +33,19 @@ uint32_t AclNnQuantMatmulOperation::GetOutputNum() const { return NUM1; }
 
 int AclNnQuantMatmulOperation::SetAclNnWorkspaceExecutor(uint64_t& workspaceSize) {
     DICP_LOG(INFO) << opName_ << " aclnnQuantMatmulV4GetWorkspaceSize start";
-    int ret = aclnnQuantMatmulV4GetWorkspaceSize(aclInTensors_.at(0).tensor, aclInTensors_.at(1).tensor, aclInTensors_.at(2).tensor, nullptr, aclInTensors_.at(3).tensor, nullptr, false, true, aclOutTensors_.at(0).tensor, &workspaceSize, &aclExecutor_);
-    DICP_LOG(INFO) << opName_ << " aclnnQuantMatmulV4GetWorkspaceSize end, ret:" << ret << ", workspaceSize:" << workspaceSize << ", aclExecutor:" << aclExecutor_;
+    int ret = aclnnQuantMatmulV4GetWorkspaceSize(aclInTensors_.at(0).tensor,
+                                                 aclInTensors_.at(1).tensor,
+                                                 aclInTensors_.at(2).tensor,
+                                                 nullptr,
+                                                 aclInTensors_.at(3).tensor,
+                                                 nullptr,
+                                                 false,
+                                                 true,
+                                                 aclOutTensors_.at(0).tensor,
+                                                 &workspaceSize,
+                                                 &aclExecutor_);
+    DICP_LOG(INFO) << opName_ << " aclnnQuantMatmulV4GetWorkspaceSize end, ret:" << ret << ", workspaceSize:" << workspaceSize
+                   << ", aclExecutor:" << aclExecutor_;
 
     return ret;
 }
