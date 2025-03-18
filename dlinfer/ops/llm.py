@@ -580,7 +580,11 @@ def fused_moe(
 
 
 def linear_impl_abstract_func(
-    x: Tensor, weight: Tensor, bias: Optional[Tensor], all_reduce: Optional[bool]
+    x: Tensor,
+    weight: Tensor,
+    bias: Optional[Tensor],
+    all_reduce: Optional[bool],
+    group: Optional[str],
 ) -> Tensor:
     shape_x = x.shape
     shape_w = weight.shape
@@ -596,13 +600,14 @@ def linear_impl_abstract_func(
 @register_custom_op(
     "dlinfer::linear",
     impl_abstract_func=linear_impl_abstract_func,
-    default_value={"bias": None, "all_reduce": False},
+    default_value={"bias": None, "all_reduce": False, "group": ""},
 )
 def linear(
     x: Tensor,
     weight: Tensor,
     bias: Optional[Tensor],
     all_reduce: Optional[bool],
+    group: Optional[str],
 ) -> Tensor:
     """
     Complete a linear computation.
@@ -616,7 +621,7 @@ def linear(
     Returns:
         Tensor: The output tensor of linear computation.
     """
-    return vendor_ops_registry["linear"](x, weight, bias, all_reduce)
+    return vendor_ops_registry["linear"](x, weight, bias, all_reduce, group)
 
 
 def dynamic_quant(

@@ -30,7 +30,7 @@ class LinearAllReduce(Operator):
     def __init__(self):
         super().__init__("LinearAllReduce")
 
-    def infer_result(self, x, weight, bias):
+    def infer_result(self, x, weight, bias, group):
         out = torch.matmul(x, weight.t())
         if bias:
             out = out + bias
@@ -41,8 +41,8 @@ class AllReduce(Operator):
     def __init__(self):
         super().__init__("AllReduce")
 
-    def infer_result(self, x, reduce_type):
-        return torch.ops._c10d_functional.all_reduce.default(x, reduce_type, "0")
+    def infer_result(self, x, reduce_type, group):
+        return x
 
 
 class AclNnAdd(Operator):

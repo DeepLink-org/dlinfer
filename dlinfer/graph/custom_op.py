@@ -88,7 +88,10 @@ def override_default_value_dynamic(
         params_with_default = []
         for name in sig_param_keys:
             if name in default_value:
-                params_with_default.append(f"{name}={default_value[name]}")
+                if isinstance(default_value[name], str):
+                    params_with_default.append(f"{name}='{default_value[name]}'")
+                else:
+                    params_with_default.append(f"{name}={default_value[name]}")
             else:
                 params_with_default.append(name)
         params_str_with_default = ", ".join(params_with_default)
