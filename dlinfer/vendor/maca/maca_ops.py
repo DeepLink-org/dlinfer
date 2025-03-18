@@ -2,10 +2,11 @@ import os
 import math
 import vllm
 import torch
-import torch.distributed as dist
+import lmdeploy.pytorch.distributed as dist
 
 from vllm import _custom_ops as custom_ops
 from flash_attn import flash_attn_varlen_func
+from vllm.model_executor.layers.fused_moe import fused_experts
 from vllm.attention.ops.prefix_prefill import context_attention_fwd
 
 from dlinfer.vendor import vendor_ops_registry
@@ -408,7 +409,7 @@ def fused_moe(
     topk_ids = topk_ids.reshape(N, top_k)
     if renormalize:
         topk_weights = topk_weights / topk_weights.sum(dim=-1, keepdim=True)
-    return vllm.model_executor.layers.fused_moe.fused_experts(
+    return fused_experts(
         hidden_states, gate_up_weights, down_weights, topk_weights, topk_ids
     )
 
