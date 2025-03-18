@@ -1,5 +1,5 @@
 import math
-import json
+import os
 import torch
 import torch.distributed as dist
 from torch.fx.node import Node
@@ -47,7 +47,7 @@ class AtbOverrides:
         op.set_output([name])
         return op
 
-    def LinearAllReduce(name, x, weight, bias):
+    def LinearAllReduce(name, x, weight, bias, group):
         op = Operation(name, "LinearParallelOperation")
         param = infer_param.LinearParallelParam()
 
@@ -57,7 +57,16 @@ class AtbOverrides:
         param.rankRoot = 0
         param.hasResidual = False
         param.parallelType = infer_param.ParallelType.LINEAR_ALL_REDUCE
-        param.backend = "lccl"
+        param.commMode = infer_param.CommMode.COMM_MULTI_PROCESS
+
+        rank_table_file = os.environ.get("ASCEND_RANK_TABLE_FILE_PATH", None)
+        if rank_table_file:
+            param.backend = "hccl"
+            param.rankTableFile = rank_table_file
+            if group and group != "":
+                param.commDomain = group
+        else:
+            param.backend = "lccl"
 
         if bias:
             op.set_input([x, weight, bias])
@@ -67,14 +76,24 @@ class AtbOverrides:
         op.set_output([name])
         return op
 
-    def AllReduce(name, x, reduce_type):
+    def AllReduce(name, x, reduce_type, group):
         op = Operation(name, "AllReduceOperation")
         param = infer_param.AllReduceParam()
         param.rank = dist.get_rank()
         param.rankSize = dist.get_world_size()
         param.rankRoot = 0
         param.allReduceType = reduce_type
-        param.backend = "lccl"
+        param.commMode = infer_param.CommMode.COMM_MULTI_PROCESS
+
+        rank_table_file = os.environ.get("ASCEND_RANK_TABLE_FILE_PATH", None)
+        if rank_table_file is not None:
+            param.backend = "hccl"
+            param.rankTableFile = rank_table_file
+            if group and group != "":
+                param.commDomain = group
+        else:
+            param.backend = "lccl"
+
         op.set_input([x])
         op.set_param(param)
         op.set_output([name])
