@@ -4,13 +4,14 @@
 namespace dicp {
 class AclNnQuantMatmulOperation : public AclNnOperation {
 public:
-    explicit AclNnQuantMatmulOperation(const std::string& name);
+    explicit AclNnQuantMatmulOperation(const std::string& name, bool hasBias);
     ~AclNnQuantMatmulOperation() override;
     atb::Status InferShape(const atb::SVector<atb::TensorDesc>& inTensorDescs, atb::SVector<atb::TensorDesc>& outTensorDescs) const override;
     uint32_t GetInputNum() const override;
     uint32_t GetOutputNum() const override;
 
 private:
+    bool hasBias_ = false;
     int SetAclNnWorkspaceExecutor(uint64_t& workspaceSize) override;
     int CallAclExecute(uint8_t* workspace, uint64_t workspaceSize, aclOpExecutor* aclExecutor, aclrtStream stream) override;
 };
