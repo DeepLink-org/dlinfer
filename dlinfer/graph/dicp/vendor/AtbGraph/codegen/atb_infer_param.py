@@ -671,6 +671,12 @@ class NewEmptyParam:
     size: list[str] = field(default_factory=list)
 
 
+@dataclass
+class AclNnQuantMatmulParam:
+    name: str = ""
+    hasBias: bool = False
+
+
 def custom_asdict_factory(data):
     def convert_value(obj):
         if isinstance(obj, IntEnum):

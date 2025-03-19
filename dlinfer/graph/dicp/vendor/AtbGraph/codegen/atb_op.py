@@ -1128,9 +1128,13 @@ class AtbOverrides:
         name, x, y, rms_scale, linear_scale, out_dtype, quant_dtype, bias
     ):
         op = Operation(name, "AclNnQuantMatmulOperation")
-        param = infer_param.OnlyNameParam()
+        param = infer_param.AclNnQuantMatmulParam()
         param.name = name
-        op.set_input([x, y, linear_scale, rms_scale])
+        if bias is None:
+            op.set_input([x, y, linear_scale, rms_scale])
+        else:
+            param.hasBias = True
+            op.set_input([x, y, linear_scale, rms_scale, bias])
         op.set_param(param)
         op.set_output([name])
         return op
