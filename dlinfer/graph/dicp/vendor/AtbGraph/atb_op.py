@@ -287,9 +287,19 @@ class SelfAttentionPAEncoder(Operator):
         super().__init__("SelfAttentionPAEncoder")
 
     def infer_result(
-        self, query, key, value, seqlen, mask, q_head_num, kv_head_num, scale
+        self,
+        query,
+        key,
+        value,
+        seqlen,
+        mask,
+        q_head_num,
+        kv_head_num,
+        scale,
+        head_size,
+        head_size_v,
     ):
-        return query
+        return query.new_empty((query.shape[0], q_head_num, head_size_v))
 
 
 class ReshapeAndCache(Operator):
@@ -298,6 +308,14 @@ class ReshapeAndCache(Operator):
 
     def infer_result(self, key, value, key_cache, value_cache, kv_indices):
         return key_cache, value_cache
+
+
+class MlaReshapeAndCache(Operator):
+    def __init__(self):
+        super().__init__("MlaReshapeAndCache")
+
+    def infer_result(self, key, key_cache, kv_indices):
+        return key_cache
 
 
 class PagedAttention(Operator):
@@ -315,8 +333,10 @@ class PagedAttention(Operator):
         q_head_num,
         kv_head_num,
         scale,
+        head_size,
+        head_size_v,
     ):
-        return query
+        return query.new_empty((query.shape[0], q_head_num, head_size_v))
 
 
 class Transpose(Operator):
@@ -566,6 +586,22 @@ class ZerosLike(Operator):
         return x
 
 
+class SliceScatter(Operator):
+    def __init__(self):
+        super().__init__("SliceScatter")
+
+    def infer_result(self, x, data, dim, start, end, step):
+        return torch.slice_scatter(x, data, dim=dim, start=start, end=end, step=step)
+
+
+class AclNnInplaceIndexCopy(Operator):
+    def __init__(self):
+        super().__init__("AclNnInplaceIndexCopy")
+
+    def infer_result(self, x, data, dim=0, start=None, end=None, step=1, index=None):
+        return torch.slice_scatter(x, data, dim=dim, start=start, end=end, step=step)
+
+
 class Renormalize(Operator):
     def __init__(self):
         super().__init__("Renormalize")
@@ -656,3 +692,19 @@ class NewEmpty(Operator):
 
     def infer_result(self, x, size):
         return x.new_empty(size)
+
+
+class EmptyLike(Operator):
+    def __init__(self):
+        super().__init__("NewEmpty")
+
+    def infer_result(self, x, size):
+        return x
+
+
+class AclNnInplaceCopy(Operator):
+    def __init__(self):
+        super().__init__("AclNnInplaceCopy")
+
+    def infer_result(self, dest, src):
+        return dest
