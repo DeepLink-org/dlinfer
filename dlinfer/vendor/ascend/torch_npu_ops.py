@@ -491,11 +491,9 @@ def linear(
     group: Optional[str],
 ) -> Tensor:
     if all_reduce:
-        if group and group != "":
-            hcomm_info = group
-        else:
-            group = torch.distributed.distributed_c10d._world.default_pg
-            hcomm_info = group._get_backend(x.device).get_hccl_comm_name(x.device.index)
+        assert group is None or group == "", "In eager mode, only use default_pg"
+        group = torch.distributed.distributed_c10d._world.default_pg
+        hcomm_info = group._get_backend(x.device).get_hccl_comm_name(x.device.index)
         out = torch.ops.npu.npu_mm_all_reduce_base(
             x.contiguous(),
             weight.transpose(0, 1),
