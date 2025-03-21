@@ -11,6 +11,7 @@
 #include <map>
 #include <sstream>
 #include <string>
+#include <vector>
 
 #include "utils/log.h"
 
@@ -131,6 +132,46 @@ int64_t TransferAtTensor2AtbTensor(std::vector<torch::Tensor>& atTensors, std::v
         atb::Tensor tensor = AtTensor2Tensor(atTensor);
         atbTensors.push_back(tensor);
     }
+    return atb::NO_ERROR;
+}
+
+template <aclDataType T>
+void copyAndPrint(const atb::Tensor tensor, int64_t tensorSize) {
+    using vectorT = typename aclDataTypeMap<T>::type;
+    std::vector<vectorT> resultData(tensorSize, 0);
+    auto ret =
+        aclrtMemcpy(resultData.data(), resultData.size() * sizeof(resultData[0]), tensor.deviceData, tensorSize * sizeof(float16_t), ACL_MEMCPY_DEVICE_TO_HOST);
+    for (int64_t i = 0; i < tensorSize; ++i) {
+        DICP_LOG(INFO) << "data[" << i << "]: " << resultData[i];
+    }
+}
+
+int64_t DumpTensor(const atb::Tensor& tensor) {
+    DICP_LOG(INFO) << "***** dump tensor begin *****";
+    int64_t tensorSize = 1;
+    DICP_LOG(INFO) << "dtype: " << tensor.desc.dtype;
+    for (int64_t i = 0; i < tensor.desc.shape.dimNum; ++i) {
+        DICP_LOG(INFO) << "shape " << i << " : " << tensor.desc.shape.dims[i];
+        tensorSize = tensorSize * tensor.desc.shape.dims[i];
+    }
+    aclDataType tensorDtype = tensor.desc.dtype;
+    switch (tensorDtype) {
+        case aclDataType::ACL_FLOAT16:
+            copyAndPrint<aclDataType::ACL_FLOAT16>(tensor, tensorSize);
+            break;
+        case aclDataType::ACL_INT64:
+            copyAndPrint<aclDataType::ACL_INT64>(tensor, tensorSize);
+            break;
+        case aclDataType::ACL_INT32:
+            copyAndPrint<aclDataType::ACL_INT32>(tensor, tensorSize);
+            break;
+        case aclDataType::ACL_INT8:
+            copyAndPrint<aclDataType::ACL_INT8>(tensor, tensorSize);
+            break;
+        default:
+            throw std::invalid_argument("Unsupported data type");
+    }
+    DICP_LOG(INFO) << "***** dump tensor end *****";
     return atb::NO_ERROR;
 }
 
