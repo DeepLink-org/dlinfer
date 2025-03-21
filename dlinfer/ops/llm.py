@@ -108,8 +108,8 @@ def prefill_attention(
     query: Tensor,
     key: Tensor,
     value: Tensor,
-    k_cache: Tensor,
-    v_cache: Tensor,
+    key_cache: Tensor,
+    value_cache: Tensor,
     q_start_loc: Tensor,
     q_seq_len: Tensor,
     kv_seq_len: Tensor,
@@ -129,8 +129,11 @@ def prefill_attention(
         query (Tensor): The query tensor.
         key (Tensor): The key tensor.
         value (Tensor): The value tensor.
+        key_cache (Tensor): The existing key cache tensor.
+        value_cache (Tensor): The existing value cache tensor.
         q_start_loc (Tensor): The start location of each query sequence.
         q_seq_len (Tensor): The length of each query sequence.
+        kv_seq_len (Tensor): The length of each key/value sequence.
         max_q_seq_len (int): The maximum length of any query sequence.
         num_q_heads (int): The number of query heads.
         num_kv_heads (int): The number of key/value heads.
