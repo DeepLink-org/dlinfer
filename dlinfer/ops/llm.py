@@ -97,7 +97,7 @@ def apply_rotary_pos_emb(
 
 @register_custom_op(
     "dlinfer::prefill_attention",
-    ["query"],
+    ["attn_output"],
     default_value={
         "softmax_scale": None,
         "alibi_slopes": None,
@@ -108,8 +108,11 @@ def prefill_attention(
     query: Tensor,
     key: Tensor,
     value: Tensor,
+    k_cache: Tensor,
+    v_cache: Tensor,
     q_start_loc: Tensor,
     q_seq_len: Tensor,
+    kv_seq_len: Tensor,
     max_q_seq_len: int,
     num_q_heads: int,
     num_kv_heads: int,
