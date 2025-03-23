@@ -87,6 +87,7 @@ jobs:
           cd ${{env.CI_PATH }}/tests
           export DLINFER_TEST_DIR=${{env.CI_PATH }}/tests
           echo $PYTHONPATH && pwd
+          export HCCL_EXEC_TIMEOUT=180
           pytest ./ -m 'lmdeploy' -s -x --alluredir=allure-results --clean-alluredir
           bash ${{env.CI_PATH }}/tests/test_lmdeploy/scripts/test_model_tp2.sh
 
