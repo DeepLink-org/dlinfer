@@ -6,11 +6,11 @@
 #include <fstream>
 
 #include "ops/operation_creator.h"
-#include "utils/config.h"
+#include "torch_npu/csrc/framework/OpCommand.h"
+#include "utils/global_dict.h"
 #include "utils/log.h"
 #include "utils/tensor_utils.h"
 #include "utils/workspace.h"
-
 namespace dicp {
 
 static bool IsTensorDescEqual(const atb::TensorDesc& tensorDesc, const atb::Tensor& atbTensor) {
@@ -157,7 +157,12 @@ atb::Tensor Model::CreateInternalTensorFromDesc(const atb::TensorDesc& tensorDes
 }
 
 Model::Model(const std::string& modelId, const std::string& modelPath) : modelId_(modelId), modelPath_(modelPath) {
+    const char* envStr = std::getenv("DICP_USE_TORCH_NPU_LAUNCHER");
+    UseTorchNpuLauncher_ = (envStr == nullptr || std::string(envStr) == "1");
     auto st = BuildGraph();
+
+    RegisterToGlobalDict(modelId_);
+
     DICP_LOG_IF(st != atb::NO_ERROR, ERROR) << modelId_ << " init graph:\n" << graph_.ToString();
     graph_.Init();
     DICP_LOG(INFO) << modelId_ << " init graph:\n" << graph_.ToString();
@@ -247,6 +252,15 @@ atb::Status Model::Execute(atb::Context* context, std::vector<atb::Tensor>& inTe
         nodeHostTensorMap_[nodeId][tensorId] = value;
     }
 
+    // set global dict
+    SetGlobalDict(modelId_);
+    auto& symInputs = GetGlobalDictData();
+    for (const auto& node : paramJson["symInputs"]) {
+        auto key = getValue<std::string>(node, "name");
+        auto value = getValue<int32_t>(node, "value");
+        symInputs[key] = value;
+    }
+
     ClearInternalTensors();
     context_ = context;
     graph_.inTensors = inTensors;
@@ -279,7 +293,23 @@ atb::Status Model::ExecuteNode(int nodeId) {
 
     DICP_LOG(INFO) << modelId_ << "execute node[" << nodeId << "] start";
 
-    st = node.operation->Execute(node.variantPack, (uint8_t*)(node.workspace), node.workspaceSize, context_);
+    if (UseTorchNpuLauncher_) {
+        at_npu::native::OpCommand cmd;
+        std::string taskName = "DicpDecoderModel_" + modelId_ + std::to_string(nodeId);
+        std::function<int()> task = [&]() {
+            atb::Status tmp_st = node.operation->Execute(node.variantPack, (uint8_t*)(node.workspace), node.workspaceSize, context_);
+            if (tmp_st != 0) {
+                DICP_LOG(ERROR) << "op command execute node[" << nodeId << "] fail, error code: " << st
+                                << "\n please set DICP_USE_TORCH_NPU_LAUNCHER=0 to avoid this error";
+            }
+            return 0;
+        };
+        cmd.Name(taskName);
+        cmd.SetCustomHandler(task);
+        cmd.Run();
+    } else {
+        st = node.operation->Execute(node.variantPack, (uint8_t*)(node.workspace), node.workspaceSize, context_);
+    }
     if (st != 0) {
         DICP_LOG(ERROR) << "execute node[" << nodeId << "] fail, error code: " << st;
     }
@@ -508,18 +538,37 @@ void Model::SetupReshapeFunctions(const nlohmann::json& reshapeInputs, atb::SVec
 
 void Model::SetupViewReshape(const nlohmann::json& reshapeInput, atb::ReshapeFunc& func) {
     auto dimNum = getValue<int32_t>(reshapeInput, "dimNum");
-    auto dims = getValue<std::vector<int32_t>>(reshapeInput, "dims");
+    auto dims_str = getValue<std::vector<std::string>>(reshapeInput, "dims");
+    std::vector<int64_t> dims;
+    dims.reserve(dims_str.size());
+    std::unordered_map<int64_t, std::string> dynamic_dims;
     bool needInferDim = false;
     size_t dimNeedInfer = 0;
-    for (size_t i = 0; i < dims.size(); ++i) {
-        if (dims[i] == -1) {
+    for (size_t i = 0; i < dims_str.size(); ++i) {
+        if (dims_str[i] == "-1") {
             needInferDim = true;
             dimNeedInfer = i;
-            break;
+            dims.push_back(-1);
+        } else if (!dims_str[i].empty() && !std::isdigit(dims_str[i][0])) {
+            dynamic_dims[i] = dims_str[i];
+            dims.push_back(-2);
+        } else {
+            dims.push_back(std::stoll(dims_str[i]));
         }
     }
     func = [=](const atb::Dims& oldShape, atb::Dims& newShape) {
         newShape.dimNum = dimNum;
+        if (dynamic_dims.size() > 0) {
+            auto& global_dict = GetGlobalDictData();
+            for (auto& d : dynamic_dims) {
+                auto it = global_dict.find(d.second);
+                if (it != global_dict.end()) {
+                    newShape.dims[d.first] = it->second;
+                } else {
+                    DICP_LOG(ERROR) << "cannot find key " << d.second << " in global_dict";
+                }
+            }
+        }
         if (needInferDim) {
             int64_t totalValue = 1;
             int64_t otherProd = 1;
@@ -527,14 +576,18 @@ void Model::SetupViewReshape(const nlohmann::json& reshapeInput, atb::ReshapeFun
                 totalValue *= oldShape.dims[i];
             }
             for (size_t i = 0; i < dims.size(); ++i) {
-                if (i != dimNeedInfer) {
+                if (dims[i] == -1) {
+                    continue;
+                } else if (dims[i] == -2) {
+                    otherProd *= newShape.dims[i];
+                } else if (i != dimNeedInfer) {
                     otherProd *= dims[i];
                 }
             }
             newShape.dims[dimNeedInfer] = totalValue / otherProd;
         }
         for (size_t i = 0; i < dims.size(); ++i) {
-            if (dims[i] != -1) {
+            if (dims[i] != -1 && dims[i] != -2) {
                 newShape.dims[i] = dims[i];
             }
         }

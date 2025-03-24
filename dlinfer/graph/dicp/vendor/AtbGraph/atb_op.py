@@ -30,7 +30,7 @@ class LinearAllReduce(Operator):
     def __init__(self):
         super().__init__("LinearAllReduce")
 
-    def infer_result(self, x, weight, bias):
+    def infer_result(self, x, weight, bias, group):
         out = torch.matmul(x, weight.t())
         if bias:
             out = out + bias
@@ -41,8 +41,8 @@ class AllReduce(Operator):
     def __init__(self):
         super().__init__("AllReduce")
 
-    def infer_result(self, x, reduce_type):
-        return torch.ops._c10d_functional.all_reduce.default(x, reduce_type, "0")
+    def infer_result(self, x, reduce_type, group):
+        return x
 
 
 class AclNnAdd(Operator):
@@ -252,6 +252,16 @@ class RmsNorm(Operator):
         return (x, x)
 
 
+class AddRmsNorm(Operator):
+    def __init__(
+        self,
+    ):
+        super().__init__("AddRmsNorm")
+
+    def infer_result(self, x, residual, gamma, eps):
+        return (x, x)
+
+
 class Rope(Operator):
     def __init__(
         self,
@@ -277,9 +287,19 @@ class SelfAttentionPAEncoder(Operator):
         super().__init__("SelfAttentionPAEncoder")
 
     def infer_result(
-        self, query, key, value, seqlen, mask, q_head_num, kv_head_num, scale
+        self,
+        query,
+        key,
+        value,
+        seqlen,
+        mask,
+        q_head_num,
+        kv_head_num,
+        scale,
+        head_size,
+        head_size_v,
     ):
-        return query
+        return query.new_empty((query.shape[0], q_head_num, head_size_v))
 
 
 class ReshapeAndCache(Operator):
@@ -288,6 +308,14 @@ class ReshapeAndCache(Operator):
 
     def infer_result(self, key, value, key_cache, value_cache, kv_indices):
         return key_cache, value_cache
+
+
+class MlaReshapeAndCache(Operator):
+    def __init__(self):
+        super().__init__("MlaReshapeAndCache")
+
+    def infer_result(self, key, key_cache, kv_indices):
+        return key_cache
 
 
 class PagedAttention(Operator):
@@ -305,8 +333,10 @@ class PagedAttention(Operator):
         q_head_num,
         kv_head_num,
         scale,
+        head_size,
+        head_size_v,
     ):
-        return query
+        return query.new_empty((query.shape[0], q_head_num, head_size_v))
 
 
 class Transpose(Operator):
@@ -329,7 +359,7 @@ class Unsqueeze(Operator):
     def __init__(self):
         super().__init__("Unsqueeze")
 
-    def infer_result(self, x, dim):
+    def infer_result(self, x, dim, target_shape=None):
         return x.unsqueeze(dim)
 
 
@@ -337,7 +367,7 @@ class Squeeze(Operator):
     def __init__(self):
         super().__init__("Squeeze")
 
-    def infer_result(self, x, dim):
+    def infer_result(self, x, dim, target_shape=None):
         return x.squeeze(dim)
 
 
@@ -363,6 +393,16 @@ class Swish(Operator):
 
     def infer_result(self, x, scale=1.0, dim=-1):
         return x
+
+
+class Swiglu(Operator):
+    def __init__(self):
+        super().__init__("Swiglu")
+
+    def infer_result(self, x, dim):
+        x_shape = x.shape
+        x_shape[dim] = x_shape[dim] // 2
+        return torch.empty(x_shape, device=x.device, dtype=x.dtype)
 
 
 class Cast(Operator):
@@ -546,6 +586,22 @@ class ZerosLike(Operator):
         return x
 
 
+class SliceScatter(Operator):
+    def __init__(self):
+        super().__init__("SliceScatter")
+
+    def infer_result(self, x, data, dim, start, end, step):
+        return torch.slice_scatter(x, data, dim=dim, start=start, end=end, step=step)
+
+
+class AclNnInplaceIndexCopy(Operator):
+    def __init__(self):
+        super().__init__("AclNnInplaceIndexCopy")
+
+    def infer_result(self, x, data, dim=0, start=None, end=None, step=1, index=None):
+        return torch.slice_scatter(x, data, dim=dim, start=start, end=end, step=step)
+
+
 class Renormalize(Operator):
     def __init__(self):
         super().__init__("Renormalize")
@@ -628,3 +684,27 @@ class AclNnMoeTokenUnpermute(Operator):
         tokens_num = probs.size(0)
         hidden_size = permuted_tokens.size(1)
         return permuted_tokens.new_empty((tokens_num, hidden_size))
+
+
+class NewEmpty(Operator):
+    def __init__(self):
+        super().__init__("NewEmpty")
+
+    def infer_result(self, x, size):
+        return x.new_empty(size)
+
+
+class EmptyLike(Operator):
+    def __init__(self):
+        super().__init__("NewEmpty")
+
+    def infer_result(self, x, size):
+        return x
+
+
+class AclNnInplaceCopy(Operator):
+    def __init__(self):
+        super().__init__("AclNnInplaceCopy")
+
+    def infer_result(self, dest, src):
+        return dest

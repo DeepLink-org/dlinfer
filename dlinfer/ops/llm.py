@@ -21,6 +21,10 @@ __all__ = [
     "weight_quant_matmul",
     "fused_moe",
     "linear",
+    "dynamic_quant",
+    "linear_w8a8",
+    "rms_norm_w8a8",
+    "add_rms_norm_w8a8",
 ]
 
 
@@ -58,7 +62,7 @@ def apply_rotary_pos_emb(
     cos_sin_cache: Optional[Tensor],
 ) -> Tuple[Tensor, Tensor]:
     """
-    Applies rotary position embeddings to the query and key tensors.
+    Apply rotary position embeddings to the query and key tensors.
 
     Rotary position embedding is a method of embedding positional information into
     self-attention computations without increasing the model size.
@@ -200,9 +204,34 @@ def fill_kv_cache(
     )
 
 
+def paged_decode_attention_impl_abstract_func(
+    query: Tensor,
+    key_cache: Tensor,
+    value_cache: Tensor,
+    block_table: Tensor,
+    block_size: int,
+    kv_seq_len: Tensor,
+    max_kv_seq_len: int,
+    num_q_heads: int,
+    num_kv_heads: int,
+    softmax_scale: Optional[float],
+    alibi_slopes: Optional[Sequence[float]],
+    attn_output: Optional[Tensor],
+    kv_scales: Optional[Tensor],
+    kv_zeros: Optional[Tensor],
+    quant_bits: Optional[int],
+):
+    assert len(value_cache.shape) in (3, 4)
+    if len(value_cache.shape) == 3:
+        head_size_v = value_cache.shape[-1] // num_kv_heads
+    else:
+        head_size_v = value_cache.shape[-1]
+    return query.new_empty(query.shape[0], num_q_heads, head_size_v)
+
+
 @register_custom_op(
     "dlinfer::paged_decode_attention",
-    ["query"],
+    impl_abstract_func=paged_decode_attention_impl_abstract_func,
     default_value={
         "softmax_scale": None,
         "alibi_slopes": None,
@@ -576,11 +605,14 @@ def fused_moe(
 
 
 def linear_impl_abstract_func(
-    x: Tensor, weight: Tensor, bias: Optional[Tensor], all_reduce: Optional[bool]
+    x: Tensor,
+    weight: Tensor,
+    bias: Optional[Tensor],
+    all_reduce: Optional[bool],
+    group: Optional[str],
 ) -> Tensor:
     shape_x = x.shape
     shape_w = weight.shape
-    rank_x = len(x.shape)
     rank_w = len(weight.shape)
     assert rank_w == 2, "weight in linear must be a 2D tensor"
     cx = shape_x[-1]
@@ -592,13 +624,14 @@ def linear_impl_abstract_func(
 @register_custom_op(
     "dlinfer::linear",
     impl_abstract_func=linear_impl_abstract_func,
-    default_value={"bias": None, "all_reduce": False},
+    default_value={"bias": None, "all_reduce": False, "group": ""},
 )
 def linear(
     x: Tensor,
     weight: Tensor,
     bias: Optional[Tensor],
     all_reduce: Optional[bool],
+    group: Optional[str],
 ) -> Tensor:
     """
     Complete a linear computation.
@@ -612,4 +645,111 @@ def linear(
     Returns:
         Tensor: The output tensor of linear computation.
     """
-    return vendor_ops_registry["linear"](x, weight, bias, all_reduce)
+    return vendor_ops_registry["linear"](x, weight, bias, all_reduce, group)
+
+
+def dynamic_quant(
+    x: Tensor, quant_dtype: torch.dtype, quant_granularity: str = "PER_TOKEN"
+) -> Tuple[Tensor, float]:
+    """
+    Perform dynamic quantization on a tensor.
+
+    Args:
+        x (Tensor): The input tensor to be quantized.
+        quant_dtype (torch.dtype): The data type to which the tensor should be quantized.
+        quant_granularity (str, optional): The granularity of quantization. Defaults to "PER_TOKEN".
+            Options include:
+            - "PER_TOKEN": Quantize each element independently.
+            - "PER_CHANNEL": Quantize each channel independently.
+            - "PER_TENSOR": Quantize the entire tensor as a whole.
+
+    Returns:
+        Tuple[Tensor, float]: A tuple containing:
+            - The quantized tensor.
+            - The scaling factor used during quantization.
+
+    """
+    return vendor_ops_registry["dynamic_quant"](x, quant_dtype, quant_granularity)
+
+
+def linear_w8a8(
+    a: Tensor,
+    b: Tensor,
+    rms_scale: float,
+    linear_scale: float,
+    out_dtype: torch.dtype,
+    quant_dtype: torch.dtype,
+    bias: Tensor,
+) -> Tensor:
+    """
+    Performs a linear transformation on two quantized input tensors.
+
+    Args:
+        a (Tensor): The first quantized input tensor.
+        b (Tensor): The second quantized input tensor.
+        rms_scale (float): The scaling factor for a.
+        linear_scale (float): The scaling factor for b.
+        out_dtype (torch.dtype): The target data type for the output tensor.
+        quant_dtype (torch.dtype): The data type of the quantized input tensors.
+        bias (Tensor): The bias tensor to be added to the output.
+
+    Returns:
+        Tensor: The  output tensor after applying the linear transformation.
+    """
+    return vendor_ops_registry["linear_w8a8"](
+        a, b, rms_scale, linear_scale, out_dtype, quant_dtype, bias
+    )
+
+
+def rms_norm_w8a8(
+    hidden_states: Tensor,
+    weight: Tensor,
+    epsilon: float,
+    quant_dtype: torch.dtype,
+) -> Tuple[Tensor, float]:
+    """
+    Apply RMS normalization to the input tensor and quantizes the result.
+
+    Args:
+        hidden_states (Tensor): The input tensor to be normalized and quantized.
+        weight (Tensor): The scaling weight applied to the normalized tensor.
+        epsilon (float): A value added to the denominator for numerical stability during normalization.
+        quant_dtype (torch.dtype): The target data type for the quantized result.
+
+     Returns:
+        Tuple[Tensor, float]: A tuple containing:
+            - The RMS-normalized and quantized tensor.
+            - The scaling factor used during quantization.
+    """
+    return vendor_ops_registry["rms_norm_w8a8"](
+        hidden_states, weight, epsilon, quant_dtype
+    )
+
+
+def add_rms_norm_w8a8(
+    hidden_states: Tensor,
+    residual: Tensor,
+    weight: Tensor,
+    epsilon: float,
+    quant_dtype: torch.dtype,
+) -> Tuple[Tensor, float, Tensor]:
+    """
+    Apply RMS normalization to the input tensor, adds a residual connection,
+    and quantizes the result.
+
+    Args:
+        hidden_states (Tensor): The input tensor to be normalized and quantized.
+        residual (Tensor): The residual tensor to be added to the normalized tensor.
+        weight (Tensor): The scaling weight applied to the normalized tensor.
+        epsilon (float): A value added to the denominator for numerical stability during normalization.
+        quant_dtype (torch.dtype): The target data type for the quantized result.
+
+    Returns:
+        Tuple[Tensor, float, Tensor]: A tuple containing:
+            - The RMS-normalized, residual-added, and quantized tensor.
+            - The scaling factor used during quantization.
+            - The residual tensor.
+    """
+    return vendor_ops_registry["add_rms_norm_w8a8"](
+        hidden_states, residual, weight, epsilon, quant_dtype
+    )

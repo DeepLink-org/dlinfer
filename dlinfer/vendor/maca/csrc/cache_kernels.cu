@@ -215,7 +215,7 @@ __global__ void reshape_and_cache_kernel_layout(
     const int64_t* __restrict__ slot_mapping,  // [num_tokens]
     const int key_stride, const int value_stride, const int num_heads,
     const int head_size, const int block_size, const int x,
-    const float kv_scale) {
+    const float kv_scale, bool is_mla) {
   const int64_t token_idx = blockIdx.x;
   const int64_t slot_idx = slot_mapping[token_idx];
   if (slot_idx < 0) {
@@ -250,12 +250,16 @@ __global__ void reshape_and_cache_kernel_layout(
     scalar_t tgt_value = value[src_value_idx];
     if constexpr (kv_dt == Fp8KVCacheDataType::kAuto) {
       key_cache[tgt_key_idx] = tgt_key;
-      value_cache[tgt_value_idx] = tgt_value;
+      if (!is_mla) {
+        value_cache[tgt_value_idx] = tgt_value;
+      }
     } else {
       key_cache[tgt_key_idx] =
           fp8::scaled_convert<cache_t, scalar_t, kv_dt>(tgt_key, kv_scale);
-      value_cache[tgt_value_idx] =
-          fp8::scaled_convert<cache_t, scalar_t, kv_dt>(tgt_value, kv_scale);
+      if (!is_mla) {
+        value_cache[tgt_value_idx] =
+            fp8::scaled_convert<cache_t, scalar_t, kv_dt>(tgt_value, kv_scale);
+      }
     }
   }
 }
@@ -270,7 +274,7 @@ __global__ void reshape_and_cache_kernel_layout_opt(
     const int64_t* __restrict__ slot_mapping,  // [num_tokens]
     const int key_stride, const int value_stride, const int num_heads,
     const int head_size, const int block_size, const int x,
-    const float kv_scale) {
+    const float kv_scale, bool is_mla) {
   const int64_t token_idx = blockIdx.x;
   const int64_t slot_idx = slot_mapping[token_idx];
   if (slot_idx < 0) {
@@ -303,7 +307,9 @@ __global__ void reshape_and_cache_kernel_layout_opt(
         head_offset;
 
     *(float4*)(key_cache + tgt_key_idx) = *(float4*)(key + src_key_idx);
-    *(float4*)(value_cache + tgt_value_idx) = *(float4*)(value + src_value_idx);
+    if (!is_mla) {
+      *(float4*)(value_cache + tgt_value_idx) = *(float4*)(value + src_value_idx);
+    }
     /*
     scalar_t tgt_key = key[src_key_idx];
     scalar_t tgt_value = value[src_value_idx];
@@ -415,7 +421,7 @@ void reshape_and_cache(
           reinterpret_cast<CACHE_T*>(key_cache.data_ptr()),           \
           reinterpret_cast<CACHE_T*>(value_cache.data_ptr()),         \
           slot_mapping.data_ptr<int64_t>(), key_stride, value_stride, \
-          num_heads, head_size, block_size, x, kv_scale);
+          num_heads, head_size, block_size, x, kv_scale, is_mla);
 
 #define CALL_RESHAPE_AND_CACHE_LAYOUT_OPT(KV_T, CACHE_T, KV_DTYPE)               \
   vllm::reshape_and_cache_kernel_layout_opt<KV_T, CACHE_T, KV_DTYPE>             \
@@ -425,7 +431,7 @@ void reshape_and_cache(
           reinterpret_cast<CACHE_T*>(key_cache.data_ptr()),           \
           reinterpret_cast<CACHE_T*>(value_cache.data_ptr()),         \
           slot_mapping.data_ptr<int64_t>(), key_stride, value_stride, \
-          num_heads, head_size, block_size, x, kv_scale);
+          num_heads, head_size, block_size, x, kv_scale, is_mla);
 void reshape_and_cache_new(
     torch::Tensor& key,    // [num_tokens, num_heads, head_size]
     torch::Tensor& value,  // [num_tokens, num_heads, head_size]
@@ -438,6 +444,8 @@ void reshape_and_cache_new(
   int num_tokens = key.size(0);
   int num_heads = key.size(1);
   int head_size = key.size(2);
+
+  bool is_mla = key.size(-1) != value.size(-1);
 
   int x;
   int block_size;

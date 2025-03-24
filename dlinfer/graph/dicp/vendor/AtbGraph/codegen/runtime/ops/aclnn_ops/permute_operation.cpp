@@ -6,12 +6,10 @@
 #include <unistd.h>
 
 #include <cstring>
-#include <iostream>
-#include <sstream>
 #include <vector>
 
-#include "acl/acl.h"
 #include "aclnnop/aclnn_permute.h"
+#include "utils/common.h"
 #include "utils/log.h"
 
 namespace dicp {
@@ -70,7 +68,7 @@ atb::Operation* AclNnPermuteOperationCreate(const nlohmann::json& paramJson) {
     if (paramJson.contains("perm")) {
         dims = paramJson["perm"].get<std::vector<int64_t>>();
     }
-    DICP_LOG(INFO) << "AclNnPermuteOperation: name: " << opName;
+    DICP_LOG(INFO) << "AclNnPermuteOperation: name: " << opName << ", dims: " << vectorToString(dims);
     atb::Operation* op = new AclNnPermuteOperation(opName, dims);
     return op;
 }

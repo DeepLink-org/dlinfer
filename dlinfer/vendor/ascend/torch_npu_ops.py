@@ -101,8 +101,11 @@ def prefill_attention(
             query = query.view(query.shape[0] * query.shape[1], num_q_heads, -1)
             key = key.view(key.shape[0] * key.shape[1], num_kv_heads, -1)
             value = value.view(value.shape[0] * value.shape[1], num_kv_heads, -1)
+        # some vl models pass a fp16 mask from lmdeploy in vision part of prefill phase.
         attn_mask_ = (
-            None if (attn_mask is None or len(attn_mask) == 0) else attn_mask[0]
+            None
+            if (attn_mask is None or len(attn_mask) == 0)
+            else attn_mask[0].to(torch.bool)
         )
         attn_output.view(query.shape)[:] = torch.ops.npu.npu_fusion_attention(
             query,
@@ -117,7 +120,11 @@ def prefill_attention(
         )[0]
     elif SocVersion.is_Ascend310P():
         assert num_q_heads == num_kv_heads, f"Ascend310P only support mha models."
-        seq_qlen_list = q_seq_len.tolist()
+        seq_qlen_list = (
+            [max_q_seq_len * (i + 1) for i in range(query.shape[0])]
+            if q_seq_len is None
+            else q_seq_len.tolist()
+        )
         batch = len(seq_qlen_list)
         start = 0
         for i in range(batch):
@@ -244,7 +251,7 @@ def paged_decode_attention(
     query = query.contiguous()
     attn_output = attn_output.contiguous()
     query = query.view(bs, 1, num_q_heads * dim)
-    scale_value = 1.0 / math.sqrt(dim)
+    scale_value = softmax_scale if softmax_scale else 1.0 / math.sqrt(dim)
 
     torch.ops.npu_ext.npu_incre_flash_attention_v4_out(
         query,
@@ -301,15 +308,12 @@ def paged_prefill_attention(
         raise RuntimeError(
             "paged_decode_attention does not " "support alibi_slopes yet"
         )
-    if softmax_scale is not None:
-        raise RuntimeError(
-            "paged_decode_attention does not " "support softmax_scale yet"
-        )
+
     if block_table.dtype != torch.int32:
         block_table = block_table.to(torch.int32)
 
     kv_seq_len_list = kv_seq_len.tolist()
-    scale_value = 1.0 / math.sqrt(query.shape[-1])
+    scale_value = softmax_scale if softmax_scale else 1.0 / math.sqrt(query.shape[-1])
     query = query.contiguous().view(query.shape[0], 1, -1)
     torch.ops.npu_ext.npu_incre_flash_attention_v4_out(
         query,
@@ -539,11 +543,12 @@ def linear(
     weight: Tensor,
     bias: Optional[Tensor],
     all_reduce: Optional[bool],
+    group: Optional[str],
 ) -> Tensor:
     if all_reduce:
-        hcomm_info = torch.distributed.distributed_c10d._world.default_pg._get_backend(
-            x.device
-        ).get_hccl_comm_name(x.device.index)
+        assert group is None or group == "", "In eager mode, only use default_pg"
+        group = torch.distributed.distributed_c10d._world.default_pg
+        hcomm_info = group._get_backend(x.device).get_hccl_comm_name(x.device.index)
         out = torch.ops.npu.npu_mm_all_reduce_base(
             x.contiguous(),
             weight.transpose(0, 1),

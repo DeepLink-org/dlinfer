@@ -62,6 +62,23 @@ class TorchLinearWithBias(BackendPatternBase):
 
 
 @register_torch_pattern_1
+class TorchLInearAllreduce(BackendPatternBase):
+    @staticmethod
+    def pattern(x, weight, bias, allreduce, lmdeploy_group_type, group):
+        linear = torch.ops.dlinfer.linear.default(
+            x, weight, bias, allreduce, lmdeploy_group_type
+        )
+        all_reduce = torch.ops._c10d_functional.all_reduce.default(linear, "sum", group)
+        wait_tensor = torch.ops._c10d_functional.wait_tensor.default(all_reduce)
+        copy = torch.ops.aten.copy.default(linear, wait_tensor)
+        return copy
+
+    @staticmethod
+    def replacement(x, weight, bias, allreduce, lmdeploy_group_type, group):
+        return torch.ops.dlinfer.linear.default(x, weight, bias, True, group)
+
+
+@register_torch_pattern_1
 class TorchAllreduce(BackendPatternBase):
     @staticmethod
     def pattern(x, group):
@@ -72,7 +89,7 @@ class TorchAllreduce(BackendPatternBase):
 
     @staticmethod
     def replacement(x, group):
-        return torch.ops.atb.allreduce.default(x, "sum")
+        return torch.ops.atb.allreduce.default(x, "sum", group)
 
 
 @register_torch_pattern_1

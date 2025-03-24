@@ -1,5 +1,5 @@
 import math
-import json
+import os
 import torch
 import torch.distributed as dist
 from torch.fx.node import Node
@@ -10,7 +10,7 @@ from dlinfer.graph.dicp.vendor.AtbGraph.codegen.atb_graph import (
     Operation,
     SqueezeOperation,
     GetItemOperation,
-    GraphOpearation,
+    GraphOperation,
     UnsqueezeOperation,
     InplaceOperation,
     ViewOperation,
@@ -47,7 +47,7 @@ class AtbOverrides:
         op.set_output([name])
         return op
 
-    def LinearAllReduce(name, x, weight, bias):
+    def LinearAllReduce(name, x, weight, bias, group):
         op = Operation(name, "LinearParallelOperation")
         param = infer_param.LinearParallelParam()
 
@@ -57,7 +57,16 @@ class AtbOverrides:
         param.rankRoot = 0
         param.hasResidual = False
         param.parallelType = infer_param.ParallelType.LINEAR_ALL_REDUCE
-        param.backend = "lccl"
+        param.commMode = infer_param.CommMode.COMM_MULTI_PROCESS
+
+        rank_table_file = os.environ.get("ASCEND_RANK_TABLE_FILE_PATH", None)
+        if rank_table_file:
+            param.backend = "hccl"
+            param.rankTableFile = rank_table_file
+            if group and group != "":
+                param.commDomain = group
+        else:
+            param.backend = "lccl"
 
         if bias:
             op.set_input([x, weight, bias])
@@ -67,14 +76,24 @@ class AtbOverrides:
         op.set_output([name])
         return op
 
-    def AllReduce(name, x, reduce_type):
+    def AllReduce(name, x, reduce_type, group):
         op = Operation(name, "AllReduceOperation")
         param = infer_param.AllReduceParam()
         param.rank = dist.get_rank()
         param.rankSize = dist.get_world_size()
         param.rankRoot = 0
         param.allReduceType = reduce_type
-        param.backend = "lccl"
+        param.commMode = infer_param.CommMode.COMM_MULTI_PROCESS
+
+        rank_table_file = os.environ.get("ASCEND_RANK_TABLE_FILE_PATH", None)
+        if rank_table_file is not None:
+            param.backend = "hccl"
+            param.rankTableFile = rank_table_file
+            if group and group != "":
+                param.commDomain = group
+        else:
+            param.backend = "lccl"
+
         op.set_input([x])
         op.set_param(param)
         op.set_output([name])
@@ -303,7 +322,7 @@ class AtbOverrides:
                     continue
             graph_output_names.append(str(x))
 
-        op = GraphOpearation(name)
+        op = GraphOperation(name)
         op.set_node_names(list(args))
         op.set_output(graph_output_names)
         if infer_shape:
@@ -347,7 +366,17 @@ class AtbOverrides:
         return op
 
     def SelfAttentionPAEncoder(
-        name, query, key, value, seqlen, mask, q_head_num, kv_head_num, scale
+        name,
+        query,
+        key,
+        value,
+        seqlen,
+        mask,
+        q_head_num,
+        kv_head_num,
+        scale,
+        head_size,
+        head_size_v,
     ):
         op = Operation(name, "SelfAttentionOperation")
         param = infer_param.SelfAttentionParam()
@@ -357,15 +386,22 @@ class AtbOverrides:
         param.clampType = infer_param.SelfAttentionClampType.CLAMP_TYPE_UNDEFINED
         param.headNum = q_head_num
         param.kvHeadNum = kv_head_num
+        param.mlaVHeadSize = 0 if head_size == head_size_v else head_size_v
         param.qkScale = scale
         param.isTriuMask = 1
 
         if mask is not None:
             param.maskType = infer_param.SelfAttentionMaskType.MASK_TYPE_NORM
-            op.set_input([query, key, value, mask, seqlen])
+            if param.mlaVHeadSize == 0:
+                op.set_input([query, key, value, mask, seqlen])
+            else:
+                op.set_input([query, key, mask, seqlen])
         else:
             param.maskType = infer_param.SelfAttentionMaskType.MASK_TYPE_UNDEFINED
-            op.set_input([query, key, value, seqlen])
+            if param.mlaVHeadSize == 0:
+                op.set_input([query, key, value, seqlen])
+            else:
+                op.set_input([query, key, seqlen])
 
         op.set_param(param)
         op.set_output([name])
@@ -376,13 +412,26 @@ class AtbOverrides:
     def ReshapeAndCache(name, key, value, key_cache, value_cache, kv_indices):
         op = Operation(name, "ReshapeAndCacheOperation")
         param = infer_param.ReshapeAndCacheParam()
-
-        op.set_param(param)
+        param.KvCacheCfg = infer_param.ReshapeAndCacheKvCacheCfg.K_CACHE_V_CACHE
         op.set_input([key, value, key_cache, value_cache, kv_indices])
         op.set_output([f"{name}__0", f"{name}__1"])
-        op.has_inplace_output = True
         op.add_inplace_output(0, 2)
         op.add_inplace_output(1, 3)
+
+        op.set_param(param)
+        op.has_inplace_output = True
+        return op
+
+    def MlaReshapeAndCache(name, key, key_cache, kv_indices):
+        op = Operation(name, "ReshapeAndCacheOperation")
+        param = infer_param.ReshapeAndCacheParam()
+        param.KvCacheCfg = infer_param.ReshapeAndCacheKvCacheCfg.K_CACHE_V_BYPASS
+        op.set_input([key, key_cache, kv_indices])
+        op.set_output([name])
+        op.add_inplace_output(0, 1)
+
+        op.set_param(param)
+        op.has_inplace_output = True
         return op
 
     def PagedAttention(
@@ -396,34 +445,45 @@ class AtbOverrides:
         q_head_num,
         kv_head_num,
         scale,
+        head_size,
+        head_size_v,
     ):
+        is_mla = head_size != head_size_v
         op = Operation(name, "PagedAttentionOperation")
         param = infer_param.PagedAttentionParam()
         param.headNum = q_head_num
         param.kvHeadNum = kv_head_num
         param.qkScale = scale
+        param.mlaVHeadSize = head_size_v if is_mla else 0
 
         if mask is not None:
             param.maskType = infer_param.PagedAttentionMaskType.MASK_TYPE_NORM
-            op.set_input(
-                [query, key_cache, value_cache, block_table, context_len, mask]
-            )
+            if is_mla:
+                op.set_input([query, key_cache, block_table, context_len, mask])
+            else:
+                op.set_input(
+                    [query, key_cache, value_cache, block_table, context_len, mask]
+                )
         else:
             param.maskType = infer_param.PagedAttentionMaskType.UNDEFINED
-            op.set_input([query, key_cache, value_cache, block_table, context_len])
+            if is_mla:
+                op.set_input([query, key_cache, block_table, context_len])
+            else:
+                op.set_input([query, key_cache, value_cache, block_table, context_len])
         op.set_param(param)
         op.set_output([name])
         op.has_host_inputs = True
         op.host_inputs.append(context_len)
         return op
 
-    def AddRmsNorm(name, x1, x2, gamma, epsilon):
-        op = Operation(name, "AclNnAddRmsNormOperation")
-        param = infer_param.AddRmsNormParam()
-        param.epsilon = epsilon
+    def AddRmsNorm(name, x, residual, gamma, epsilon):
+        op = Operation(name, "RmsNormOperation")
+        param = infer_param.RmsNormParam()
+        param.layerType = infer_param.RmsNormType.RMS_NORM_PRENORM
+        param.preNormParam.epsilon = epsilon
         op.set_param(param)
-        op.set_input([x1, x2, gamma])
-        op.set_output([f"{name}__0", f"{name}__1", f"{name}__2"])
+        op.set_input([x, residual, gamma])
+        op.set_output([f"{name}__0", f"{name}__1"])
         return op
 
     def Transpose(name, x, perm):
@@ -469,7 +529,7 @@ class AtbOverrides:
     def Swish(name, x, scale=1.0, dim=-1):
         op = Operation(name, "ActivationOperation")
         param = infer_param.ActivationParam()
-        param.activationType = infer_param.ActivationType.ACTIVATION_SWISH.value
+        param.activationType = infer_param.ActivationType.ACTIVATION_SWISH
         param.scale = scale
         param.dim = dim
         op.set_param(param)
@@ -523,7 +583,7 @@ class AtbOverrides:
         param.concatDim = dim
         param.inputNum = len(x)
 
-        op.set_input(x)
+        op.set_input(list(x))
         op.set_param(param)
         op.set_output([name])
         return op
@@ -758,30 +818,54 @@ class AtbOverrides:
         op.target_reshape_info = {
             "reshapeType": "view",
             "dimNum": len(size),
-            "dims": size,
+            "dims": [str(x) for x in size],
         }
         return op
 
-    def Unsqueeze(name, input, dim):
-        op = UnsqueezeOperation(name)
-        op.add_input(input)
-        op.add_output(name)
-        op.dim = [dim]
-        op.target_reshape_info = {
-            "reshapeType": "unsqueeze",
-            "dim": [dim],
-        }
+    def Unsqueeze(name, input, dim, target_shape=None):
+        if target_shape is None:
+            op = UnsqueezeOperation(name)
+            op.add_input(input)
+            op.add_output(name)
+            op.dim = [dim]
+            op.target_reshape_info = {
+                "reshapeType": "unsqueeze",
+                "dim": [dim],
+            }
+        else:
+            size = target_shape
+            op = ViewOperation(name)
+            op.add_input(input)
+            op.add_output(name)
+            op.target_shape = size
+            op.target_reshape_info = {
+                "reshapeType": "view",
+                "dimNum": len(size),
+                "dims": [str(x) for x in size],
+            }
         return op
 
-    def Squeeze(name, input, dim):
-        op = SqueezeOperation(name)
-        op.add_input(input)
-        op.add_output(name)
-        op.dim = [dim]
-        op.target_reshape_info = {
-            "reshapeType": "squeeze",
-            "dim": [dim],
-        }
+    def Squeeze(name, input, dim, target_shape=None):
+        if target_shape is None:
+            op = SqueezeOperation(name)
+            op.add_input(input)
+            op.add_output(name)
+            op.dim = [dim]
+            op.target_reshape_info = {
+                "reshapeType": "squeeze",
+                "dim": [dim],
+            }
+        else:
+            size = target_shape
+            op = ViewOperation(name)
+            op.add_input(input)
+            op.add_output(name)
+            op.target_shape = size
+            op.target_reshape_info = {
+                "reshapeType": "view",
+                "dimNum": len(size),
+                "dims": [str(x) for x in size],
+            }
         return op
 
     def ReduceSum(name, x, dim):
@@ -855,11 +939,35 @@ class AtbOverrides:
 
     def ZerosLike(name, x):
         op = Operation(name, "ZerosLikeOperation")
-        param = infer_param.ZerosLikeParam()
         param = infer_param.OnlyNameParam()
         param.name = name
 
         op.set_input([x])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def SliceScatter(name, x, data, dim, start, end, step):
+        op = Operation(name, "SliceScatterOperation")
+        param = infer_param.SliceScatterParam()
+        param.name = name
+        param.dim = dim
+        param.start = start
+        param.end = end
+        param.step = step
+
+        op.set_input([x, data])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def AclNnInplaceIndexCopy(name, x, data, dim, start, end, step, index):
+        op = Operation(name, "AclNnInplaceIndexCopyOperation")
+        param = infer_param.AclNnInplaceIndexCopyParam()
+        param.name = name
+        param.dim = dim
+
+        op.set_input([x, index, data])
         op.set_param(param)
         op.set_output([name])
         return op
@@ -954,6 +1062,35 @@ class AtbOverrides:
         param.name = name
 
         op.set_input([permuted_tokens, sorted_indices, probs])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def Swiglu(name, x, dim):
+        op = Operation(name, "ActivationOperation")
+        param = infer_param.ActivationParam()
+        param.activationType = infer_param.ActivationType.ACTIVATION_SWIGLU_FORWARD
+        param.dim = dim
+        op.set_param(param)
+        op.set_input([x])
+        op.set_output([name])
+        return op
+
+    def NewEmpty(name, x, size):
+        op = Operation(name, "NewEmptyOperation")
+        param = infer_param.NewEmptyParam()
+        param.name = name
+        param.size = [str(x) for x in size]
+        op.set_input([x])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def AclNnInplaceCopy(name, dest, src):
+        op = Operation(name, "AclNnInplaceCopyOperation")
+        param = infer_param.OnlyNameParam()
+        param.name = name
+        op.set_input([dest, src])
         op.set_param(param)
         op.set_output([name])
         return op

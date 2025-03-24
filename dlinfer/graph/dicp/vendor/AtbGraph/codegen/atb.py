@@ -154,6 +154,7 @@ class AtbCodegen(torch.fx.Interpreter):
         # TODO check scalar input
         call_body = IndentedBuffer()
         self.args = [self.args_dict[x.name] for x in self.input_args]
+        call_body.writeline("""symInputs = []""")
         if len(self.args) == 1:
             call_body.writeline(f"{self.args[0]} = args[0]")
         else:
@@ -169,7 +170,14 @@ class AtbCodegen(torch.fx.Interpreter):
         if len(self.sym_to_inputs) > 0:
             for key in self.sym_to_inputs.keys():
                 if not key.isdigit() and not self.operator_in_str(key):
-                    call_body.writeline(f"{key} = {self.sym_to_inputs[key]}")
+                    value = self.sym_to_inputs[key]
+                    call_body.writeline(f"{key} = {value}")
+                    call_body.writeline(
+                        f"""symInputs.append('{{ "name": "{value}", "value": ' + str({key}) + ' }}')"""
+                    )
+                    call_body.writeline(
+                        f"""symInputs.append('{{ "name": "{key}", "value": ' + str({key}) + ' }}')"""
+                    )
 
         # gen fixed output shape
         graph_input_names = self.atb_graph.inputs
@@ -192,7 +200,7 @@ class AtbCodegen(torch.fx.Interpreter):
                 input = create_info["input"]
                 call_body.writeline(f"""{output} = {input}""")
 
-        call_body.writeline("""param_dict = {"hostTensors": []}""")
+        call_body.writeline("""hostTensors = []""")
         call_body.writeline(f"""host_tensor_dict = {{}}""")
         host_tensors = []
         for tensor in self.atb_graph.hosts:
@@ -205,11 +213,16 @@ class AtbCodegen(torch.fx.Interpreter):
                     f"""host_tensor_dict["{tensor_name}"] = {tensor_name}.cpu().tolist()"""
                 )
                 host_tensors.append(tensor_name)
+                call_body.writeline(
+                    f"""host_tensor_str_{tensor_name} = str(host_tensor_dict["{tensor_name}"])"""
+                )
             call_body.writeline(
-                f"""param_dict["hostTensors"].append({{"nodeId": {node_id}, "tensorId": {tensor_id}, "value": host_tensor_dict["{tensor_name}"] }})"""
+                f"""hostTensors.append('{{"nodeId": {node_id}, "tensorId": {tensor_id}, "value": ' + str(host_tensor_str_{tensor_name}) + ' }}')"""
             )
 
-        call_body.writeline("""param = json.dumps(param_dict)""")
+        call_body.writeline(
+            """param = f'{{ \"symInputs\": [{",".join(symInputs)}], \"hostTensors\": [{",".join(hostTensors)}] }}'"""
+        )
         call_body.writeline(f"""inputs = [{','.join(graph_input_names)}]""")
 
         call_body.writeline(f"""outputs = [{','.join(graph_output_names)}]""")
