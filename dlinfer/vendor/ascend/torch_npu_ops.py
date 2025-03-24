@@ -41,16 +41,14 @@ def apply_rotary_pos_emb(
     key: Tensor,
     cos: Optional[Tensor],
     sin: Optional[Tensor],
-    position_ids: Optional[Tensor],
-    cos_sin_cache: Optional[Tensor],
 ) -> Tuple[Tensor, Tensor]:
     # rotary pos emb helpers:
+    query = query.contiguous().unsqueeze(0)
+    key = key.contiguous().unsqueeze(0)
     assert len(query.shape) == 4
     batch, seq_len, _, _ = query.shape
     cos = cos.reshape(batch, seq_len, 1, -1)
     sin = sin.reshape(batch, seq_len, 1, -1)
-    query = query.contiguous()
-    key = key.contiguous()
 
     def rotate_half_(x):
         x1, x2 = x[..., : x.shape[-1] // 2], x[..., x.shape[-1] // 2 :]

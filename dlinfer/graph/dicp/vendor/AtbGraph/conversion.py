@@ -119,8 +119,8 @@ class AtenToAtbTransformer(SingleOpTransformer):
         rms_norm = self.get_proxy(atb_op.RmsNorm, (x, w, eps))
         return rms_norm
 
-    @register_conversion("torch.ops.lmdeploy.apply_rotary_pos_emb.default")
-    def apply_rotary_pos_emb(self, q, k, cos, sin, q_out, k_out):
+    @register_conversion("torch.ops.dlinfer.apply_rotary_pos_emb.default")
+    def apply_rotary_pos_emb(self, q, k, cos, sin):
         q_shape = list(q.node.meta["val"].shape)
         k_shape = list(k.node.meta["val"].shape)
         is_qk_require_reshape = len(q_shape) == 3
@@ -137,22 +137,6 @@ class AtenToAtbTransformer(SingleOpTransformer):
             else self.get_proxy(atb_op.View, (k, (-1, k_shape[1] * k_shape[2])))
         )
         out = self.get_proxy(atb_op.Rope, (new_q, new_k, cos, sin, None))
-        if is_qk_require_reshape:
-            out_q = self.get_proxy(atb_op.GetItem, (out, 0))
-            out_q = self.get_proxy(atb_op.View, (out_q, (-1, q_shape[1], q_shape[2])))
-            out_k = self.get_proxy(atb_op.GetItem, (out, 1))
-            out_k = self.get_proxy(atb_op.View, (out_k, (-1, k_shape[1], k_shape[2])))
-            out = self.get_proxy(atb_op.Tuple, (out_q, out_k))
-        if (q_out is not None) and (k_out is not None):
-            self.get_proxy(
-                atb_op.AclNnInplaceCopy,
-                (q_out, self.get_proxy(atb_op.GetItem, (out, 0))),
-            )
-            self.get_proxy(
-                atb_op.AclNnInplaceCopy,
-                (k_out, self.get_proxy(atb_op.GetItem, (out, 1))),
-            )
-            out = self.get_proxy(atb_op.Tuple, (q_out, k_out))
         return out
 
     @register_conversion("torch.ops.atb.inplace_div.default")
