@@ -518,11 +518,21 @@ class AtenToAtbTransformer(SingleOpTransformer):
                 value = self.get_proxy(
                     atb_op.View, (value, [-1, num_kv_heads * kv_head_size])
                 )
-
-            out = self.get_proxy(
-                atb_op.SelfAttentionPAEncoder,
-                (query, key, value, kv_seq_len, mask, num_q_heads, num_kv_heads, scale),
-            )
+            if SocVersion.is_Ascend910B():                
+                out = self.get_proxy(
+                    atb_op.SelfAttentionPAEncoder,
+                    (query, key, value, kv_seq_len, mask, num_q_heads, num_kv_heads, scale),
+                )
+            elif SocVersion.is_Ascend310P():
+                # NOTE. SelfAttentionPAEncoder on 310P requires mask to be format of NZ.
+                out = self.get_proxy(
+                    atb_op.SelfAttentionPAEncoder,
+                    (query, key, value, kv_seq_len, self.get_proxy(atb_op.Transdata, (mask, 2)), num_q_heads, num_kv_heads, scale),
+                )
+            else:
+                raise ValueError(
+                    f"dlinfer doesn't support {SocVersion.device_name()} device currently."
+                )                
         else:
             q_shape = list(query.node.meta["val"].shape)
             scale = 1.0 / math.sqrt(q_shape[-1])

@@ -427,6 +427,14 @@ class AtbOverrides:
         op.set_output([f"{name}__0", f"{name}__1"])
         return op
 
+    def Transdata(name, x, transdataType):
+        op = Operation(name, "TransdataOperation")
+        param = infer_param.TransdataParam(transdataType)
+        op.set_param(param)
+        op.set_input([x])
+        op.set_output([name])
+        return op
+    
     def Transpose(name, x, perm):
         op = Operation(name, "AclNnPermuteOperation")
         # op = Operation(name, "TransposeOperation")

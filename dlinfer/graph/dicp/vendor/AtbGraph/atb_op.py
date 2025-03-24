@@ -319,6 +319,13 @@ class PagedAttention(Operator):
         return query
 
 
+class Transdata(Operator):
+    def __init__(self):
+        super().__init__("Transdata")
+
+    def infer_result(self, x, transdataType):
+        return x
+
 class Transpose(Operator):
     def __init__(self):
         super().__init__("Transpose")
