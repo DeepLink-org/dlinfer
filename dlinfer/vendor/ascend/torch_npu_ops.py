@@ -437,7 +437,6 @@ def fused_moe(
     )
 
     # up sample
-    gate_up_weights = gate_up_weights.transpose(1, 2)
     flattened_ids = topk_ids.flatten()
     counts = torch.bincount(flattened_ids, minlength=num_experts)
     cumulative_counts = torch.cumsum(counts, dim=0)
@@ -454,7 +453,6 @@ def fused_moe(
     gate_cache = silu_and_mul(up_proj, -1)
 
     # down sample
-    down_weights = down_weights.transpose(1, 2)
     down_proj = torch.ops.npu.npu_grouped_matmul(
         [gate_cache],
         [weight for weight in down_weights],
