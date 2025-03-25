@@ -252,6 +252,16 @@ class RmsNorm(Operator):
         return (x, x)
 
 
+class RmsNormW8A8(Operator):
+    def __init__(
+        self,
+    ):
+        super().__init__("RmsNormW8A8")
+
+    def infer_result(self, x, weight, beta, eps, quant_dtype):
+        return (x, x.new_empty(x.shape[:-1]))
+
+
 class AddRmsNorm(Operator):
     def __init__(
         self,
@@ -708,3 +718,20 @@ class AclNnInplaceCopy(Operator):
 
     def infer_result(self, dest, src):
         return dest
+
+
+class AclNnDynamicQuant(Operator):
+    def __init__(self):
+        super().__init__("AclNnDynamicQuant")
+
+    def infer_result(self, x, quant_dtype):
+        res = [x.to(quant_dtype), x.new_empty(x.shape[:-1], dtype=torch.float)]
+        return tuple(res)
+
+
+class AclNnQuantMatmul(Operator):
+    def __init__(self):
+        super().__init__("AclNnQuantMatmul")
+
+    def infer_result(self, x, y, rms_scale, linear_scale, out_dtype, quant_dtype, bias):
+        return torch.matmu(x, y.tanspose(0, 1)).to(out_dtype)

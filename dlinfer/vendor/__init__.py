@@ -9,6 +9,10 @@ import torch
 vendor_ops_registry = dict()
 vendor_is_initialized = False
 vendor_name_file = Path(__file__).parent / "vendor.yaml"
+linear_w8a8_scale_type = torch.Tensor
+dynamic_quant_scale_type = torch.Tensor
+
+
 with open(str(vendor_name_file), "r") as f:
     config = yaml.safe_load(f)
     vendor_name = config["vendor"]
@@ -24,3 +28,6 @@ def vendor_torch_init():
     import_vendor_module(vendor_name)
     global vendor_is_initialized
     vendor_is_initialized = True
+    global linear_w8a8_scale_type, dynamic_quant_scale_type
+    linear_w8a8_scale_type = torch.Tensor if vendor_name in ["ascend"] else float
+    dynamic_quant_scale_type = torch.Tensor if vendor_name in ["ascend"] else float
