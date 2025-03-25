@@ -707,7 +707,6 @@ class AtenToAtbTransformer(SingleOpTransformer):
         expanded_row_idx = self.get_proxy(atb_op.GetItem, (moe_init, 1))
 
         # up sample
-        gate_up_weights = self.get_proxy(atb_op.Transpose, (gate_up_weights, (0, 2, 1)))
         up_sample = self.get_proxy(
             atb_op.AclNnGroupedMatmul,
             (expanded_hidden_states, gate_up_weights, group, 2),
@@ -718,7 +717,6 @@ class AtenToAtbTransformer(SingleOpTransformer):
         gate_cache = self.silu_and_mul(up_proj, -1)
 
         # down sample
-        down_weights = self.get_proxy(atb_op.Transpose, (down_weights, (0, 2, 1)))
         down_sample = self.get_proxy(
             atb_op.AclNnGroupedMatmul,
             (gate_cache, down_weights, group, 2),
