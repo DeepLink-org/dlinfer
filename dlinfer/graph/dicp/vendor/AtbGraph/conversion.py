@@ -5,6 +5,7 @@ import torch
 import math
 
 import torch.fx
+from functools import lru_cache
 from torch.fx.immutable_collections import immutable_dict
 from collections import OrderedDict
 import torch.fx.traceback as fx_traceback
@@ -91,6 +92,10 @@ class AtenToAtbTransformer(SingleOpTransformer):
         )
         self.graph_op_group = None
 
+    @lru_cache
+    def get_shared_zeros(self, size, dtype):
+        return self.get_proxy(atb_op.Zeros, (size, dtype))
+
     def get_proxy(self, target, args, kwargs=immutable_dict()):
         proxy = super().get_proxy(target, args, kwargs)
         if self.use_torch_npu_launcher:
@@ -118,6 +123,15 @@ class AtenToAtbTransformer(SingleOpTransformer):
         self.graph_op_group = OrderedDict()
         rms_norm = self.get_proxy(atb_op.RmsNorm, (x, w, eps))
         return rms_norm
+
+    @register_conversion("torch.ops.dlinfer.rms_norm_w8a8.default")
+    def npu_rms_norm_w8a8(self, x, w, eps=1e-6, quant_dtype=torch.int8):
+        self.graph_op_group = OrderedDict()
+        beta = self.get_shared_zeros((x.node.meta["val"].shape[-1],), torch.float16)
+        rms_norm_w8a8 = self.get_proxy(
+            atb_op.RmsNormW8A8, (x, w, beta, eps, quant_dtype)
+        )
+        return rms_norm_w8a8
 
     @register_conversion("torch.ops.lmdeploy.apply_rotary_pos_emb.default")
     def apply_rotary_pos_emb(self, q, k, cos, sin, q_out, k_out):
@@ -416,6 +430,21 @@ class AtenToAtbTransformer(SingleOpTransformer):
         #     },
         # )
         return self.get_proxy(atb_op.Tuple, (norm, add))
+
+    @register_conversion("torch.ops.dlinfer.add_rms_norm_w8a8.default")
+    def dlinfer_add_rms_norm_w8a8(self, x1, x2, gamma, epsilon, quant_dtype):
+        add = self.get_proxy(atb_op.Add, (x1, x2))
+        if self.use_torch_npu_launcher and len(self.graph_op_group) > 0:
+            op_tuple = tuple(self.graph_op_group.values())
+            graph = self.get_proxy(atb_op.Graph, op_tuple, {"output": add})
+        self.graph_op_group = OrderedDict()
+        beta = self.get_shared_zeros((x1.node.meta["val"].shape[-1],), torch.float16)
+        norm = self.get_proxy(
+            atb_op.RmsNormW8A8, (add, gamma, beta, epsilon, quant_dtype)
+        )
+        norm_out = self.get_proxy(atb_op.GetItem, (norm, 0))
+        norm_scale = self.get_proxy(atb_op.GetItem, (norm, 1))
+        return self.get_proxy(atb_op.Tuple, (norm_out, norm_scale, add))
 
     @register_conversion(torch.ops.aten._to_copy.default)
     def to_copy(self, x, dtype=None, layout=None, device=None):
@@ -789,6 +818,21 @@ class AtenToAtbTransformer(SingleOpTransformer):
     @register_conversion(torch.ops.aten.slice_scatter.default)
     def aten_slice_scatter(self, x, data, dim=0, start=None, end=None, step=1):
         return self.get_proxy(atb_op.SliceScatter, (x, data, dim, start, end, step))
+
+    @register_conversion(torch.ops.dlinfer.dynamic_quant.default)
+    def dlinfer_dynamic_quant(self, x, quant_dtype, quant_granularity):
+        return self.get_proxy(atb_op.AclNnDynamicQuant, (x, quant_dtype))
+
+    @register_conversion(torch.ops.dlinfer.linear_w8a8.default)
+    def dlinfer_linear_w8a8(
+        self, x, y, rms_scale, linear_scale, out_type, quant_dtype, bias
+    ):
+        rms_scale = self.get_proxy(atb_op.Squeeze, (rms_scale, 0))
+        linear_scale = self.get_proxy(atb_op.Squeeze, (linear_scale, 1))
+        return self.get_proxy(
+            atb_op.AclNnQuantMatmul,
+            (x, y, rms_scale, linear_scale, out_type, quant_dtype, bias),
+        )
 
 
 class ViewSymIntTransformer(torch.fx.Transformer):
