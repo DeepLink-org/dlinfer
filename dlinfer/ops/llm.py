@@ -3,6 +3,7 @@ import torch
 from dlinfer.vendor import vendor_ops_registry
 from dlinfer.utils.type_annotation import Tensor, Optional, Sequence, Tuple
 from dlinfer.graph.custom_op import register_custom_op
+from dlinfer.vendor import linear_w8a8_scale_type, dynamic_quant_scale_type
 
 
 __all__ = [
@@ -661,7 +662,7 @@ def dynamic_quant_impl_abstract_func(
 )
 def dynamic_quant(
     x: Tensor, quant_dtype: torch.dtype, quant_granularity: str
-) -> Tuple[Tensor, Tensor]:
+) -> Tuple[Tensor, dynamic_quant_scale_type]:
     """
     Perform dynamic quantization on a tensor.
 
@@ -675,7 +676,7 @@ def dynamic_quant(
             - "PER_TENSOR": Quantize the entire tensor as a whole.
 
     Returns:
-        Tuple[Tensor, Tensor]: A tuple containing:
+        Tuple[Tensor, dynamic_quant_scale_type]: A tuple containing:
             - The quantized tensor.
             - The scaling factor used during quantization.
 
@@ -686,8 +687,8 @@ def dynamic_quant(
 def linear_w8a8_impl_abstract_func(
     a: Tensor,
     b: Tensor,
-    rms_scale: Tensor,
-    linear_scale: Tensor,
+    rms_scale: linear_w8a8_scale_type,
+    linear_scale: linear_w8a8_scale_type,
     out_dtype: torch.dtype,
     quant_dtype: torch.dtype,
     bias: Tensor,
@@ -704,8 +705,8 @@ def linear_w8a8_impl_abstract_func(
 def linear_w8a8(
     a: Tensor,
     b: Tensor,
-    rms_scale: Tensor,
-    linear_scale: Tensor,
+    rms_scale: linear_w8a8_scale_type,
+    linear_scale: linear_w8a8_scale_type,
     out_dtype: torch.dtype,
     quant_dtype: torch.dtype,
     bias: Tensor,
