@@ -834,6 +834,10 @@ class AtenToAtbTransformer(SingleOpTransformer):
             (x, y, rms_scale, linear_scale, out_type, quant_dtype, bias),
         )
 
+    @register_conversion(torch.ops.aten.empty_like.default)
+    def aten_empty_like_default(self, x, pin_memory=False):
+        return self.get_proxy(atb_op.ZerosLike, (x,))
+
 
 class ViewSymIntTransformer(torch.fx.Transformer):
     def call_function(self, target, args, kwargs):
