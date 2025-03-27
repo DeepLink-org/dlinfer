@@ -59,8 +59,6 @@ def apply_rotary_pos_emb(
     key: Tensor,
     cos: Optional[Tensor],
     sin: Optional[Tensor],
-    position_ids: Optional[Tensor],
-    cos_sin_cache: Optional[Tensor],
 ) -> Tuple[Tensor, Tensor]:
     """
     Apply rotary position embeddings to the query and key tensors.
@@ -73,13 +71,6 @@ def apply_rotary_pos_emb(
         key (Tensor): The key tensor to apply the rotary position embeddings to.
         cos (Optional[Tensor]): The cosine component of the rotary position embeddings.
         sin (Optional[Tensor]): The sine component of the rotary position embeddings.
-        position_ids (Optional[Tensor]): The position ids used to look up the rotary position embeddings.
-        cos_sin_cache (Optional[Tensor]): A cache of pre-computed cosine and sine values.
-
-    Note:
-        The parameter groups are mutually exclusive:
-        - If `cos` and `sin` are both `None`, then `position_ids` and `cos_sin_cache` must both be Tensor.
-        - If `position_ids` and `cos_sin_cache` are both `None`, then `cos` and `sin` must both be Tensor.
 
     Returns:
         Tuple[Tensor, Tensor]:
@@ -91,8 +82,6 @@ def apply_rotary_pos_emb(
         key,
         cos,
         sin,
-        position_ids,
-        cos_sin_cache,
     )
 
 

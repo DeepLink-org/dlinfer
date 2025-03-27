@@ -86,9 +86,9 @@ def apply_rotary_pos_emb(
     key: Tensor,
     cos: Optional[Tensor],  # (total_seq_len, head_dim)
     sin: Optional[Tensor],
-    position_ids: Optional[Tensor],
-    cos_sin_cache: Optional[Tensor],
 ) -> Tuple[Tensor, Tensor]:
+    query = query.contiguous().unsqueeze(0)
+    key = key.contiguous().unsqueeze(0)
     interleaved = False  # False for fold rope, True for cross rope
     # [1, total_seq_len, q_head_num, head_dim]
     _, total_seq_len, _, head_dim = query.shape
