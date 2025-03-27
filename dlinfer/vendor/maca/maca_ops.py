@@ -79,9 +79,9 @@ def apply_rotary_pos_emb(
     key: Tensor,
     cos: Optional[Tensor],
     sin: Optional[Tensor],
-    position_ids: Optional[Tensor],
-    cos_sin_cache: Optional[Tensor],
 ) -> Tuple[Tensor, Tensor]:
+    query = query.contiguous().unsqueeze(0)
+    key = key.contiguous().unsqueeze(0)
     position_ids_1d = torch.arange(0, query.size(1), device=query.device)
     head_size = query.size(-1)
     query = query.flatten(-2, -1)
