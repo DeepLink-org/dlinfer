@@ -72,6 +72,8 @@ def get_acl_dtype(dtype: torch.dtype) -> int:
         return AclDataType.ACL_COMPLEX64.value
     elif dtype == torch.bfloat16:
         return AclDataType.ACL_BF16.value
+    elif dtype == torch.int8:
+        return AclDataType.ACL_INT8.value
     else:
         raise RuntimeError(f"unknow torch data type ({dtype}) in get_acl_dtype!")
 
@@ -91,6 +93,8 @@ def get_torch_dtype(d: int) -> torch.dtype:
         return torch.complex64
     elif d == AclDataType.ACL_BF16.value:
         return torch.bfloat16
+    elif d == AclDataType.ACL_INT8.value:
+        return torch.int8
     else:
         raise RuntimeError(f"unknow acl data type ({d}) in get_torch_dtype!")
 
