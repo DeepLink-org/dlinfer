@@ -2,6 +2,7 @@
 
 #include "aclnnop/aclnn_moe_token_permute.h"
 #include "utils/log.h"
+#include "utils/tensor_utils.h"
 
 namespace dicp {
 

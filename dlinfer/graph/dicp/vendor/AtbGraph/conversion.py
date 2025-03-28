@@ -695,16 +695,15 @@ class AtenToAtbTransformer(SingleOpTransformer):
             )
             topk_weights = self.get_proxy(atb_op.GetItem, (topk_weights, 1))
 
-        topk_ids = self.get_proxy(atb_op.Cast, (topk_ids, torch.int32))
-        pre_pare = self.get_proxy(atb_op.PrepareMoe, (topk_ids, num_experts))
-        group = self.get_proxy(atb_op.GetItem, (pre_pare, 3))
-
-        # moe token permute
+        # moe init routing
         moe_init = self.get_proxy(
-            atb_op.AclNnMoeTokenPermute, (hidden_states, topk_ids)
+            atb_op.AclNnMoeInitRouting,
+            (hidden_states, topk_ids, num_experts),
         )
         expanded_hidden_states = self.get_proxy(atb_op.GetItem, (moe_init, 0))
         expanded_row_idx = self.get_proxy(atb_op.GetItem, (moe_init, 1))
+        group = self.get_proxy(atb_op.GetItem, (moe_init, 2))
+        group = self.get_proxy(atb_op.Cast, (group, torch.int64))
 
         # up sample
         up_sample = self.get_proxy(
@@ -724,7 +723,6 @@ class AtenToAtbTransformer(SingleOpTransformer):
         down_proj = self.get_proxy(atb_op.GetItem, (down_sample, 0))
 
         # moe token unpermute
-        topk_weights = self.get_proxy(atb_op.Cast, (topk_weights, hidden_states_dtype))
         moe_out = self.get_proxy(
             atb_op.AclNnMoeTokenUnpermute,
             (
@@ -737,8 +735,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
 
     @register_conversion("torch.ops.dlinfer.moe_gating_topk_softmax.default")
     def dlinfer_moe_gating_topk_softmax(self, router_logits, top_k):
-        routing_weights = self.get_proxy(atb_op.Softmax, (router_logits, -1))
-        return self.get_proxy(atb_op.Sort, (routing_weights, top_k))
+        return self.get_proxy(atb_op.AclNnMoeGatingTopkSoftmax, (router_logits, top_k))
 
     @register_conversion(torch.ops.aten.expand.default)
     def aten_expand_default(self, x, size):

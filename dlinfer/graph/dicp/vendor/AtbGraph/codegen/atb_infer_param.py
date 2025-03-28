@@ -653,9 +653,16 @@ class PrepareMoeParam:
 
 
 @dataclass
+class AclNnMoeGatingTopkSoftmaxParam:
+    name: str = ""
+    topk: int = 0
+    renorm: int = 0
+    outputSoftmaxResultFlag: bool = False
+
+
+@dataclass
 class AclNnMoeInitRoutingParam:
     name: str = ""
-    activeNum: int = 10240
     numExperts: int = 0
 
 
