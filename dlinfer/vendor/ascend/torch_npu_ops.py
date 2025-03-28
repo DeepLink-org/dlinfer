@@ -432,13 +432,12 @@ def fused_moe(
         .transpose(0, 1)
         .contiguous()
     )
-    expanded_hidden_states, expanded_row_idx, _ = torch.ops.npu.npu_moe_init_routing(
-        hidden_states, row_idx, topk_ids, active_num
+    expanded_hidden_states, expanded_row_idx, expanded_expert_idx = (
+        torch.ops.npu.npu_moe_init_routing(hidden_states, row_idx, topk_ids, active_num)
     )
 
     # up sample
-    flattened_ids = topk_ids.flatten()
-    counts = torch.bincount(flattened_ids, minlength=num_experts)
+    counts = torch.bincount(expanded_expert_idx, minlength=num_experts)
     cumulative_counts = torch.cumsum(counts, dim=0)
     group_list = cumulative_counts.tolist()
     up_proj = torch.ops.npu.npu_grouped_matmul(
@@ -470,7 +469,7 @@ def fused_moe(
         skip1=skip,
         skip2=skip,
         bias=bias,
-        scales=topk_weights.to(hidden_states.dtype),
+        scales=topk_weights,
         expanded_src_to_dst_row=expanded_row_idx,
         export_for_source_row=export_for_source_row,
     )
