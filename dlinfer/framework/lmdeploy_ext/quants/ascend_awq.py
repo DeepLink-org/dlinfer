@@ -137,6 +137,7 @@ def AscendMergedAwqLinear__init__(
         replicate = tuple(False for _ in all_out_features)
 
     self.split_section_s = all_out_features
+    self.is_tp = is_tp
     elem_per_int = 32 // w_bit
     self.split_section_wz = [size // elem_per_int for size in all_out_features]
 
