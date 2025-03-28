@@ -301,7 +301,9 @@ def paged_prefill_attention(
 
 @register_ops(vendor_ops_registry)
 def moe_gating_topk_softmax(router_logits: Tensor, topk: int) -> Tuple[Tensor, Tensor]:
-    routing_weights, selected_experts = tmo.moe_softmax_topk(router_logits, topk)
+    routing_weights, selected_experts = tmo.moe_softmax_topk(
+        router_logits.float(), topk
+    )
     return routing_weights, selected_experts
 
 
