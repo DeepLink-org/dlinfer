@@ -689,7 +689,6 @@ class AtenToAtbTransformer(SingleOpTransformer):
         renormalize,
     ):
         num_experts = gate_up_weights.node.meta["val"].shape[0]
-        hidden_states_dtype = hidden_states.node.meta["val"].dtype
         if renormalize:
             reduce_dim = get_reduce_dim(topk_weights, -1)[0]
             topk_weights = self.get_proxy(
