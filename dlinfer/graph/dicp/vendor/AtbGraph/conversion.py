@@ -120,7 +120,9 @@ class AtenToAtbTransformer(SingleOpTransformer):
 
     @register_conversion("torch.ops.dlinfer.rms_norm.default")
     def npu_rms_norm(self, x, w, eps=1e-6):
-        self.graph_op_group = OrderedDict()
+        self.graph_op_group = (
+            OrderedDict() if self.graph_op_group is None else self.graph_op_group
+        )
         rms_norm = self.get_proxy(atb_op.RmsNorm, (x, w, eps))
         return rms_norm
 
