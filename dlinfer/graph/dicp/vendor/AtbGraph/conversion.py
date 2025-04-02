@@ -171,41 +171,20 @@ class AtenToAtbTransformer(SingleOpTransformer):
         v_scales_zeros,
         quant_bits,
     ):
-        key_cache_shape = key_cache.node.meta["val"].shape
         key_shape = key.node.meta["val"].shape
-        key_cache = self.get_proxy(
-            atb_op.View,
-            (
-                key_cache,
-                (key_cache_shape[0], key_cache_shape[1], key_shape[-2], key_shape[-1]),
-            ),
-        )
-        value_cache_shape = value_cache.node.meta["val"].shape
         value_shape = value.node.meta["val"].shape
         is_mla = key_shape[-1] != value_shape[-1]
-        if not is_mla:
-            value_cache = self.get_proxy(
-                atb_op.View,
-                (
-                    value_cache,
-                    (
-                        value_cache_shape[0],
-                        value_cache_shape[1],
-                        value_shape[-2],
-                        value_shape[-1],
-                    ),
-                ),
-            )
-            out = self.get_proxy(
-                atb_op.ReshapeAndCache,
-                (key, value, key_cache, value_cache, kv_indices),
-            )
-        else:
+        if is_mla:
             out = self.get_proxy(
                 atb_op.MlaReshapeAndCache,
                 (key, key_cache, kv_indices),
             )
             out = self.get_proxy(atb_op.Tuple, (out, value_cache))
+        else:
+            out = self.get_proxy(
+                atb_op.ReshapeAndCache,
+                (key, value, key_cache, value_cache, kv_indices),
+            )
         return out
 
     @register_conversion("torch.ops.dlinfer.paged_decode_attention.default")
@@ -220,6 +199,8 @@ class AtenToAtbTransformer(SingleOpTransformer):
         max_kv_seq_len,
         num_q_heads,
         num_kv_heads,
+        head_size,
+        head_size_v,
         softmax_scale,
         alibi_slopes,
         attn_output,
@@ -232,22 +213,6 @@ class AtenToAtbTransformer(SingleOpTransformer):
             if softmax_scale is None
             else softmax_scale
         )
-        k_shape = list(key_cache.node.meta["val"].shape)
-        v_shape = list(value_cache.node.meta["val"].shape)
-        head_size = query.node.meta["val"].shape[-1]
-        is_kv_require_reshape = len(k_shape) == 3 or len(v_shape) == 3
-        if is_kv_require_reshape:
-            head_size_v = v_shape[-1] // num_kv_heads
-            key_cache = self.get_proxy(
-                atb_op.View,
-                (key_cache, (k_shape[0], k_shape[1], num_kv_heads, head_size)),
-            )
-            value_cache = self.get_proxy(
-                atb_op.View,
-                (value_cache, (v_shape[0], v_shape[1], num_kv_heads, head_size_v)),
-            )
-        else:
-            head_size_v = v_shape[-1]
         out = self.get_proxy(
             atb_op.PagedAttention,
             (
@@ -493,14 +458,14 @@ class AtenToAtbTransformer(SingleOpTransformer):
         max_q_seq_len,
         num_q_heads,
         num_kv_heads,
+        head_size,
+        head_size_v,
         attn_mask,
         softmax_scale,
         alibi_slopes,
         attn_output,
     ):
         mask = attn_mask[0]
-        head_size = query.node.meta["val"].shape[-1]
-        head_size_v = value.node.meta["val"].shape[-1]
         scale = softmax_scale if softmax_scale else 1.0 / math.sqrt(head_size)
         if query.node.meta["val"].dtype != mask.node.meta["val"].dtype:
             mask = self.get_proxy(atb_op.Cast, (mask, query.node.meta["val"].dtype))
@@ -539,6 +504,8 @@ class AtenToAtbTransformer(SingleOpTransformer):
         max_kv_seq_len,
         num_q_heads,
         num_kv_heads,
+        head_size,
+        head_size_v,
         attn_mask,
         softmax_scale,
         alibi_slopes,
@@ -548,30 +515,9 @@ class AtenToAtbTransformer(SingleOpTransformer):
         quant_bits,
     ):
         mask = attn_mask[0]
-        key_cache_shape = list(key_cache.node.meta["val"].shape)
-        value_cache_shape = list(value_cache.node.meta["val"].shape)
-        is_kv_require_reshape = len(key_cache_shape) == 3 or len(value_cache_shape) == 3
-        head_size = query.node.meta["val"].shape[-1]
-        head_size_v = (
-            key_cache_shape[-1] // num_kv_heads
-            if is_kv_require_reshape
-            else key_cache_shape[-1]
-        )
         scale = softmax_scale if softmax_scale else 1.0 / math.sqrt(head_size)
         if query.node.meta["val"].dtype != mask.node.meta["val"].dtype:
             mask = self.get_proxy(atb_op.Cast, (mask, query.node.meta["val"].dtype))
-        if is_kv_require_reshape:
-            key_cache = self.get_proxy(
-                atb_op.View,
-                (key_cache, (key_cache_shape[0], key_cache_shape[1], num_kv_heads, -1)),
-            )
-            value_cache = self.get_proxy(
-                atb_op.View,
-                (
-                    value_cache,
-                    (value_cache_shape[0], value_cache_shape[1], num_kv_heads, -1),
-                ),
-            )
         out = self.get_proxy(
             atb_op.PagedAttention,
             (
