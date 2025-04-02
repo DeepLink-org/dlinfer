@@ -5,7 +5,7 @@ from torch.fx.node import Argument, Target
 import torch.fx.traceback as fx_traceback
 from torch.fx.proxy import Proxy
 from typing import Any, Dict, Tuple
-from dlinfer.graph.dicp.dynamo_bridge.torch_version import is_torch_210_or_higher
+from dlinfer.graph.dicp.dynamo_bridge.torch_version import is_torch_210_or_higher, is_torch_250_or_higher
 from dlinfer.graph.dicp.dynamo_bridge.utils import symint_in_shape
 
 
@@ -89,7 +89,7 @@ class SingleOpTransformer(torch.fx.Transformer):
         return proxy
 
 
-if is_torch_210_or_higher:
+if is_torch_210_or_higher and not is_torch_250_or_higher:
     import functools
     import inspect
     from typing import List
@@ -170,6 +170,106 @@ if is_torch_210_or_higher:
         with torch._guards.tracing(
             None
         ), maybe_disable_fake_tensor_mode(), FakeTensorMode():
+            for pattern in patterns_cls_list:
+                pattern.register(patterns)
+
+    class BackendPatternMatcherTransformer:
+        def __init__(
+            self,
+            patterns: PatternMatcherPass,
+            patterns_cls_list: List[BackendPatternBase],
+        ):
+            self._patterns = patterns
+            lazy_register_backend_patterns(self._patterns, tuple(patterns_cls_list))
+
+        def transform(self, module: torch.fx.GraphModule):
+            match_count = self._patterns.apply(module)
+            if match_count:
+                stable_topological_sort(module.graph)
+                module.graph.lint()
+                module.recompile()
+            return module
+
+if is_torch_250_or_higher:
+    import functools
+    import inspect
+    from typing import List
+    from torch._subclasses.fake_tensor import FakeTensorMode
+    from torch._inductor.pattern_matcher import (
+        PatternMatcherPass,
+        Match,
+        stable_topological_sort,
+        register_replacement,
+    )
+
+    def symbolic_trace_ignore_args(fn, args):
+        return torch.fx.symbolic_trace(fn)
+
+    class BackendPatternBase:
+        trace_fn = symbolic_trace_ignore_args
+
+        @staticmethod
+        def pattern(*args, **kwargs):
+            raise NotImplementedError("pattern is not implemented")
+
+        @staticmethod
+        def replacement(*args, **kwargs):
+            raise NotImplementedError("replacement is not implemented")
+
+        @classmethod
+        def gen_args(cls):
+            return [None] * (cls.pattern.__code__.co_argcount)
+
+        @classmethod
+        def gen_tensor(cls, shape=(10, 10), dtype=torch.float16):
+            return torch.empty(shape, dtype=dtype, device="cuda")
+
+        @classmethod
+        def check_fn(cls, match: Match):
+            if match.replacement_graph is None:
+                argnames = [*inspect.signature(cls.pattern).parameters.keys()]
+                args = list(
+                    torch.fx.map_arg(
+                        [match.kwargs[name] for name in argnames],
+                        lambda n: n.meta["val"],
+                    )
+                )
+                with torch._dynamo.utils.detect_fake_mode(args):
+                    match.replacement_graph = cls.trace_fn(
+                        cls.replacement, cls.gen_args()
+                    )
+            return True
+
+        @classmethod
+        @functools.lru_cache(None)
+        def register(cls, backend_patterns):
+            pattern_expr = register_replacement(
+                cls.pattern,
+                cls.replacement,
+                cls.gen_args(),
+                cls.trace_fn,
+                backend_patterns,
+                extra_check=cls.check_fn,
+            )
+            pattern_entries = backend_patterns[(pattern_expr.op, pattern_expr.fns[0])]
+            registered_pattern_entry = [
+                entry for entry in pattern_entries if entry.pattern == pattern_expr
+            ][0]
+            registered_pattern_entry.extra_check = cls.check_fn
+
+    def register_backend_patterns(
+        patterns_cls_list: List[BackendPatternBase], Pattern: BackendPatternBase
+    ):
+        patterns_cls_list.append(Pattern)
+        return Pattern
+
+    @functools.lru_cache(None)
+    def lazy_register_backend_patterns(
+        patterns: PatternMatcherPass, patterns_cls_list: Tuple[BackendPatternBase]
+    ):
+        with torch._guards.tracing(
+            None
+        ), FakeTensorMode():
             for pattern in patterns_cls_list:
                 pattern.register(patterns)
 

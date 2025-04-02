@@ -19,6 +19,7 @@ from dlinfer.graph.dicp.dynamo_bridge import pt_patch  # noqa F401
 from dlinfer.graph.dicp.dynamo_bridge.torch_version import (
     is_torch_200,
     is_torch_210_or_higher,
+    is_torch_250_or_higher,
 )
 
 
@@ -66,7 +67,9 @@ def compile_fx_inner(
     is_backward=False,
     graph_id=None,
     backend=None,
+    is_inference=None,
 ):
+    import pdb;pdb.set_trace()
     if dynamo_utils.count_calls(gm.graph) == 0:
         return make_boxed_func(gm.forward)
 
@@ -96,10 +99,10 @@ def compile_fx(
     backend: str,
     inner_compile=compile_fx_inner,
 ):
-    if is_torch_200:
-        return compile_fx_200(model_, example_inputs_, backend, inner_compile)
-    elif is_torch_210_or_higher:
+    if is_torch_210_or_higher:
         return compile_fx_210(model_, example_inputs_, backend, inner_compile)
+    elif is_torch_200:
+        return compile_fx_200(model_, example_inputs_, backend, inner_compile)
     else:
         raise ValueError(f"unsupported dicp torch version: {torch.__version__}")
 
@@ -205,8 +208,19 @@ def compile_fx_210(
 
     graph_id = next(_graph_counter)
 
-    @dynamo_utils.dynamo_timed
-    def fw_compiler_base(model: torch.fx.GraphModule, example_inputs, is_inference):
+    def fw_compiler_base(
+        model: torch.fx.GraphModule,
+        example_inputs: List[torch.Tensor],
+        is_inference: bool,
+    ):
+        with dynamo_utils.dynamo_timed("compile_fx.<locals>.fw_compiler_base"):
+            return _fw_compiler_base(model, example_inputs, is_inference)
+
+    def _fw_compiler_base(
+        model: torch.fx.GraphModule,
+        example_inputs: List[torch.Tensor],
+        is_inference: bool,
+    ):
         if is_inference:
             # partition_fn won't be called
             # joint_graph_passes(model)

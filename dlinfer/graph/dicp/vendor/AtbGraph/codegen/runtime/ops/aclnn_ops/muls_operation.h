@@ -7,7 +7,7 @@ namespace dicp {
 
 class AclNnMulsOperation : public AclNnOperation {
 public:
-    explicit AclNnMulsOperation(const std::string& name, float value, const std::string& dtype);
+    explicit AclNnMulsOperation(const std::string& name, const std::string& value, const std::string& dtype);
     ~AclNnMulsOperation() override;
     atb::Status InferShape(const atb::SVector<atb::TensorDesc>& inTensorDescs, atb::SVector<atb::TensorDesc>& outTensorDescs) const override;
     uint32_t GetInputNum() const override;
@@ -16,6 +16,8 @@ public:
 private:
     DICPScalar other_;
     aclScalar* aclOther_ = nullptr;
+    bool need_update_value_;
+    std::string value_;
     int SetAclNnWorkspaceExecutor(uint64_t& workspaceSize) override;
     int CallAclExecute(uint8_t* workspace, uint64_t workspaceSize, aclOpExecutor* aclExecutor, aclrtStream stream) override;
 };

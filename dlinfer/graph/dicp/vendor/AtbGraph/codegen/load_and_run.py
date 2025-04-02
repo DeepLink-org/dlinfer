@@ -9,7 +9,7 @@ from torch.profiler import record_function
 
 class AtbModel:
     def __init__(self, model_path) -> None:
-        # print("### in_load_and_run_model_path:", model_path)
+        print("### in_load_and_run_model_path:", model_path)
         self.model = torch.classes.DICPModel.DICPModel(model_path)
 
     @record_function("load_and_run")

@@ -1,5 +1,5 @@
 from abc import ABCMeta, abstractmethod
-from torch._inductor.codecache import AsyncCompile
+from torch._inductor.async_compile import AsyncCompile
 
 
 class DeviceCompileJob:
