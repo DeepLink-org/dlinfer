@@ -195,9 +195,12 @@ def paged_decode_attention(
         block_table = block_table.to(torch.int32)
 
     bs, _, dim = query.shape
+    block_num = key_cache.size(0)
     query = query.contiguous()
     attn_output = attn_output.contiguous()
     query = query.view(bs, 1, num_q_heads * dim)
+    key_cache = key_cache.view(block_num, block_size, -1)
+    value_cache = value_cache.view(block_num, block_size, -1)
     scale_value = softmax_scale if softmax_scale else 1.0 / math.sqrt(dim)
 
     torch.ops.npu_ext.npu_incre_flash_attention_v4_out(
@@ -262,6 +265,9 @@ def paged_prefill_attention(
     kv_seq_len_list = kv_seq_len.tolist()
     scale_value = softmax_scale if softmax_scale else 1.0 / math.sqrt(query.shape[-1])
     query = query.contiguous().view(query.shape[0], 1, -1)
+    block_num = key_cache.size(0)
+    key_cache = key_cache.view(block_num, block_size, -1)
+    value_cache = value_cache.view(block_num, block_size, -1)
     torch.ops.npu_ext.npu_incre_flash_attention_v4_out(
         query,
         key_cache,
