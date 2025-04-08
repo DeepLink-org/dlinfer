@@ -199,7 +199,6 @@ class AtenToAtbTransformer(SingleOpTransformer):
         max_kv_seq_len,
         num_q_heads,
         num_kv_heads,
-        head_size,
         head_size_v,
         softmax_scale,
         alibi_slopes,
@@ -208,11 +207,8 @@ class AtenToAtbTransformer(SingleOpTransformer):
         kv_zeros,
         quant_bits,
     ):
-        scale = (
-            1.0 / math.sqrt(query.node.meta["val"].shape[-1])
-            if softmax_scale is None
-            else softmax_scale
-        )
+        head_size = query.node.meta["val"].shape[-1]
+        scale = 1.0 / math.sqrt(head_size) if softmax_scale is None else softmax_scale
         out = self.get_proxy(
             atb_op.PagedAttention,
             (
@@ -458,14 +454,14 @@ class AtenToAtbTransformer(SingleOpTransformer):
         max_q_seq_len,
         num_q_heads,
         num_kv_heads,
-        head_size,
-        head_size_v,
         attn_mask,
         softmax_scale,
         alibi_slopes,
         attn_output,
     ):
         mask = attn_mask[0]
+        head_size = query.node.meta["val"].shape[-1]
+        head_size_v = value.node.meta["val"].shape[-1]
         scale = softmax_scale if softmax_scale else 1.0 / math.sqrt(head_size)
         if query.node.meta["val"].dtype != mask.node.meta["val"].dtype:
             mask = self.get_proxy(atb_op.Cast, (mask, query.node.meta["val"].dtype))
@@ -504,9 +500,8 @@ class AtenToAtbTransformer(SingleOpTransformer):
         max_kv_seq_len,
         num_q_heads,
         num_kv_heads,
-        head_size,
-        head_size_v,
         attn_mask,
+        head_size_v,
         softmax_scale,
         alibi_slopes,
         attn_output,
@@ -515,6 +510,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
         quant_bits,
     ):
         mask = attn_mask[0]
+        head_size = query.node.meta["val"].shape[-1]
         scale = softmax_scale if softmax_scale else 1.0 / math.sqrt(head_size)
         if query.node.meta["val"].dtype != mask.node.meta["val"].dtype:
             mask = self.get_proxy(atb_op.Cast, (mask, query.node.meta["val"].dtype))
