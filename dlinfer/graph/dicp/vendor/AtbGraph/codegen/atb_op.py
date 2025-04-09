@@ -644,9 +644,11 @@ class AtbOverrides:
         return op
 
     def Sort(name, x, topk):
-        op = Operation(name, "AclNnTopkOperation")
+        # op = Operation(name, "AclNnTopkOperation")
+        op = Operation(name, "SortOperation")
         param = infer_param.SortParam()
         param.num = topk
+        param.dim = -1
 
         op.set_input([x])
         op.set_param(param)
@@ -1143,6 +1145,73 @@ class AtbOverrides:
         else:
             param.hasBias = True
             op.set_input([x, y, linear_scale, rms_scale, bias])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def AclNnScatterValue(name, x, dim, index, value, dtype, reduce):
+        op = Operation(name, "AclNnScatterValueOperation")
+        param = infer_param.AclNnScatterValueParam()
+        param.name = name
+        param.dim = dim
+        param.value = value
+        param.dtype = dtype
+        param.reduce = reduce
+        op.set_input([x, index])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def AclNnBitwiseNot(name, x):
+        op = Operation(name, "AclNnBitwiseNotOperation")
+        param = infer_param.OnlyNameParam()
+        param.name = name
+        op.set_input([x])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def Sigmoid(name, x):
+        op = Operation(name, "ActivationOperation")
+        param = infer_param.ActivationParam()
+        param.activationType = infer_param.ActivationType.ACTIVATION_SIGMOID
+        op.set_param(param)
+        op.set_input([x])
+        op.set_output([name])
+        return op
+
+    def AclNnInplaceMaskedFillScalar(name, x, mask, value, dtype):
+        op = Operation(name, "AclNnInplaceMaskedFillScalarOperation")
+        param = infer_param.AclNnInplaceMaskedFillScalarParam()
+        param.name = name
+        param.value = value
+        param.dtype = dtype
+        op.set_input([x, mask])
+        op.set_param(param)
+        op.set_output([name])
+        op.has_inplace_output = True
+        op.add_inplace_output(0, 0)
+        return op
+
+    def AclNnMaskedFillScalar(name, x, mask, value, dtype):
+        op = Operation(name, "MaskedFillScalarOperation")
+        param = infer_param.AclNnMaskedFillScalarParam()
+        param.name = name
+        param.value = value
+        param.dtype = dtype
+        op.set_input([x, mask])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def AclNnReduceSum(name, x, dim, keep_dim, dtype, ascend_dtype):
+        op = Operation(name, "AclNnReduceSumOperation")
+        param = infer_param.AclNnReduceSumParam()
+        param.name = name
+        param.dims = dim if isinstance(dim, list) else [dim]
+        param.keepDim = keep_dim
+        param.dtype = ascend_dtype
+        op.set_input([x])
         op.set_param(param)
         op.set_output([name])
         return op
