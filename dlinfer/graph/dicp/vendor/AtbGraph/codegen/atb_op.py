@@ -1014,14 +1014,22 @@ class AtbOverrides:
         op.set_output([f"{name}__0", f"{name}__1", f"{name}__2", f"{name}__3"])
         return op
 
-    def AclNnMoeInitRouting(name, x, row_ids, topk_ids, active_num, num_experts):
+    def AclNnMoeGatingTopkSoftmax(name, x, topk):
+        op = Operation(name, "AclNnMoeGatingTopkSoftmaxOperation")
+        param = infer_param.AclNnMoeGatingTopkSoftmaxParam()
+        param.name = name
+        param.topk = topk
+        op.set_input([x])
+        op.set_param(param)
+        op.set_output([f"{name}__0", f"{name}__1"])
+        return op
+
+    def AclNnMoeInitRouting(name, x, topk_ids, num_experts):
         op = Operation(name, "AclNnMoeInitRoutingOperation")
         param = infer_param.AclNnMoeInitRoutingParam()
         param.name = name
-        param.activeNum = active_num
         param.numExperts = num_experts
-
-        op.set_input([x, row_ids, topk_ids])
+        op.set_input([x, topk_ids])
         op.set_param(param)
         op.set_output([f"{name}__0", f"{name}__1", f"{name}__2"])
         return op

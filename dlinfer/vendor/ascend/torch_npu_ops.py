@@ -195,9 +195,12 @@ def paged_decode_attention(
         block_table = block_table.to(torch.int32)
 
     bs, _, dim = query.shape
+    block_num = key_cache.size(0)
     query = query.contiguous()
     attn_output = attn_output.contiguous()
     query = query.view(bs, 1, num_q_heads * dim)
+    key_cache = key_cache.view(block_num, block_size, -1)
+    value_cache = value_cache.view(block_num, block_size, -1)
     scale_value = softmax_scale if softmax_scale else 1.0 / math.sqrt(dim)
 
     torch.ops.npu_ext.npu_incre_flash_attention_v4_out(
@@ -262,6 +265,9 @@ def paged_prefill_attention(
     kv_seq_len_list = kv_seq_len.tolist()
     scale_value = softmax_scale if softmax_scale else 1.0 / math.sqrt(query.shape[-1])
     query = query.contiguous().view(query.shape[0], 1, -1)
+    block_num = key_cache.size(0)
+    key_cache = key_cache.view(block_num, block_size, -1)
+    value_cache = value_cache.view(block_num, block_size, -1)
     torch.ops.npu_ext.npu_incre_flash_attention_v4_out(
         query,
         key_cache,
@@ -432,14 +438,12 @@ def fused_moe(
         .transpose(0, 1)
         .contiguous()
     )
-    expanded_hidden_states, expanded_row_idx, _ = torch.ops.npu.npu_moe_init_routing(
-        hidden_states, row_idx, topk_ids, active_num
+    expanded_hidden_states, expanded_row_idx, expanded_expert_idx = (
+        torch.ops.npu.npu_moe_init_routing(hidden_states, row_idx, topk_ids, active_num)
     )
 
     # up sample
-    gate_up_weights = gate_up_weights.transpose(1, 2)
-    flattened_ids = topk_ids.flatten()
-    counts = torch.bincount(flattened_ids, minlength=num_experts)
+    counts = torch.bincount(expanded_expert_idx, minlength=num_experts)
     cumulative_counts = torch.cumsum(counts, dim=0)
     group_list = cumulative_counts.tolist()
     up_proj = torch.ops.npu.npu_grouped_matmul(
@@ -454,7 +458,6 @@ def fused_moe(
     gate_cache = silu_and_mul(up_proj, -1)
 
     # down sample
-    down_weights = down_weights.transpose(1, 2)
     down_proj = torch.ops.npu.npu_grouped_matmul(
         [gate_cache],
         [weight for weight in down_weights],
@@ -472,7 +475,7 @@ def fused_moe(
         skip1=skip,
         skip2=skip,
         bias=bias,
-        scales=topk_weights.to(hidden_states.dtype),
+        scales=topk_weights,
         expanded_src_to_dst_row=expanded_row_idx,
         export_for_source_row=export_for_source_row,
     )

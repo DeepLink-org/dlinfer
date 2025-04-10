@@ -200,35 +200,11 @@ def fill_kv_cache(
     )
 
 
-def paged_decode_attention_impl_abstract_func(
-    query: Tensor,
-    key_cache: Tensor,
-    value_cache: Tensor,
-    block_table: Tensor,
-    block_size: int,
-    kv_seq_len: Tensor,
-    max_kv_seq_len: int,
-    num_q_heads: int,
-    num_kv_heads: int,
-    softmax_scale: Optional[float],
-    alibi_slopes: Optional[Sequence[float]],
-    attn_output: Optional[Tensor],
-    kv_scales: Optional[Tensor],
-    kv_zeros: Optional[Tensor],
-    quant_bits: Optional[int],
-):
-    assert len(value_cache.shape) in (3, 4)
-    if len(value_cache.shape) == 3:
-        head_size_v = value_cache.shape[-1] // num_kv_heads
-    else:
-        head_size_v = value_cache.shape[-1]
-    return query.new_empty(query.shape[0], num_q_heads, head_size_v)
-
-
 @register_custom_op(
     "dlinfer::paged_decode_attention",
-    impl_abstract_func=paged_decode_attention_impl_abstract_func,
+    ["attn_output"],
     default_value={
+        "head_size_v": 0,
         "softmax_scale": None,
         "alibi_slopes": None,
         "attn_output": None,
@@ -247,6 +223,7 @@ def paged_decode_attention(
     max_kv_seq_len: int,
     num_q_heads: int,
     num_kv_heads: int,
+    head_size_v: Optional[int],
     softmax_scale: Optional[float],
     alibi_slopes: Optional[Sequence[float]],
     attn_output: Optional[Tensor],
@@ -269,6 +246,7 @@ def paged_decode_attention(
         max_kv_seq_len (int): The maximum length of any key/value sequence.
         num_q_heads (int): The number of query heads.
         num_kv_heads (int): The number of key/value heads.
+        head_size_v (int): The number of value head size.
         softmax_scale (Optional[float]): The scale factor to apply to the attention logits before the softmax.
         alibi_slopes (Optional[Sequence[float]]): The slopes for the ALiBi attention bias, one for each head.
         attn_output (Optional[Tensor]): The computed attention output tensor.
@@ -300,8 +278,9 @@ def paged_decode_attention(
 
 @register_custom_op(
     "dlinfer::paged_prefill_attention",
-    ["query"],
+    ["attn_output"],
     default_value={
+        "head_size_v": 0,
         "softmax_scale": None,
         "alibi_slopes": None,
         "attn_output": None,
@@ -327,6 +306,7 @@ def paged_prefill_attention(
     num_q_heads: int,
     num_kv_heads: int,
     attn_mask: Sequence[Optional[Tensor]],
+    head_size_v: Optional[int],
     softmax_scale: Optional[float],
     alibi_slopes: Optional[Sequence[float]],
     attn_output: Optional[Tensor],
@@ -354,6 +334,7 @@ def paged_prefill_attention(
         num_q_heads (int): The number of query heads.
         num_kv_heads (int): The number of key/value heads.
         attn_mask (Sequence[Optional[Tensor]]): A sequence of optional attention masks, one for each batch.
+        head_size_v (int): The number of value head size.
         softmax_scale (Optional[float]): The scale factor to apply to the attention logits before the softmax.
         alibi_slopes (Optional[Sequence[float]]): The slopes for the ALiBi attention bias, one for each head.
         attn_output (Optional[Tensor]): The computed attention output tensor.
