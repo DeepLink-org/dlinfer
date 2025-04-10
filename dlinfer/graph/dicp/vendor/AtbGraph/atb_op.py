@@ -633,15 +633,26 @@ class PrepareMoe(Operator):
         )
 
 
-class MoeInitRouting(Operator):
+class AclNnMoeGatingTopkSoftmax(Operator):
+    def __init__(self):
+        super().__init__("AclNnMoeGatingTopkSoftmax")
+
+    def infer_result(self, x, topk):
+        return (
+            x.new_empty((*x.shape[:-1], topk)),
+            x.new_empty((*x.shape[:-1], topk), dtype=torch.int32),
+        )
+
+
+class AclNnMoeInitRouting(Operator):
     def __init__(self):
         super().__init__("AclNnMoeInitRouting")
 
-    def infer_result(self, x, row_ids, topk_ids, active_num, num_experts):
+    def infer_result(self, x, topk_ids, num_experts):
         return (
             x.repeat_interleave(topk_ids.size(1), dim=0),
-            row_ids.flatten(),
             topk_ids.flatten(),
+            topk_ids.new_empty((num_experts,)),
         )
 
 

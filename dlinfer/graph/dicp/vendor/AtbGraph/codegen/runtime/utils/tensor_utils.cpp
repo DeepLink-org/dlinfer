@@ -139,8 +139,7 @@ template <aclDataType T>
 void copyAndPrint(const atb::Tensor tensor, int64_t tensorSize) {
     using vectorT = typename aclDataTypeMap<T>::type;
     std::vector<vectorT> resultData(tensorSize, 0);
-    auto ret =
-        aclrtMemcpy(resultData.data(), resultData.size() * sizeof(resultData[0]), tensor.deviceData, tensorSize * sizeof(float16_t), ACL_MEMCPY_DEVICE_TO_HOST);
+    auto ret = aclrtMemcpy(resultData.data(), resultData.size() * sizeof(vectorT), tensor.deviceData, tensorSize * sizeof(vectorT), ACL_MEMCPY_DEVICE_TO_HOST);
     for (int64_t i = 0; i < tensorSize; ++i) {
         DICP_LOG(INFO) << "data[" << i << "]: " << resultData[i];
     }
