@@ -5,6 +5,7 @@ import torch
 import math
 
 import torch.fx
+from functools import lru_cache
 from torch.fx.immutable_collections import immutable_dict
 from collections import OrderedDict
 import torch.fx.traceback as fx_traceback
@@ -92,6 +93,10 @@ class AtenToAtbTransformer(SingleOpTransformer):
         )
         self.graph_op_group = None
 
+    @lru_cache
+    def get_shared_zeros(self, size, dtype):
+        return self.get_proxy(atb_op.Zeros, (size, dtype))
+
     def get_proxy(self, target, args, kwargs=immutable_dict()):
         proxy = super().get_proxy(target, args, kwargs)
         if self.use_torch_npu_launcher:
@@ -116,12 +121,23 @@ class AtenToAtbTransformer(SingleOpTransformer):
 
     @register_conversion("torch.ops.dlinfer.rms_norm.default")
     def npu_rms_norm(self, x, w, eps=1e-6):
-        self.graph_op_group = OrderedDict()
+        self.graph_op_group = (
+            OrderedDict() if self.graph_op_group is None else self.graph_op_group
+        )
         rms_norm = self.get_proxy(atb_op.RmsNorm, (x, w, eps))
         return rms_norm
 
-    @register_conversion("torch.ops.lmdeploy.apply_rotary_pos_emb.default")
-    def apply_rotary_pos_emb(self, q, k, cos, sin, q_out, k_out):
+    @register_conversion("torch.ops.dlinfer.rms_norm_w8a8.default")
+    def npu_rms_norm_w8a8(self, x, w, eps=1e-6, quant_dtype=torch.int8):
+        self.graph_op_group = OrderedDict()
+        beta = self.get_shared_zeros((x.node.meta["val"].shape[-1],), torch.float16)
+        rms_norm_w8a8 = self.get_proxy(
+            atb_op.RmsNormW8A8, (x, w, beta, eps, quant_dtype)
+        )
+        return rms_norm_w8a8
+
+    @register_conversion("torch.ops.dlinfer.apply_rotary_pos_emb.default")
+    def apply_rotary_pos_emb(self, q, k, cos, sin):
         q_shape = list(q.node.meta["val"].shape)
         k_shape = list(k.node.meta["val"].shape)
         is_qk_require_reshape = len(q_shape) == 3
@@ -138,22 +154,6 @@ class AtenToAtbTransformer(SingleOpTransformer):
             else self.get_proxy(atb_op.View, (k, (-1, k_shape[1] * k_shape[2])))
         )
         out = self.get_proxy(atb_op.Rope, (new_q, new_k, cos, sin, None))
-        if is_qk_require_reshape:
-            out_q = self.get_proxy(atb_op.GetItem, (out, 0))
-            out_q = self.get_proxy(atb_op.View, (out_q, (-1, q_shape[1], q_shape[2])))
-            out_k = self.get_proxy(atb_op.GetItem, (out, 1))
-            out_k = self.get_proxy(atb_op.View, (out_k, (-1, k_shape[1], k_shape[2])))
-            out = self.get_proxy(atb_op.Tuple, (out_q, out_k))
-        if (q_out is not None) and (k_out is not None):
-            self.get_proxy(
-                atb_op.AclNnInplaceCopy,
-                (q_out, self.get_proxy(atb_op.GetItem, (out, 0))),
-            )
-            self.get_proxy(
-                atb_op.AclNnInplaceCopy,
-                (k_out, self.get_proxy(atb_op.GetItem, (out, 1))),
-            )
-            out = self.get_proxy(atb_op.Tuple, (q_out, k_out))
         return out
 
     @register_conversion("torch.ops.atb.inplace_div.default")
@@ -172,43 +172,23 @@ class AtenToAtbTransformer(SingleOpTransformer):
         v_scales_zeros,
         quant_bits,
     ):
-        num_blocks, block_size = key_cache.node.meta["val"].shape[:2]
-        num_kv_heads, head_size_k = key.node.meta["val"].shape[1:]
-        head_size_v = value.node.meta["val"].shape[-1]
-
         if SocVersion.is_Ascend910B():
-            key_cache = self.get_proxy(
-                atb_op.View,
-                (
-                    key_cache,
-                    (num_blocks, block_size, num_kv_heads, head_size_k),
-                ),
-            )
-            is_mla = head_size_k != head_size_v
-            if not is_mla:
-                value_cache = self.get_proxy(
-                    atb_op.View,
-                    (
-                        value_cache,
-                        (
-                            num_blocks,
-                            block_size,
-                            num_kv_heads,
-                            head_size_v,
-                        ),
-                    ),
-                )
-                out = self.get_proxy(
-                    atb_op.ReshapeAndCache,
-                    (key, value, key_cache, value_cache, kv_indices),
-                )
-            else:
+            key_shape = key.node.meta["val"].shape
+            value_shape = value.node.meta["val"].shape
+            is_mla = key_shape[-1] != value_shape[-1]
+            if is_mla:
                 out = self.get_proxy(
                     atb_op.MlaReshapeAndCache,
                     (key, key_cache, kv_indices),
                 )
                 out = self.get_proxy(atb_op.Tuple, (out, value_cache))
+            else:
+                out = self.get_proxy(
+                    atb_op.ReshapeAndCache,
+                    (key, value, key_cache, value_cache, kv_indices),
+                )
         elif SocVersion.is_Ascend310P():
+            num_blocks, block_size, *_ = key_cache.node.meta["val"]
             key_cache_reshaped = self.get_proxy(
                 atb_op.View,
                 (key_cache, (num_blocks, -1, block_size, 16)),
@@ -239,6 +219,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
         max_kv_seq_len,
         num_q_heads,
         num_kv_heads,
+        head_size_v,
         softmax_scale,
         alibi_slopes,
         attn_output,
@@ -246,39 +227,23 @@ class AtenToAtbTransformer(SingleOpTransformer):
         kv_zeros,
         quant_bits,
     ):
-        scale = (
-            1.0 / math.sqrt(query.node.meta["val"].shape[-1])
-            if softmax_scale is None
-            else softmax_scale
-        )
-        k_shape = list(key_cache.node.meta["val"].shape)
-        v_shape = list(value_cache.node.meta["val"].shape)
         head_size = query.node.meta["val"].shape[-1]
-        is_kv_require_reshape = len(k_shape) == 3 or len(v_shape) == 3
-        if is_kv_require_reshape:
-            head_size_v = v_shape[-1] // num_kv_heads
-            if SocVersion.is_Ascend910B():
-                key_cache = self.get_proxy(
-                    atb_op.View,
-                    (key_cache, (k_shape[0], k_shape[1], num_kv_heads, head_size)),
-                )
-                value_cache = self.get_proxy(
-                    atb_op.View,
-                    (value_cache, (v_shape[0], v_shape[1], num_kv_heads, head_size_v)),
-                )
-            elif SocVersion.is_Ascend310P():
-                key_cache = self.get_proxy(
-                    atb_op.View, (key_cache, (k_shape[0], -1, k_shape[1], 16))
-                )
-                value_cache = self.get_proxy(
-                    atb_op.View, (value_cache, (v_shape[0], -1, v_shape[1], 16))
-                )
-            else:
-                raise ValueError(
-                    f"dlinfer doesn't support {SocVersion.device_name()} device currently."
-                )
+        scale = 1.0 / math.sqrt(head_size) if softmax_scale is None else softmax_scale
+        if SocVersion.is_Ascend910B():
+            ...
+        elif SocVersion.is_Ascend310P():
+            assert head_size == head_size_v
+            num_blocks, block_size, *_ = key_cache.node.meta["val"]
+            key_cache = self.get_proxy(
+                atb_op.View, (key_cache, (num_blocks, -1, block_size, 16))
+            )
+            value_cache = self.get_proxy(
+                atb_op.View, (value_cache, (num_blocks, -1, block_size, 16))
+            )
         else:
-            head_size_v = v_shape[-1]
+            raise ValueError(
+                f"dlinfer doesn't support {SocVersion.device_name()} device currently."
+            )
         out = self.get_proxy(
             atb_op.PagedAttention,
             (
@@ -448,6 +413,21 @@ class AtenToAtbTransformer(SingleOpTransformer):
         # )
         return self.get_proxy(atb_op.Tuple, (norm, add))
 
+    @register_conversion("torch.ops.dlinfer.add_rms_norm_w8a8.default")
+    def dlinfer_add_rms_norm_w8a8(self, x1, x2, gamma, epsilon, quant_dtype):
+        add = self.get_proxy(atb_op.Add, (x1, x2))
+        if self.use_torch_npu_launcher and len(self.graph_op_group) > 0:
+            op_tuple = tuple(self.graph_op_group.values())
+            graph = self.get_proxy(atb_op.Graph, op_tuple, {"output": add})
+        self.graph_op_group = OrderedDict()
+        beta = self.get_shared_zeros((x1.node.meta["val"].shape[-1],), torch.float16)
+        norm = self.get_proxy(
+            atb_op.RmsNormW8A8, (add, gamma, beta, epsilon, quant_dtype)
+        )
+        norm_out = self.get_proxy(atb_op.GetItem, (norm, 0))
+        norm_scale = self.get_proxy(atb_op.GetItem, (norm, 1))
+        return self.get_proxy(atb_op.Tuple, (norm_out, norm_scale, add))
+
     @register_conversion(torch.ops.aten._to_copy.default)
     def to_copy(self, x, dtype=None, layout=None, device=None):
         assert layout is None
@@ -495,122 +475,111 @@ class AtenToAtbTransformer(SingleOpTransformer):
         # The padding_idx parameter is not supported now.
         return self.get_proxy(atb_op.Gather, (weight, indices, 0))
 
-    @register_conversion("torch.ops.lmdeploy.prefill_attention.default")
+    @register_conversion("torch.ops.dlinfer.prefill_attention.default")
     def prefill_attention(
         self,
         query,
         key,
         value,
+        key_cache,
+        value_cache,
+        q_start_loc,
+        q_seq_len,
+        kv_seq_len,
+        max_q_seq_len,
+        num_q_heads,
+        num_kv_heads,
+        attn_mask,
+        softmax_scale,
+        alibi_slopes,
         attn_output,
-        k_cache,
-        v_cache,
-        block_offsets,
+    ):
+        mask = attn_mask[0]
+        head_size = query.node.meta["val"].shape[-1]
+        head_size_v = value.node.meta["val"].shape[-1]
+        scale = softmax_scale if softmax_scale else 1.0 / math.sqrt(head_size)
+        if query.node.meta["val"].dtype != mask.node.meta["val"].dtype:
+            mask = self.get_proxy(atb_op.Cast, (mask, query.node.meta["val"].dtype))
+        out = self.get_proxy(
+            atb_op.SelfAttentionPAEncoder,
+            (
+                query,
+                key,
+                value,
+                kv_seq_len,
+                mask,
+                num_q_heads,
+                num_kv_heads,
+                scale,
+                head_size,
+                head_size_v,
+            ),
+        )
+        return out
+
+    @register_conversion("torch.ops.dlinfer.paged_prefill_attention.default")
+    def paged_prefill_attention(
+        self,
+        query,
+        key,
+        value,
+        key_cache,
+        value_cache,
+        block_table,
+        block_size,
         q_start_loc,
         q_seq_len,
         kv_seq_len,
         cu_seq_lens_kv,
         max_q_seq_len,
         max_kv_seq_len,
-        block_size,
-        mask,
+        num_q_heads,
+        num_kv_heads,
+        attn_mask,
+        head_size_v,
         softmax_scale,
-        is_unpaged_prefill,
+        alibi_slopes,
+        attn_output,
         kv_scales,
         kv_zeros,
         quant_bits,
     ):
-        mask = mask[0]
-        scale = (
-            softmax_scale
-            if softmax_scale
-            else 1.0 / math.sqrt(query.node.meta["val"].shape[-1])
-        )
-        _, num_q_heads, head_size = query.node.meta["val"].shape
-        _, num_kv_heads, head_size_v = value.node.meta["val"].shape
+        mask = attn_mask[0]
+        head_size = query.node.meta["val"].shape[-1]
+        scale = softmax_scale if softmax_scale else 1.0 / math.sqrt(head_size)
         if query.node.meta["val"].dtype != mask.node.meta["val"].dtype:
             mask = self.get_proxy(atb_op.Cast, (mask, query.node.meta["val"].dtype))
-        if is_unpaged_prefill:
-            k_shape = key.node.meta["val"].shape
-            num_q_heads = query.node.meta["val"].shape[-2]
-            num_kv_heads = k_shape[-2]
-            kv_head_size = k_shape[-1]
-
-            if SocVersion.is_Ascend910B():
-                query = self.get_proxy(
-                    atb_op.View, (query, [-1, num_q_heads * kv_head_size])
-                )
-                key = self.get_proxy(
-                    atb_op.View, (key, [-1, num_kv_heads * kv_head_size])
-                )
-                value = self.get_proxy(
-                    atb_op.View, (value, [-1, num_kv_heads * kv_head_size])
-                )
-            out = self.get_proxy(
-                atb_op.SelfAttentionPAEncoder,
-                (
-                    query,
-                    key,
-                    value,
-                    kv_seq_len,
-                    mask,
-                    num_q_heads,
-                    num_kv_heads,
-                    scale,
-                    head_size,
-                    head_size_v,
-                ),
+        if SocVersion.is_Ascend910B():
+            ...
+        elif SocVersion.is_Ascend310P():
+            assert head_size == head_size_v
+            num_blocks, block_size, *_ = key_cache.node.meta["val"]
+            key_cache = self.get_proxy(
+                atb_op.View, (key_cache, (num_blocks, -1, block_size, 16))
+            )
+            value_cache = self.get_proxy(
+                atb_op.View, (value_cache, (num_blocks, -1, block_size, 16))
             )
         else:
-            k_cache_shape = list(k_cache.node.meta["val"].shape)
-            v_cache_shape = list(v_cache.node.meta["val"].shape)
-
-            is_kv_require_reshape = len(k_cache_shape) == 3 or len(v_cache_shape) == 3
-            if is_kv_require_reshape:
-                if SocVersion.is_Ascend910B():
-                    k_cache = self.get_proxy(
-                        atb_op.View,
-                        (
-                            k_cache,
-                            (k_cache_shape[0], k_cache_shape[1], num_kv_heads, -1),
-                        ),
-                    )
-                    v_cache = self.get_proxy(
-                        atb_op.View,
-                        (
-                            v_cache,
-                            (v_cache_shape[0], v_cache_shape[1], num_kv_heads, -1),
-                        ),
-                    )
-                elif SocVersion.is_Ascend310P():
-                    k_cache = self.get_proxy(
-                        atb_op.View,
-                        (k_cache, (k_cache_shape[0], -1, k_cache_shape[1], 16)),
-                    )
-                    v_cache = self.get_proxy(
-                        atb_op.View,
-                        (v_cache, (v_cache_shape[0], -1, v_cache_shape[1], 16)),
-                    )
-                else:
-                    raise ValueError(
-                        f"dlinfer doesn't support {SocVersion.device_name()} device currently."
-                    )
-            out = self.get_proxy(
-                atb_op.PagedAttention,
-                (
-                    query,
-                    k_cache,
-                    v_cache,
-                    block_offsets,
-                    kv_seq_len,
-                    mask,
-                    num_q_heads,
-                    num_kv_heads,
-                    scale,
-                    head_size,
-                    head_size_v,
-                ),
+            raise ValueError(
+                f"dlinfer doesn't support {SocVersion.device_name()} device currently."
             )
-        # graph = self.get_proxy(atb_op.Graph, (out,), {"output": [out]})
+        out = self.get_proxy(
+            atb_op.PagedAttention,
+            (
+                query,
+                key_cache,
+                value_cache,
+                block_table,
+                kv_seq_len,
+                mask,
+                num_q_heads,
+                num_kv_heads,
+                scale,
+                head_size,
+                head_size_v,
+            ),
+        )
         return out
 
     @register_conversion(torch.ops.aten.unsqueeze.default)
@@ -712,7 +681,6 @@ class AtenToAtbTransformer(SingleOpTransformer):
         renormalize,
     ):
         num_experts = gate_up_weights.node.meta["val"].shape[0]
-        hidden_states_dtype = hidden_states.node.meta["val"].dtype
         if renormalize:
             reduce_dim = get_reduce_dim(topk_weights, -1)[0]
             topk_weights = self.get_proxy(
@@ -720,19 +688,17 @@ class AtenToAtbTransformer(SingleOpTransformer):
             )
             topk_weights = self.get_proxy(atb_op.GetItem, (topk_weights, 1))
 
-        topk_ids = self.get_proxy(atb_op.Cast, (topk_ids, torch.int32))
-        pre_pare = self.get_proxy(atb_op.PrepareMoe, (topk_ids, num_experts))
-        group = self.get_proxy(atb_op.GetItem, (pre_pare, 3))
-
-        # moe token permute
+        # moe init routing
         moe_init = self.get_proxy(
-            atb_op.AclNnMoeTokenPermute, (hidden_states, topk_ids)
+            atb_op.AclNnMoeInitRouting,
+            (hidden_states, topk_ids, num_experts),
         )
         expanded_hidden_states = self.get_proxy(atb_op.GetItem, (moe_init, 0))
         expanded_row_idx = self.get_proxy(atb_op.GetItem, (moe_init, 1))
+        group = self.get_proxy(atb_op.GetItem, (moe_init, 2))
+        group = self.get_proxy(atb_op.Cast, (group, torch.int64))
 
         # up sample
-        gate_up_weights = self.get_proxy(atb_op.Transpose, (gate_up_weights, (0, 2, 1)))
         up_sample = self.get_proxy(
             atb_op.AclNnGroupedMatmul,
             (expanded_hidden_states, gate_up_weights, group, 2),
@@ -743,7 +709,6 @@ class AtenToAtbTransformer(SingleOpTransformer):
         gate_cache = self.silu_and_mul(up_proj, -1)
 
         # down sample
-        down_weights = self.get_proxy(atb_op.Transpose, (down_weights, (0, 2, 1)))
         down_sample = self.get_proxy(
             atb_op.AclNnGroupedMatmul,
             (gate_cache, down_weights, group, 2),
@@ -751,7 +716,6 @@ class AtenToAtbTransformer(SingleOpTransformer):
         down_proj = self.get_proxy(atb_op.GetItem, (down_sample, 0))
 
         # moe token unpermute
-        topk_weights = self.get_proxy(atb_op.Cast, (topk_weights, hidden_states_dtype))
         moe_out = self.get_proxy(
             atb_op.AclNnMoeTokenUnpermute,
             (
@@ -764,8 +728,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
 
     @register_conversion("torch.ops.dlinfer.moe_gating_topk_softmax.default")
     def dlinfer_moe_gating_topk_softmax(self, router_logits, top_k):
-        routing_weights = self.get_proxy(atb_op.Softmax, (router_logits, -1))
-        return self.get_proxy(atb_op.Sort, (routing_weights, top_k))
+        return self.get_proxy(atb_op.AclNnMoeGatingTopkSoftmax, (router_logits, top_k))
 
     @register_conversion(torch.ops.aten.expand.default)
     def aten_expand_default(self, x, size):
@@ -827,6 +790,21 @@ class AtenToAtbTransformer(SingleOpTransformer):
     @register_conversion(torch.ops.aten.slice_scatter.default)
     def aten_slice_scatter(self, x, data, dim=0, start=None, end=None, step=1):
         return self.get_proxy(atb_op.SliceScatter, (x, data, dim, start, end, step))
+
+    @register_conversion(torch.ops.dlinfer.dynamic_quant.default)
+    def dlinfer_dynamic_quant(self, x, quant_dtype, quant_granularity):
+        return self.get_proxy(atb_op.AclNnDynamicQuant, (x, quant_dtype))
+
+    @register_conversion(torch.ops.dlinfer.linear_w8a8.default)
+    def dlinfer_linear_w8a8(
+        self, x, y, rms_scale, linear_scale, out_type, quant_dtype, bias
+    ):
+        rms_scale = self.get_proxy(atb_op.Squeeze, (rms_scale, 0))
+        linear_scale = self.get_proxy(atb_op.Squeeze, (linear_scale, 1))
+        return self.get_proxy(
+            atb_op.AclNnQuantMatmul,
+            (x, y, rms_scale, linear_scale, out_type, quant_dtype, bias),
+        )
 
 
 class ViewSymIntTransformer(torch.fx.Transformer):

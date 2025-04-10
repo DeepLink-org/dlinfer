@@ -343,10 +343,30 @@ class AtbOverrides:
         param.layerType = infer_param.RmsNormType.RMS_NORM_NORM
         param.normParam.epsilon = eps
         param.normParam.rstd = False
+        param.normParam.quantType = infer_param.RmsNormQuantType.QUANT_UNDEFINED
+        param.normParam.dynamicQuantType = (
+            infer_param.DynamicQuantType.DYNAMIC_QUANT_UNDEFINED
+        )
 
         op.set_input([x, w])
         op.set_param(param)
         op.set_output([name])
+        return op
+
+    def RmsNormW8A8(name, x, w, beta, eps, quant_dtype):
+        op = Operation(name, "RmsNormOperation")
+        param = infer_param.RmsNormParam()
+        param.name = name
+        param.layerType = infer_param.RmsNormType.RMS_NORM_NORM
+        param.normParam.epsilon = eps
+        param.normParam.rstd = False
+        param.normParam.quantType = infer_param.RmsNormQuantType.QUANT_INT8
+        param.normParam.dynamicQuantType = (
+            infer_param.DynamicQuantType.DYNAMIC_QUANT_SYMMETRIC
+        )
+        op.set_input([x, w, beta])
+        op.set_param(param)
+        op.set_output([f"{name}__0", f"{name}__1"])
         return op
 
     def Rope(name, query, key, cos, sin, seqlen):
@@ -994,14 +1014,22 @@ class AtbOverrides:
         op.set_output([f"{name}__0", f"{name}__1", f"{name}__2", f"{name}__3"])
         return op
 
-    def AclNnMoeInitRouting(name, x, row_ids, topk_ids, active_num, num_experts):
+    def AclNnMoeGatingTopkSoftmax(name, x, topk):
+        op = Operation(name, "AclNnMoeGatingTopkSoftmaxOperation")
+        param = infer_param.AclNnMoeGatingTopkSoftmaxParam()
+        param.name = name
+        param.topk = topk
+        op.set_input([x])
+        op.set_param(param)
+        op.set_output([f"{name}__0", f"{name}__1"])
+        return op
+
+    def AclNnMoeInitRouting(name, x, topk_ids, num_experts):
         op = Operation(name, "AclNnMoeInitRoutingOperation")
         param = infer_param.AclNnMoeInitRoutingParam()
         param.name = name
-        param.activeNum = active_num
         param.numExperts = num_experts
-
-        op.set_input([x, row_ids, topk_ids])
+        op.set_input([x, topk_ids])
         op.set_param(param)
         op.set_output([f"{name}__0", f"{name}__1", f"{name}__2"])
         return op
@@ -1091,6 +1119,30 @@ class AtbOverrides:
         param = infer_param.OnlyNameParam()
         param.name = name
         op.set_input([dest, src])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def AclNnDynamicQuant(name, x, quant_dtype):
+        op = Operation(name, "AclNnDynamicQuantOperation")
+        param = infer_param.OnlyNameParam()
+        param.name = name
+        op.set_input([x])
+        op.set_param(param)
+        op.set_output([f"{name}__0", f"{name}__1"])
+        return op
+
+    def AclNnQuantMatmul(
+        name, x, y, rms_scale, linear_scale, out_dtype, quant_dtype, bias
+    ):
+        op = Operation(name, "AclNnQuantMatmulOperation")
+        param = infer_param.AclNnQuantMatmulParam()
+        param.name = name
+        if bias is None:
+            op.set_input([x, y, linear_scale, rms_scale])
+        else:
+            param.hasBias = True
+            op.set_input([x, y, linear_scale, rms_scale, bias])
         op.set_param(param)
         op.set_output([name])
         return op

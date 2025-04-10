@@ -102,17 +102,24 @@ class ModelType(IntEnum):
     GEMMA_MODEL = 1
 
 
-class QuantType(IntEnum):
+class RmsNormQuantType(IntEnum):
     QUANT_UNDEFINED = 0
+    QUANT_INT4 = 1
+    QUANT_INT8 = 2
+    QUANT_INT16 = 3
+    QUANT_FLOAT8 = 4
+    QUANT_FLOAT16 = 5
 
 
 class DynamicQuantType(IntEnum):
     DYNAMIC_QUANT_UNDEFINED = 0
+    DYNAMIC_QUANT_SYMMETRIC = 1
+    DYNAMIC_QUANT_ASYMMETRIC = 2
 
 
 @dataclass
 class NormParam:
-    quantType: QuantType = QuantType.QUANT_UNDEFINED
+    quantType: RmsNormQuantType = RmsNormQuantType.QUANT_UNDEFINED
     epsilon: float = 1e-5
     layerNormEps: float = 1e-5
     rstd: bool = False
@@ -123,14 +130,14 @@ class NormParam:
 
 @dataclass
 class PreNormParam:
-    quantType: QuantType = QuantType.QUANT_UNDEFINED
+    quantType: RmsNormQuantType = RmsNormQuantType.QUANT_UNDEFINED
     epsilon: float = 1e-5
     hasBias: bool = False
 
 
 @dataclass
 class PostNormParam:
-    quantType: QuantType = QuantType.QUANT_UNDEFINED
+    quantType: RmsNormQuantType = RmsNormQuantType.QUANT_UNDEFINED
     epsilon: float = 1e-5
     hasBias: bool = False
 
@@ -646,9 +653,16 @@ class PrepareMoeParam:
 
 
 @dataclass
+class AclNnMoeGatingTopkSoftmaxParam:
+    name: str = ""
+    topk: int = 0
+    renorm: int = 0
+    outputSoftmaxResultFlag: bool = False
+
+
+@dataclass
 class AclNnMoeInitRoutingParam:
     name: str = ""
-    activeNum: int = 10240
     numExperts: int = 0
 
 
@@ -662,6 +676,12 @@ class AclNnGroupedMatmulParam:
 class NewEmptyParam:
     name: str = ""
     size: list[str] = field(default_factory=list)
+
+
+@dataclass
+class AclNnQuantMatmulParam:
+    name: str = ""
+    hasBias: bool = False
 
 
 def custom_asdict_factory(data):
