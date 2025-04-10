@@ -18,6 +18,7 @@ from dlinfer.graph.dicp.vendor.AtbGraph.codegen.utils import (
     get_ascend_dtype,
     get_reduce_dim,
 )
+from dlinfer.vendor.ascend.utils import SocVersion
 
 
 aten = torch.ops.aten
@@ -171,19 +172,38 @@ class AtenToAtbTransformer(SingleOpTransformer):
         v_scales_zeros,
         quant_bits,
     ):
-        key_shape = key.node.meta["val"].shape
-        value_shape = value.node.meta["val"].shape
-        is_mla = key_shape[-1] != value_shape[-1]
-        if is_mla:
-            out = self.get_proxy(
-                atb_op.MlaReshapeAndCache,
-                (key, key_cache, kv_indices),
+        if SocVersion.is_Ascend910B():
+            key_shape = key.node.meta["val"].shape
+            value_shape = value.node.meta["val"].shape
+            is_mla = key_shape[-1] != value_shape[-1]
+            if is_mla:
+                out = self.get_proxy(
+                    atb_op.MlaReshapeAndCache,
+                    (key, key_cache, kv_indices),
+                )
+                out = self.get_proxy(atb_op.Tuple, (out, value_cache))
+            else:
+                out = self.get_proxy(
+                    atb_op.ReshapeAndCache,
+                    (key, value, key_cache, value_cache, kv_indices),
+                )
+        elif SocVersion.is_Ascend310P():
+            num_blocks, block_size, *_ = key_cache.node.meta["val"]
+            key_cache_reshaped = self.get_proxy(
+                atb_op.View,
+                (key_cache, (num_blocks, -1, block_size, 16)),
             )
-            out = self.get_proxy(atb_op.Tuple, (out, value_cache))
-        else:
+            value_cache_reshaped = self.get_proxy(
+                atb_op.View,
+                (value_cache, (num_blocks, -1, block_size, 16)),
+            )
             out = self.get_proxy(
                 atb_op.ReshapeAndCache,
-                (key, value, key_cache, value_cache, kv_indices),
+                (key, value, key_cache_reshaped, value_cache_reshaped, kv_indices),
+            )
+        else:
+            raise ValueError(
+                f"dlinfer doesn't support {SocVersion.device_name()} device currently."
             )
         return out
 
@@ -209,6 +229,21 @@ class AtenToAtbTransformer(SingleOpTransformer):
     ):
         head_size = query.node.meta["val"].shape[-1]
         scale = 1.0 / math.sqrt(head_size) if softmax_scale is None else softmax_scale
+        if SocVersion.is_Ascend910B():
+            ...
+        elif SocVersion.is_Ascend310P():
+            assert head_size == head_size_v
+            num_blocks, block_size, *_ = key_cache.node.meta["val"]
+            key_cache = self.get_proxy(
+                atb_op.View, (key_cache, (num_blocks, -1, block_size, 16))
+            )
+            value_cache = self.get_proxy(
+                atb_op.View, (value_cache, (num_blocks, -1, block_size, 16))
+            )
+        else:
+            raise ValueError(
+                f"dlinfer doesn't support {SocVersion.device_name()} device currently."
+            )
         out = self.get_proxy(
             atb_op.PagedAttention,
             (
@@ -514,6 +549,21 @@ class AtenToAtbTransformer(SingleOpTransformer):
         scale = softmax_scale if softmax_scale else 1.0 / math.sqrt(head_size)
         if query.node.meta["val"].dtype != mask.node.meta["val"].dtype:
             mask = self.get_proxy(atb_op.Cast, (mask, query.node.meta["val"].dtype))
+        if SocVersion.is_Ascend910B():
+            ...
+        elif SocVersion.is_Ascend310P():
+            assert head_size == head_size_v
+            num_blocks, block_size, *_ = key_cache.node.meta["val"]
+            key_cache = self.get_proxy(
+                atb_op.View, (key_cache, (num_blocks, -1, block_size, 16))
+            )
+            value_cache = self.get_proxy(
+                atb_op.View, (value_cache, (num_blocks, -1, block_size, 16))
+            )
+        else:
+            raise ValueError(
+                f"dlinfer doesn't support {SocVersion.device_name()} device currently."
+            )
         out = self.get_proxy(
             atb_op.PagedAttention,
             (
