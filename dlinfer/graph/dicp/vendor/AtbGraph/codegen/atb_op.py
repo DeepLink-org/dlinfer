@@ -64,17 +64,11 @@ class AtbOverrides:
         # If precision issues occur or multiple communication domains are required,
         # HCCL should be used.
         use_lccl = os.environ.get("DLINFER_ASCEND_USE_LCCL", "1")
-        if use_lccl == "1":
+        rank_table_file = os.environ.get("ASCEND_RANK_TABLE_FILE_PATH", None)
+        if use_lccl == "1" and rank_table_file is None:
             param.backend = "lccl"
         else:
-            backend = "hccl"
-            rank_table_file = os.environ.get("ASCEND_RANK_TABLE_FILE_PATH", None)
-            backend = (
-                "hccl"
-                if rank_table_file is not None or (group and group != "")
-                else "lccl"
-            )
-            param.backend = backend
+            param.backend = "hccl"
             param.commDomain = group if group is not None else ""
             if rank_table_file is not None:
                 param.rankTableFile = rank_table_file
@@ -101,17 +95,11 @@ class AtbOverrides:
         # If precision issues occur or multiple communication domains are required,
         # HCCL should be used.
         use_lccl = os.environ.get("DLINFER_ASCEND_USE_LCCL", "1")
-        if use_lccl == "1":
+        rank_table_file = os.environ.get("ASCEND_RANK_TABLE_FILE_PATH", None)
+        if use_lccl == "1" and rank_table_file is None:
             param.backend = "lccl"
         else:
-            backend = "hccl"
-            rank_table_file = os.environ.get("ASCEND_RANK_TABLE_FILE_PATH", None)
-            backend = (
-                "hccl"
-                if rank_table_file is not None or (group and group != "")
-                else "lccl"
-            )
-            param.backend = backend
+            param.backend = "hccl"
             param.commDomain = group if group is not None else ""
             if rank_table_file is not None:
                 param.rankTableFile = rank_table_file
