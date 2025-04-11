@@ -20,6 +20,7 @@ from dlinfer.graph.dicp.vendor.AtbGraph.codegen.utils import (
     get_acl_dtype,
     get_ascend_dtype,
 )
+from dlinfer.vendor.ascend.utils import SocVersion
 
 
 class AtbOverrides:
@@ -66,7 +67,14 @@ class AtbOverrides:
             if group and group != "":
                 param.commDomain = group
         else:
-            param.backend = "lccl"
+            if SocVersion.is_Ascend910B():
+                param.backend = "lccl"
+            elif SocVersion.is_Ascend310P():
+                param.backend = "hccl"
+            else:
+                raise RuntimeError(
+                    f"Unsupported device name: {SocVersion.device_name()}"
+                )
 
         if bias:
             op.set_input([x, weight, bias])
@@ -92,7 +100,14 @@ class AtbOverrides:
             if group and group != "":
                 param.commDomain = group
         else:
-            param.backend = "lccl"
+            if SocVersion.is_Ascend910B():
+                param.backend = "lccl"
+            elif SocVersion.is_Ascend310P():
+                param.backend = "hccl"
+            else:
+                raise RuntimeError(
+                    f"Unsupported device name: {SocVersion.device_name()}"
+                )
 
         op.set_input([x])
         op.set_param(param)
@@ -511,6 +526,14 @@ class AtbOverrides:
         # op = Operation(name, "TransposeOperation")
         param = infer_param.TransposeParam(name, perm)
 
+        op.set_param(param)
+        op.set_input([x])
+        op.set_output([name])
+        return op
+
+    def Transdata(name, x, transdataType):
+        op = Operation(name, "TransdataOperation")
+        param = infer_param.TransdataParam(transdataType)
         op.set_param(param)
         op.set_input([x])
         op.set_output([name])

@@ -357,6 +357,14 @@ class Transpose(Operator):
         return x.t()
 
 
+class Transdata(Operator):
+    def __init__(self):
+        super().__init__("Transdata")
+
+    def infer_result(self, x, transdataType):
+        return x
+
+
 class View(Operator):
     def __init__(self):
         super().__init__("View")

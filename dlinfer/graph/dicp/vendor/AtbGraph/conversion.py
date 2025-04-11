@@ -188,18 +188,9 @@ class AtenToAtbTransformer(SingleOpTransformer):
                     (key, value, key_cache, value_cache, kv_indices),
                 )
         elif SocVersion.is_Ascend310P():
-            num_blocks, block_size, *_ = key_cache.node.meta["val"]
-            key_cache_reshaped = self.get_proxy(
-                atb_op.View,
-                (key_cache, (num_blocks, -1, block_size, 16)),
-            )
-            value_cache_reshaped = self.get_proxy(
-                atb_op.View,
-                (value_cache, (num_blocks, -1, block_size, 16)),
-            )
             out = self.get_proxy(
                 atb_op.ReshapeAndCache,
-                (key, value, key_cache_reshaped, value_cache_reshaped, kv_indices),
+                (key, value, key_cache, value_cache, kv_indices),
             )
         else:
             raise ValueError(
@@ -232,14 +223,15 @@ class AtenToAtbTransformer(SingleOpTransformer):
         if SocVersion.is_Ascend910B():
             ...
         elif SocVersion.is_Ascend310P():
-            assert head_size == head_size_v
-            num_blocks, block_size, *_ = key_cache.node.meta["val"]
-            key_cache = self.get_proxy(
-                atb_op.View, (key_cache, (num_blocks, -1, block_size, 16))
-            )
-            value_cache = self.get_proxy(
-                atb_op.View, (value_cache, (num_blocks, -1, block_size, 16))
-            )
+            pass
+            # assert head_size == head_size_v
+            # num_blocks, block_size, *_ = key_cache.node.meta["val"]
+            # key_cache = self.get_proxy(
+            #     atb_op.View, (key_cache, (num_blocks, -1, block_size, 16))
+            # )
+            # value_cache = self.get_proxy(
+            #     atb_op.View, (value_cache, (num_blocks, -1, block_size, 16))
+            # )
         else:
             raise ValueError(
                 f"dlinfer doesn't support {SocVersion.device_name()} device currently."
@@ -507,7 +499,11 @@ class AtenToAtbTransformer(SingleOpTransformer):
                 key,
                 value,
                 kv_seq_len,
-                mask,
+                (
+                    mask
+                    if SocVersion.is_Ascend910B()
+                    else self.get_proxy(atb_op.Transdata, (mask, 2))
+                ),
                 num_q_heads,
                 num_kv_heads,
                 scale,
@@ -552,14 +548,15 @@ class AtenToAtbTransformer(SingleOpTransformer):
         if SocVersion.is_Ascend910B():
             ...
         elif SocVersion.is_Ascend310P():
-            assert head_size == head_size_v
-            num_blocks, block_size, *_ = key_cache.node.meta["val"]
-            key_cache = self.get_proxy(
-                atb_op.View, (key_cache, (num_blocks, -1, block_size, 16))
-            )
-            value_cache = self.get_proxy(
-                atb_op.View, (value_cache, (num_blocks, -1, block_size, 16))
-            )
+            pass
+            # assert head_size == head_size_v
+            # num_blocks, block_size, *_ = key_cache.node.meta["val"]
+            # key_cache = self.get_proxy(
+            #     atb_op.View, (key_cache, (num_blocks, -1, block_size, 16))
+            # )
+            # value_cache = self.get_proxy(
+            #     atb_op.View, (value_cache, (num_blocks, -1, block_size, 16))
+            # )
         else:
             raise ValueError(
                 f"dlinfer doesn't support {SocVersion.device_name()} device currently."
@@ -572,7 +569,11 @@ class AtenToAtbTransformer(SingleOpTransformer):
                 value_cache,
                 block_table,
                 kv_seq_len,
-                mask,
+                (
+                    mask
+                    if SocVersion.is_Ascend910B()
+                    else self.get_proxy(atb_op.Transdata, (mask, 2))
+                ),
                 num_q_heads,
                 num_kv_heads,
                 scale,
