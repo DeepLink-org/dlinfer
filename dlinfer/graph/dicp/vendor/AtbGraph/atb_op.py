@@ -156,6 +156,7 @@ class AclNnMuls(Operator):
     def infer_result(self, a, b, dtype="FLOAT"):
         return a * b
 
+
 class PowTensorScalar(Operator):
     def __init__(self):
         super().__init__("PowTensorScalar")
@@ -778,6 +779,7 @@ class Sigmoid(Operator):
     def infer_result(self, x):
         return x.sigmoid()
 
+
 class AclNnInplaceMaskedFillScalar(Operator):
     def __init__(self):
         super().__init__("AclNnInplaceMaskedFillScalar")
@@ -792,6 +794,7 @@ class AclNnMaskedFillScalar(Operator):
 
     def infer_result(self, x, mask, value, dtype):
         return x
+
 
 class AclNnReduceSum(Operator):
     def __init__(self):

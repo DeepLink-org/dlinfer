@@ -1,15 +1,16 @@
 #include "reduce_sum_operation.h"
 
 #include "aclnnop/aclnn_reduce_sum.h"
+#include "utils/common.h"
 #include "utils/log.h"
 #include "utils/misc.h"
-#include "utils/common.h"
 
 namespace dicp {
 
 const int NUM1 = 1;
 
-AclNnReduceSumOperation::AclNnReduceSumOperation(const std::string& name, const std::vector<int64_t>& dims, bool keepDim, const std::string& dtype) : AclNnOperation(name), dims_(std::move(dims)), keepDim_(keepDim), dtype_(get_acl_dtype(dtype)) {
+AclNnReduceSumOperation::AclNnReduceSumOperation(const std::string& name, const std::vector<int64_t>& dims, bool keepDim, const std::string& dtype)
+    : AclNnOperation(name), dims_(std::move(dims)), keepDim_(keepDim), dtype_(get_acl_dtype(dtype)) {
     aclDims_ = aclCreateIntArray(dims_.data(), dims_.size());
 }
 
@@ -57,7 +58,8 @@ uint32_t AclNnReduceSumOperation::GetOutputNum() const { return NUM1; }
 int AclNnReduceSumOperation::SetAclNnWorkspaceExecutor(uint64_t& workspaceSize) {
     DICP_LOG(INFO) << opName_ << " aclnnReduceSumGetWorkspaceSize start";
 
-    int ret = aclnnReduceSumGetWorkspaceSize(aclInTensors_.at(0).tensor, aclDims_, keepDim_, dtype_, aclOutTensors_.at(0).tensor, &workspaceSize, &aclExecutor_);
+    int ret =
+        aclnnReduceSumGetWorkspaceSize(aclInTensors_.at(0).tensor, aclDims_, keepDim_, dtype_, aclOutTensors_.at(0).tensor, &workspaceSize, &aclExecutor_);
     DICP_LOG(INFO) << opName_ << " aclnnReduceSumGetWorkspaceSize end, ret:" << ret << ", workspaceSize:" << workspaceSize << ", aclExecutor:" << aclExecutor_;
 
     return ret;

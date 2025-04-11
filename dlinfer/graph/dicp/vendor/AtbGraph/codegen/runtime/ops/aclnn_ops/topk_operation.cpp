@@ -1,9 +1,10 @@
 #include "topk_operation.h"
 
 #include <iostream>
+
 #include "aclnnop/aclnn_topk.h"
-#include "utils/log.h"
 #include "utils/common.h"
+#include "utils/log.h"
 
 namespace dicp {
 
@@ -47,7 +48,6 @@ int AclNnTopkOperation::SetAclNnWorkspaceExecutor(uint64_t& workspaceSize) {
     DICP_LOG(INFO) << opName_ << " AclNnTopkGetWorkspaceSize start";
 
     int64_t dim = dim_ < 0 ? dim_ + aclOutTensors_.at(0).atbTensor.desc.shape.dimNum : dim_;
-
 
     int ret = aclnnTopkGetWorkspaceSize(
         aclInTensors_.at(0).tensor, k_, true, true, dim, aclOutTensors_.at(0).tensor, aclOutTensors_.at(1).tensor, &workspaceSize, &aclExecutor_);

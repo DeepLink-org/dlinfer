@@ -59,14 +59,25 @@ class AtbOverrides:
         param.parallelType = infer_param.ParallelType.LINEAR_ALL_REDUCE
         param.commMode = infer_param.CommMode.COMM_MULTI_PROCESS
 
-        rank_table_file = os.environ.get("ASCEND_RANK_TABLE_FILE_PATH", None)
-        if rank_table_file:
-            param.backend = "hccl"
-            param.rankTableFile = rank_table_file
-            if group and group != "":
-                param.commDomain = group
-        else:
+        # LCCL has issues with multiple communication domains. By default,
+        # in single-machine multi-card scenarios, LCCL is enabled.
+        # If precision issues occur or multiple communication domains are required,
+        # HCCL should be used.
+        use_lccl = os.environ.get("DLINFER_ASCEND_USE_LCCL", "1")
+        if use_lccl == "1":
             param.backend = "lccl"
+        else:
+            backend = "hccl"
+            rank_table_file = os.environ.get("ASCEND_RANK_TABLE_FILE_PATH", None)
+            backend = (
+                "hccl"
+                if rank_table_file is not None or (group and group != "")
+                else "lccl"
+            )
+            param.backend = backend
+            param.commDomain = group if group is not None else ""
+            if rank_table_file is not None:
+                param.rankTableFile = rank_table_file
 
         if bias:
             op.set_input([x, weight, bias])
@@ -85,14 +96,25 @@ class AtbOverrides:
         param.allReduceType = reduce_type
         param.commMode = infer_param.CommMode.COMM_MULTI_PROCESS
 
-        rank_table_file = os.environ.get("ASCEND_RANK_TABLE_FILE_PATH", None)
-        if rank_table_file is not None:
-            param.backend = "hccl"
-            param.rankTableFile = rank_table_file
-            if group and group != "":
-                param.commDomain = group
-        else:
+        # LCCL has issues with multiple communication domains. By default,
+        # in single-machine multi-card scenarios, LCCL is enabled.
+        # If precision issues occur or multiple communication domains are required,
+        # HCCL should be used.
+        use_lccl = os.environ.get("DLINFER_ASCEND_USE_LCCL", "1")
+        if use_lccl == "1":
             param.backend = "lccl"
+        else:
+            backend = "hccl"
+            rank_table_file = os.environ.get("ASCEND_RANK_TABLE_FILE_PATH", None)
+            backend = (
+                "hccl"
+                if rank_table_file is not None or (group and group != "")
+                else "lccl"
+            )
+            param.backend = backend
+            param.commDomain = group if group is not None else ""
+            if rank_table_file is not None:
+                param.rankTableFile = rank_table_file
 
         op.set_input([x])
         op.set_param(param)

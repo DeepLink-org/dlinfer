@@ -1,9 +1,10 @@
 #pragma once
 
+#include <vector>
+
+#include "acl/acl.h"
 #include "acl_nn_operation.h"
 #include "utils/scalar.h"
-#include <vector>
-#include "acl/acl.h"
 namespace dicp {
 
 class AclNnReduceSumOperation : public AclNnOperation {

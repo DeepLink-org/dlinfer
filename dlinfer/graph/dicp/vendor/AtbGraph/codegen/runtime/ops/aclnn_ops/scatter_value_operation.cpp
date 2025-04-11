@@ -9,7 +9,8 @@ namespace dicp {
 const int NUM1 = 1;
 const int NUM2 = 2;
 
-AclNnScatterValueOperation::AclNnScatterValueOperation(const std::string& name, int64_t dim, float value, const std::string& value_dtype, int64_t reduce) : AclNnOperation(name), dim_(dim), reduce_(reduce) {
+AclNnScatterValueOperation::AclNnScatterValueOperation(const std::string& name, int64_t dim, float value, const std::string& value_dtype, int64_t reduce)
+    : AclNnOperation(name), dim_(dim), reduce_(reduce) {
     value_ = DICPScalar(value, value_dtype);
     aclValue_ = aclCreateScalar(value_.getValuePtr(), value_.getDataType());
 }
@@ -39,8 +40,10 @@ uint32_t AclNnScatterValueOperation::GetOutputNum() const { return NUM1; }
 int AclNnScatterValueOperation::SetAclNnWorkspaceExecutor(uint64_t& workspaceSize) {
     DICP_LOG(INFO) << opName_ << " aclnnMulsGetWorkspaceSize start";
 
-    int ret = aclnnScatterValueGetWorkspaceSize(aclInTensors_.at(0).tensor, dim_, aclInTensors_.at(1).tensor, aclValue_, reduce_, aclOutTensors_.at(0).tensor, &workspaceSize, &aclExecutor_);
-    DICP_LOG(INFO) << opName_ << " aclnnScatterValueGetWorkspaceSize end, ret:" << ret << ", workspaceSize:" << workspaceSize << ", aclExecutor:" << aclExecutor_;
+    int ret = aclnnScatterValueGetWorkspaceSize(
+        aclInTensors_.at(0).tensor, dim_, aclInTensors_.at(1).tensor, aclValue_, reduce_, aclOutTensors_.at(0).tensor, &workspaceSize, &aclExecutor_);
+    DICP_LOG(INFO) << opName_ << " aclnnScatterValueGetWorkspaceSize end, ret:" << ret << ", workspaceSize:" << workspaceSize
+                   << ", aclExecutor:" << aclExecutor_;
 
     return ret;
 }

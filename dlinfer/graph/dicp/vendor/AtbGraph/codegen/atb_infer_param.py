@@ -503,7 +503,7 @@ class AllReduceParam:
     rankTableFile: str = ""
     outDataType: AclDataType = AclDataType.ACL_DT_UNDEFINED
     commMode: CommMode = CommMode.COMM_MULTI_PROCESS
-    commDomain = ""
+    commDomain: str = ""
 
 
 @dataclass
@@ -685,6 +685,7 @@ class NewEmptyParam:
 class AclNnQuantMatmulParam:
     name: str = ""
     hasBias: bool = False
+
 
 @dataclass
 class AclNnScatterValueParam:
