@@ -26,7 +26,7 @@ concurrency:
 jobs:
   AscendEndtoEndTests:
     if: github.repository == 'DeepLink-org/dlinfer'
-    runs-on: Atlas_800T_A2
+    runs-on: dlinfer-910b
 
     steps:
       - name: Checkout code
