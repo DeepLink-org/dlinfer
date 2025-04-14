@@ -812,7 +812,6 @@ class AtenToAtbTransformer(SingleOpTransformer):
     def aten_topk(self, x, k, dim=-1, largest=True, sorted=True):
         assert dim == -1
         assert largest == True
-        # assert sorted == False
         return self.get_proxy(atb_op.Sort, (x, k))
 
 
