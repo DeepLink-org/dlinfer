@@ -19,7 +19,6 @@ from dlinfer.graph.dicp.dynamo_bridge import pt_patch  # noqa F401
 from dlinfer.graph.dicp.dynamo_bridge.torch_version import (
     is_torch_200,
     is_torch_210_or_higher,
-    is_torch_250_or_higher,
 )
 
 
@@ -98,10 +97,10 @@ def compile_fx(
     backend: str,
     inner_compile=compile_fx_inner,
 ):
-    if is_torch_210_or_higher:
-        return compile_fx_210(model_, example_inputs_, backend, inner_compile)
-    elif is_torch_200:
+    if is_torch_200:
         return compile_fx_200(model_, example_inputs_, backend, inner_compile)
+    elif is_torch_210_or_higher:
+        return compile_fx_210(model_, example_inputs_, backend, inner_compile)
     else:
         raise ValueError(f"unsupported dicp torch version: {torch.__version__}")
 

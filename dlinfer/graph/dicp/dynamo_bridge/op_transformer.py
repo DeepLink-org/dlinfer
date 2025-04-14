@@ -7,7 +7,7 @@ from torch.fx.proxy import Proxy
 from typing import Any, Dict, Tuple
 from dlinfer.graph.dicp.dynamo_bridge.torch_version import (
     is_torch_210_or_higher,
-    is_torch_250_or_higher,
+    is_torch_251_or_higher,
 )
 from dlinfer.graph.dicp.dynamo_bridge.utils import symint_in_shape
 
@@ -92,7 +92,7 @@ class SingleOpTransformer(torch.fx.Transformer):
         return proxy
 
 
-if is_torch_210_or_higher and not is_torch_250_or_higher:
+if is_torch_210_or_higher and not is_torch_251_or_higher:
     import functools
     import inspect
     from typing import List
@@ -194,7 +194,7 @@ if is_torch_210_or_higher and not is_torch_250_or_higher:
             return module
 
 
-if is_torch_250_or_higher:
+if is_torch_251_or_higher:
     import functools
     import inspect
     from typing import List
