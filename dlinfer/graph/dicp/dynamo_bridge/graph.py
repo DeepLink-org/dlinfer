@@ -135,7 +135,6 @@ class GraphTransformer:
 
         # if dynamo_config.output_code:
         #     log.info("Output code: %s", mod.__file__)
-        
         return mod
 
     def compile_to_fn(self):

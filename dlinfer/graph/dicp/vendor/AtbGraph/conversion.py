@@ -263,13 +263,16 @@ class AtenToAtbTransformer(SingleOpTransformer):
         }
 
         for (aten_op, op_name), (tensor_op, scalar_op, aclnn_op) in binary_ops.items():
+
             def make_handler(tensor_op, scalar_op, aclnn_op):
                 def handler(self, x, y):
                     atb_supported_dtype = [torch.float16, torch.bfloat16]
                     out_dtype = fx_traceback.get_current_meta()["val"].dtype
                     if x.node.meta["val"].dtype != out_dtype:
                         x = self.get_proxy(atb_op.Cast, (x, out_dtype))
-                    if isinstance(y, torch.fx.Proxy) and not isinstance(y.node.meta["val"], torch.SymInt):
+                    if isinstance(y, torch.fx.Proxy) and not isinstance(
+                        y.node.meta["val"], torch.SymInt
+                    ):
                         if y.node.meta["val"].dtype != out_dtype:
                             y = self.get_proxy(atb_op.Cast, (y, out_dtype))
                         if out_dtype in atb_supported_dtype:
@@ -299,7 +302,6 @@ class AtenToAtbTransformer(SingleOpTransformer):
         dtype = get_ascend_dtype(x.node.meta["val"].dtype)
         if len(x.node.meta["val"].shape) == 0:
             x = self.get_proxy(atb_op.View, (x, [1]))
-        import pdb;pdb.set_trace()
         return self.get_proxy(atb_op.GtScalar, (x, y, dtype))
 
     @register_conversion(torch.ops.aten.ge.Scalar)

@@ -5,7 +5,10 @@ from torch.fx.node import Argument, Target
 import torch.fx.traceback as fx_traceback
 from torch.fx.proxy import Proxy
 from typing import Any, Dict, Tuple
-from dlinfer.graph.dicp.dynamo_bridge.torch_version import is_torch_210_or_higher, is_torch_250_or_higher
+from dlinfer.graph.dicp.dynamo_bridge.torch_version import (
+    is_torch_210_or_higher,
+    is_torch_250_or_higher,
+)
 from dlinfer.graph.dicp.dynamo_bridge.utils import symint_in_shape
 
 
@@ -190,6 +193,7 @@ if is_torch_210_or_higher and not is_torch_250_or_higher:
                 module.recompile()
             return module
 
+
 if is_torch_250_or_higher:
     import functools
     import inspect
@@ -267,9 +271,7 @@ if is_torch_250_or_higher:
     def lazy_register_backend_patterns(
         patterns: PatternMatcherPass, patterns_cls_list: Tuple[BackendPatternBase]
     ):
-        with torch._guards.tracing(
-            None
-        ), FakeTensorMode():
+        with torch._guards.tracing(None), FakeTensorMode():
             for pattern in patterns_cls_list:
                 pattern.register(patterns)
 

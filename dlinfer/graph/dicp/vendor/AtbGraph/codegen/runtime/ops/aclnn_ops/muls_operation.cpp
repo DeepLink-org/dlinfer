@@ -1,10 +1,11 @@
 #include "muls_operation.h"
 
 #include <cstdint>
+
 #include "aclnnop/aclnn_mul.h"
+#include "utils/global_dict.h"
 #include "utils/log.h"
 #include "utils/misc.h"
-#include "utils/global_dict.h"
 
 namespace dicp {
 

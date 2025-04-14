@@ -58,7 +58,6 @@ def atbgraph_opset_convert(
         cse_pass_result = cse_pass(gm)
         gm = cse_pass_result.graph_module
 
-    import pdb;pdb.set_trace()
     gm = BackendPatternMatcherTransformer(
         atb_pattern_matcher, torch_patterns_cls_list_1
     ).transform(gm)

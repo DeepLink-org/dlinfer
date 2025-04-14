@@ -1,15 +1,18 @@
 #include "gt_scalar_operation.h"
+
 #include <cstdint>
+
 #include "aclnnop/aclnn_gt_scalar.h"
+#include "utils/global_dict.h"
 #include "utils/log.h"
 #include "utils/misc.h"
-#include "utils/global_dict.h"
 
 namespace dicp {
 
 const int NUM1 = 1;
 
-AclNnGtScalarOperation::AclNnGtScalarOperation(const std::string& name, const std::string& value, const std::string& dtype) : AclNnOperation(name), value_(value) {
+AclNnGtScalarOperation::AclNnGtScalarOperation(const std::string& name, const std::string& value, const std::string& dtype)
+    : AclNnOperation(name), value_(value) {
     if (!value_.empty() && !std::isdigit(value_[0])) {
         need_update_value_ = true;
         other_ = DICPScalar(0.0f, dtype);

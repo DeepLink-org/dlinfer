@@ -69,7 +69,6 @@ def compile_fx_inner(
     backend=None,
     is_inference=None,
 ):
-    import pdb;pdb.set_trace()
     if dynamo_utils.count_calls(gm.graph) == 0:
         return make_boxed_func(gm.forward)
 
