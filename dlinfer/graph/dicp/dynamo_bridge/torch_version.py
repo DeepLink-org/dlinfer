@@ -24,5 +24,5 @@ else:
 
 is_torch_210_or_higher = is_torch_210 or is_torch_220 or is_torch_231 or is_torch_251
 is_torch_220_or_higher = is_torch_220 or is_torch_231 or is_torch_251
-is_torch_231_or_higher = version.parse(torch_version) >= version.parse("2.3.1")
+is_torch_231_or_higher = is_torch_231 or is_torch_251
 is_torch_251_or_higher = is_torch_251
