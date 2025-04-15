@@ -98,7 +98,7 @@ pip install dlinfer-ascend
 | Mixtral8x7B        | √           | X                 | √           | X                  | -           | √        | √                    |
 | Qwen2(.5)-7B       | √           | √                 | √           | X                  | √           | √        | √                    |
 | Qwen2-57B-A14B     | √           | √                 | -           | X                  | -           | √        | -                    |
-| Qwen2(.5)VL-7B     | √           | √                 | √           | X                  | -           | √        | √                    |
+| Qwen2(.5)VL-7B     | √           | √                 | √           | X                  | √           | √        | √                    |
 | CogVLM             | √           | X                 | -           | -                  | -           | √        | -                    |
 | CogVLM2            | √           | X                 | -           | -                  | -           | √        | -                    |
 | glm-4v-9b          | √           | -                 | -           | -                  | -           | -        | -                    |

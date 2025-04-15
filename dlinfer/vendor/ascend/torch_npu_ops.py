@@ -142,7 +142,8 @@ def prefill_attention(
             attn_weights = (
                 torch.matmul(single_q, single_k.transpose(-2, -1)) * scale_value
             )
-            attn_weights += attn_mask[i].unsqueeze(0)
+            if len(attn_mask) > 0:
+                attn_weights += attn_mask[i].unsqueeze(0)
             attn_probs = torch.softmax(attn_weights, dim=-1, dtype=torch.float32).to(
                 query.dtype
             )
