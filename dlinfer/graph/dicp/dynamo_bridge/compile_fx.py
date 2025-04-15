@@ -211,8 +211,7 @@ def compile_fx_210(
         example_inputs: List[torch.Tensor],
         is_inference: bool,
     ):
-        with dynamo_utils.dynamo_timed("compile_fx.<locals>.fw_compiler_base"):
-            return _fw_compiler_base(model, example_inputs, is_inference)
+        return _fw_compiler_base(model, example_inputs, is_inference)
 
     def _fw_compiler_base(
         model: torch.fx.GraphModule,
@@ -247,7 +246,6 @@ def compile_fx_210(
     # hit backwards compile
     dynamic_shapes = dynamo_config.dynamic_shapes
 
-    @dynamo_utils.dynamo_timed
     def bw_compiler(model: torch.fx.GraphModule, example_inputs):
         with dynamo_config.patch(dynamic_shapes=dynamic_shapes):
             fixed = count_tangents(model)

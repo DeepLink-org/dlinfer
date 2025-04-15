@@ -9,8 +9,11 @@ set(CSRC_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/csrc/moe_gating_topk_softmax.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/csrc/op_api_common.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/csrc/torch_npu_utils.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/csrc/torch_npu_symbol_fix.cpp
 )
+
+if("${Torch_npu_VERSION_HIGHER_THAN_231}" STREQUAL "1")
+    list(APPEND CSRC_FILES ${CMAKE_CURRENT_SOURCE_DIR}/csrc/torch_npu_symbol_fix.cpp)
+endif()
 
 add_library(
     ${PROJECT_NAME} SHARED

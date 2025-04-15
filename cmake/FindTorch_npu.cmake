@@ -1,7 +1,11 @@
 include(FindPackageHandleStandardArgs)
 
 # Include directories.
-find_path(TORCH_NPU_INCLUDE_DIRS NAMES torch_npu/csrc/include/ops.h  torch_npu/csrc/core/npu/interface/AclInterface.h)
+if("${Torch_npu_VERSION_HIGHER_THAN_231}" STREQUAL "1")
+    find_path(TORCH_NPU_INCLUDE_DIRS NAMES torch_npu/csrc/include/ops.h torch_npu/csrc/core/npu/interface/AclInterface.h)
+else()
+    find_path(TORCH_NPU_INCLUDE_DIRS NAMES torch_npu/csrc/include/ops.h)
+endif()
 
 # Library dependencies.
 find_library(TORCH_NPU_LIBRARY NAMES torch_npu npu_profiler)
