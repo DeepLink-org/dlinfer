@@ -86,9 +86,9 @@ pip install dlinfer-ascend
 
 ## LMDeploy
 
-|  |  |华为Atlas 800T A2 | |华为Atlas 300I Duo | |沐曦C500 |寒武纪云端智能加速卡 |
+| | |华为Atlas 800T A2 | |华为Atlas 300I Duo| |沐曦C500|寒武纪云端智能加速卡|
 |---|---|---|---|---|---|---|---|
-|  | bf16(eager) | w4a16(eager) | bf16(graph) | fp16(eager) | fp16(graph) |   |   |
+| |bf16(eager)|w4a16(eager)|bf16(graph)|fp16(eager)|fp16(graph)| | |
 | InternLM3-8B       | √ | √ | √ | X | √ | √ | √ |
 | InternLM2.5-7B/20B | √ | √ | √ | X | √ | √ | √ |
 | InternLM2-7B/20B   | √ | √ | √ | X | √ | √ | √ |
