@@ -5,7 +5,7 @@ import yaml
 from skbuild import setup
 
 
-VERSION = "0.1.7"
+VERSION = "0.1.8"
 
 vendor_dispatch_key_map = {
     "ascend": "PrivateUse1",
