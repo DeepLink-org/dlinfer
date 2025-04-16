@@ -7,6 +7,7 @@ namespace dicp {
 
 class AclNnMulsOperation : public AclNnOperation {
 public:
+    // value might be a SymInt type, we need to get the correct value at runtime.
     explicit AclNnMulsOperation(const std::string& name, const std::string& value, const std::string& dtype);
     ~AclNnMulsOperation() override;
     atb::Status InferShape(const atb::SVector<atb::TensorDesc>& inTensorDescs, atb::SVector<atb::TensorDesc>& outTensorDescs) const override;

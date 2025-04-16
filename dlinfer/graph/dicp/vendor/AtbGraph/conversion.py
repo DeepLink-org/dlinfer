@@ -270,6 +270,8 @@ class AtenToAtbTransformer(SingleOpTransformer):
                     out_dtype = fx_traceback.get_current_meta()["val"].dtype
                     if x.node.meta["val"].dtype != out_dtype:
                         x = self.get_proxy(atb_op.Cast, (x, out_dtype))
+                    # y may be a SymInt type, e.g. {'val': s2, 'from_node': [('arg3_1', 'arg3_1')]}
+                    # In this case, we should call scalar_op.
                     if isinstance(y, torch.fx.Proxy) and not isinstance(
                         y.node.meta["val"], torch.SymInt
                     ):
