@@ -5,6 +5,7 @@ from lmdeploy.pytorch.models.chatglm2 import SelfAttention
 
 from dlinfer.vendor.ascend.utils import SocVersion
 
+
 @staticmethod
 def ascend_chatglm2_fill_rope(states: torch.Tensor, rope: torch.Tensor):
     """fill rope."""
@@ -15,6 +16,7 @@ def ascend_chatglm2_fill_rope(states: torch.Tensor, rope: torch.Tensor):
 
     return states
 
+
 if SocVersion.is_Ascend310P():
     # Layz import for Ascend310P
     import asyncio
@@ -24,10 +26,13 @@ if SocVersion.is_Ascend310P():
     from lmdeploy.pytorch.model_inputs import ModelInputs
     from lmdeploy.pytorch.distributed import get_dist_manager
     from lmdeploy.pytorch.engine.logits_process import SamplingInputs
-    from lmdeploy.pytorch.engine.model_agent import _batch_stopping_criteria, AutoModelAgent
+    from lmdeploy.pytorch.engine.model_agent import (
+        _batch_stopping_criteria,
+        AutoModelAgent,
+    )
     from lmdeploy.pytorch.distributed import DistContext
     from lmdeploy.pytorch.engine.cache_engine import CacheEngine
-    
+
 logger = get_logger("lmdeploy")
 
 
@@ -203,6 +208,7 @@ def build_310P(cls, rank: int = 0, tp: int = 1, dp: int = 1, ccl_backend: str = 
     )
     return context
 
+
 def _allocate_cache_310P(self, num_blocks: int, device: torch.device):
     """
     allocate cache implement.
@@ -214,18 +220,19 @@ def _allocate_cache_310P(self, num_blocks: int, device: torch.device):
     num_layers = self.num_layers
     kv_cache_dtype = self.kv_cache_dtype
 
-    if device != 'cpu':
+    if device != "cpu":
         import torch_npu
+
         key_cache = torch_npu.empty_with_format(
             size=(num_layers, num_blocks, *key_block_shape),
             dtype=kv_cache_dtype,
-            device='npu',
-            acl_format=29, # 29 for acl NZ format
+            device="npu",
+            acl_format=29,  # 29 for acl NZ format
         )
         value_cache = torch_npu.empty_with_format(
             size=(num_layers, num_blocks, *value_block_shape),
             dtype=kv_cache_dtype,
-            device='npu',
+            device="npu",
             acl_format=29,
         )
     else:
@@ -239,7 +246,7 @@ def _allocate_cache_310P(self, num_blocks: int, device: torch.device):
             dtype=kv_cache_dtype,
             device=device,
         )
-        
+
     output = (key_cache, value_cache)
 
     if self.cache_config.quant_policy in (4, 8):
@@ -258,13 +265,14 @@ def _allocate_cache_310P(self, num_blocks: int, device: torch.device):
 
     return output
 
+
 SelfAttention._fill_rope = ascend_chatglm2_fill_rope
 if SocVersion.is_Ascend310P():
     DistContext.build = build_310P
     AutoModelAgent._async_step_background = _async_step_background_310P
     logger.info(
         "Ascend310P: replace _async_step_background by using gloo for broadcast next_token_ids"
-    )    
+    )
     CacheEngine._allocate_cache = _allocate_cache_310P
     logger.info(
         "Ascend310P: replace _allocate_cache by using acl NZ format for kv_cache"
