@@ -1,20 +1,9 @@
 # Copyright (c) 2024, DeepLink. All rights reserved.
-import asyncio
-from typing import Dict
-
 import torch
-import torch.distributed as dist
 
-from lmdeploy.utils import get_logger, logging_timer
 from lmdeploy.pytorch.models.chatglm2 import SelfAttention
-from lmdeploy.pytorch.model_inputs import ModelInputs
-from lmdeploy.pytorch.distributed import get_dist_manager
-from lmdeploy.pytorch.engine.logits_process import SamplingInputs
-from lmdeploy.pytorch.engine.model_agent import _batch_stopping_criteria, AutoModelAgent
-from lmdeploy.pytorch.distributed import DistContext
 
 from dlinfer.vendor.ascend.utils import SocVersion
-
 
 @staticmethod
 def ascend_chatglm2_fill_rope(states: torch.Tensor, rope: torch.Tensor):
@@ -26,7 +15,19 @@ def ascend_chatglm2_fill_rope(states: torch.Tensor, rope: torch.Tensor):
 
     return states
 
-
+if SocVersion.is_Ascend310P():
+    # Layz import for Ascend310P
+    import asyncio
+    from typing import Dict
+    import torch.distributed as dist
+    from lmdeploy.utils import get_logger
+    from lmdeploy.pytorch.model_inputs import ModelInputs
+    from lmdeploy.pytorch.distributed import get_dist_manager
+    from lmdeploy.pytorch.engine.logits_process import SamplingInputs
+    from lmdeploy.pytorch.engine.model_agent import _batch_stopping_criteria, AutoModelAgent
+    from lmdeploy.pytorch.distributed import DistContext
+    from lmdeploy.pytorch.engine.cache_engine import CacheEngine
+    
 logger = get_logger("lmdeploy")
 
 
@@ -44,7 +45,11 @@ async def _async_step_background_310P(
     return_logits: bool,
     output_que: asyncio.Queue,
 ):
-    """asyc forward task."""
+    """
+    asyc forward task.
+    # NOTE: Ascend310P does not support broadcast, so we use need to use gloo for broadcast next_token_ids and then transfer it to npu
+    # This mock for properly broadcasting next_token_ids on Ascend 310P device.
+    """
 
     def __update_inputs(next_token_ids):
         """update inputs."""
@@ -117,7 +122,7 @@ async def _async_step_background_310P(
             stopped = None
 
         if tp > 1 and idx < loop_count - 1:
-            # NOTE: Ascend310P does not support broadcast, so we use need to use gloo for broadcast next_token_ids aand then transfer it to npu
+            # NOTE: Ascend310P does not support broadcast, so we use need to use gloo for broadcast next_token_ids and then transfer it to npu
             tp_cpu_group = dist_ctx.tp_cpu_group
             original_device = next_token_ids.device
             next_token_ids = next_token_ids.cpu()
@@ -147,8 +152,12 @@ async def _async_step_background_310P(
 
 
 @classmethod
-def build(cls, rank: int = 0, tp: int = 1, dp: int = 1, ccl_backend: str = "nccl"):
-    """build dist context."""
+def build_310P(cls, rank: int = 0, tp: int = 1, dp: int = 1, ccl_backend: str = "nccl"):
+    """
+    build dist context.
+    # NOTE: Ascend310P does not support broadcast, so we use need to use gloo for broadcast next_token_ids and then transfer it to npu
+    # We need to inistialize the dist group for gloo backend as tp_cpu_group for next_token_ids broadcast.
+    """
     from datetime import timedelta
 
     timeout = timedelta(days=35600)
@@ -194,11 +203,69 @@ def build(cls, rank: int = 0, tp: int = 1, dp: int = 1, ccl_backend: str = "nccl
     )
     return context
 
+def _allocate_cache_310P(self, num_blocks: int, device: torch.device):
+    """
+    allocate cache implement.
+    # NOTE. Ascend300I duo devices require kv_cache to be acl NZ format.
+    """
+    key_block_shape = self.get_key_block_shape(local=True)
+    value_block_shape = self.get_value_block_shape(local=True)
+
+    num_layers = self.num_layers
+    kv_cache_dtype = self.kv_cache_dtype
+
+    if device != 'cpu':
+        import torch_npu
+        key_cache = torch_npu.empty_with_format(
+            size=(num_layers, num_blocks, *key_block_shape),
+            dtype=kv_cache_dtype,
+            device='npu',
+            acl_format=29, # 29 for acl NZ format
+        )
+        value_cache = torch_npu.empty_with_format(
+            size=(num_layers, num_blocks, *value_block_shape),
+            dtype=kv_cache_dtype,
+            device='npu',
+            acl_format=29,
+        )
+    else:
+        key_cache = torch.empty(
+            size=(num_layers, num_blocks, *key_block_shape),
+            dtype=kv_cache_dtype,
+            device=device,
+        )
+        value_cache = torch.empty(
+            size=(num_layers, num_blocks, *value_block_shape),
+            dtype=kv_cache_dtype,
+            device=device,
+        )
+        
+    output = (key_cache, value_cache)
+
+    if self.cache_config.quant_policy in (4, 8):
+        dtype = self.model_config.dtype
+        key_sz_cache = torch.empty(
+            size=(num_layers, num_blocks, *key_block_shape[:-1], 2),
+            dtype=dtype,
+            device=device,
+        )
+        val_sz_cache = torch.empty(
+            size=(num_layers, num_blocks, *value_block_shape[:-1], 2),
+            dtype=dtype,
+            device=device,
+        )
+        output = output + (key_sz_cache, val_sz_cache)
+
+    return output
 
 SelfAttention._fill_rope = ascend_chatglm2_fill_rope
 if SocVersion.is_Ascend310P():
+    DistContext.build = build_310P
+    AutoModelAgent._async_step_background = _async_step_background_310P
     logger.info(
         "Ascend310P: replace _async_step_background by using gloo for broadcast next_token_ids"
+    )    
+    CacheEngine._allocate_cache = _allocate_cache_310P
+    logger.info(
+        "Ascend310P: replace _allocate_cache by using acl NZ format for kv_cache"
     )
-    DistContext.build = build
-    AutoModelAgent._async_step_background = _async_step_background_310P

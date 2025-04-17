@@ -220,22 +220,6 @@ class AtenToAtbTransformer(SingleOpTransformer):
     ):
         head_size = query.node.meta["val"].shape[-1]
         scale = 1.0 / math.sqrt(head_size) if softmax_scale is None else softmax_scale
-        if SocVersion.is_Ascend910B():
-            ...
-        elif SocVersion.is_Ascend310P():
-            pass
-            # assert head_size == head_size_v
-            # num_blocks, block_size, *_ = key_cache.node.meta["val"]
-            # key_cache = self.get_proxy(
-            #     atb_op.View, (key_cache, (num_blocks, -1, block_size, 16))
-            # )
-            # value_cache = self.get_proxy(
-            #     atb_op.View, (value_cache, (num_blocks, -1, block_size, 16))
-            # )
-        else:
-            raise ValueError(
-                f"dlinfer doesn't support {SocVersion.device_name()} device currently."
-            )
         out = self.get_proxy(
             atb_op.PagedAttention,
             (
@@ -545,22 +529,6 @@ class AtenToAtbTransformer(SingleOpTransformer):
         scale = softmax_scale if softmax_scale else 1.0 / math.sqrt(head_size)
         if query.node.meta["val"].dtype != mask.node.meta["val"].dtype:
             mask = self.get_proxy(atb_op.Cast, (mask, query.node.meta["val"].dtype))
-        if SocVersion.is_Ascend910B():
-            ...
-        elif SocVersion.is_Ascend310P():
-            pass
-            # assert head_size == head_size_v
-            # num_blocks, block_size, *_ = key_cache.node.meta["val"]
-            # key_cache = self.get_proxy(
-            #     atb_op.View, (key_cache, (num_blocks, -1, block_size, 16))
-            # )
-            # value_cache = self.get_proxy(
-            #     atb_op.View, (value_cache, (num_blocks, -1, block_size, 16))
-            # )
-        else:
-            raise ValueError(
-                f"dlinfer doesn't support {SocVersion.device_name()} device currently."
-            )
         out = self.get_proxy(
             atb_op.PagedAttention,
             (
