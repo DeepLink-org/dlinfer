@@ -10,7 +10,7 @@ endif()
 
 # Include directories.
 find_path(CANN_INCLUDE_DIRS
-    NAMES acl/acl.h hccl/hccl.h
+    NAMES acl/acl.h acl/acl_rt.h hccl/hccl.h
     PATHS ${ASCEND_TOOLKIT_HOME}/include
 )
 
@@ -33,6 +33,16 @@ if (OPAPI_LIB)
     list(APPEND CANN_LIBRARY ${OPAPI_LIB})
 else()
     message(FATAL_ERROR "libopapi.so not found")
+endif()
+
+find_library(ASCENDCL_LIB
+    NAMES ascendcl
+    PATHS ${ASCEND_TOOLKIT_HOME}/lib64
+)
+if (ASCENDCL_LIB)
+    list(APPEND CANN_LIBRARY ${ASCENDCL_LIB})
+else()
+    message(FATAL_ERROR "libascendcl.so not found")
 endif()
 
 set(CANN_LIBRARIES ${CANN_LIBRARY})

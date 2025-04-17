@@ -6,9 +6,7 @@ import torch
 from dlinfer.graph.dicp.dynamo_bridge.compile import DeviceCompileJob
 from torch._inductor.codecache import (
     pick_vec_isa,
-    cpp_compile_command,
     write,
-    code_hash,
 )
 from torch._inductor import exc
 
