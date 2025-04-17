@@ -476,6 +476,12 @@ class AtenToAtbTransformer(SingleOpTransformer):
         scale = softmax_scale if softmax_scale else 1.0 / math.sqrt(head_size)
         if query.node.meta["val"].dtype != mask.node.meta["val"].dtype:
             mask = self.get_proxy(atb_op.Cast, (mask, query.node.meta["val"].dtype))
+        # NOTE: Ascend310P need to convert mask to acl nz format
+        if SocVersion.is_Ascend310P():
+            from .opset_convert import NEED_MASK_NZ
+            if NEED_MASK_NZ:
+                NEED_MASK_NZ = False
+                mask = self.get_proxy(atb_op.Transdata, (mask, 2))
         out = self.get_proxy(
             atb_op.SelfAttentionPAEncoder,
             (
@@ -483,11 +489,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
                 key,
                 value,
                 kv_seq_len,
-                (
-                    mask
-                    if SocVersion.is_Ascend910B()
-                    else self.get_proxy(atb_op.Transdata, (mask, 2))
-                ),
+                mask,
                 num_q_heads,
                 num_kv_heads,
                 scale,
@@ -529,6 +531,12 @@ class AtenToAtbTransformer(SingleOpTransformer):
         scale = softmax_scale if softmax_scale else 1.0 / math.sqrt(head_size)
         if query.node.meta["val"].dtype != mask.node.meta["val"].dtype:
             mask = self.get_proxy(atb_op.Cast, (mask, query.node.meta["val"].dtype))
+        # NOTE: Ascend310P need to convert mask to acl nz format
+        if SocVersion.is_Ascend310P():
+            from .opset_convert import NEED_MASK_NZ
+            if NEED_MASK_NZ:
+                NEED_MASK_NZ = False
+                mask = self.get_proxy(atb_op.Transdata, (mask, 2))            
         out = self.get_proxy(
             atb_op.PagedAttention,
             (
@@ -537,11 +545,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
                 value_cache,
                 block_table,
                 kv_seq_len,
-                (
-                    mask
-                    if SocVersion.is_Ascend910B()
-                    else self.get_proxy(atb_op.Transdata, (mask, 2))
-                ),
+                mask,
                 num_q_heads,
                 num_kv_heads,
                 scale,
