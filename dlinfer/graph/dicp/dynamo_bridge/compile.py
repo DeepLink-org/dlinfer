@@ -1,5 +1,11 @@
 from abc import ABCMeta, abstractmethod
-from torch._inductor.codecache import AsyncCompile
+
+from dlinfer.graph.dicp.dynamo_bridge.torch_version import is_torch_251_or_higher
+
+if is_torch_251_or_higher:
+    from torch._inductor.async_compile import AsyncCompile
+else:
+    from torch._inductor.codecache import AsyncCompile
 
 
 class DeviceCompileJob:

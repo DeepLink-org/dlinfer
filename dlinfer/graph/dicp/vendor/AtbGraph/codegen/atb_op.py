@@ -202,7 +202,7 @@ class AtbOverrides:
         op = Operation(name, "AclNnMulsOperation")
         param = infer_param.MulsParam()
         param.name = name
-        param.value = float(y)
+        param.value = str(y)
         param.dtype = dtype
 
         op.set_input([x])
@@ -279,7 +279,7 @@ class AtbOverrides:
         op = Operation(name, "AclNnGtScalarOperation")
         param = infer_param.GtScalarParam()
         param.name = name
-        param.value = float(y)
+        param.value = str(y)
         param.dtype = dtype
 
         op.set_input([x])

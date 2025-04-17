@@ -16,6 +16,13 @@ execute_process(
     OUTPUT_VARIABLE _GLIBCXX_USE_CXX11_ABI
 )
 
+execute_process(
+    COMMAND python -c "import torch;  from packaging import version; \
+    torch_version = version.parse(torch.__version__).base_version; \
+    print('1' if version.parse(torch_version) > version.parse('2.3.1') else '0', end='')"
+    OUTPUT_VARIABLE Torch_npu_VERSION_HIGHER_THAN_231
+)
+
 find_package(Torch REQUIRED)
 find_package(Torch_npu REQUIRED)
 find_package(CANNToolkit REQUIRED)

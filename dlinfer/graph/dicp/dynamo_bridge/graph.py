@@ -126,7 +126,6 @@ class GraphTransformer:
             self.gm, self.cpu_gm, self.folder, self.graph_key
         ).codegen()
 
-    @dynamo_timed
     def compile_to_module(self):
         from torch._inductor.codecache import PyCodeCache
 

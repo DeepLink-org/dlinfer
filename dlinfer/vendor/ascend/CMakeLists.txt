@@ -11,6 +11,10 @@ set(CSRC_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/csrc/torch_npu_utils.cpp
 )
 
+if("${Torch_npu_VERSION_HIGHER_THAN_231}" STREQUAL "1")
+    list(APPEND CSRC_FILES ${CMAKE_CURRENT_SOURCE_DIR}/csrc/torch_npu_symbol_fix.cpp)
+endif()
+
 add_library(
     ${PROJECT_NAME} SHARED
     ${CSRC_FILES}

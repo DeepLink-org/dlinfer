@@ -205,8 +205,18 @@ def compile_fx_210(
 
     graph_id = next(_graph_counter)
 
-    @dynamo_utils.dynamo_timed
-    def fw_compiler_base(model: torch.fx.GraphModule, example_inputs, is_inference):
+    def fw_compiler_base(
+        model: torch.fx.GraphModule,
+        example_inputs: List[torch.Tensor],
+        is_inference: bool,
+    ):
+        return _fw_compiler_base(model, example_inputs, is_inference)
+
+    def _fw_compiler_base(
+        model: torch.fx.GraphModule,
+        example_inputs: List[torch.Tensor],
+        is_inference: bool,
+    ):
         if is_inference:
             # partition_fn won't be called
             # joint_graph_passes(model)
@@ -235,7 +245,6 @@ def compile_fx_210(
     # hit backwards compile
     dynamic_shapes = dynamo_config.dynamic_shapes
 
-    @dynamo_utils.dynamo_timed
     def bw_compiler(model: torch.fx.GraphModule, example_inputs):
         with dynamo_config.patch(dynamic_shapes=dynamic_shapes):
             fixed = count_tangents(model)

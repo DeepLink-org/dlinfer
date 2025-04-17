@@ -33,6 +33,28 @@ public:
 
     DICPScalar(float value, std::string_view dtype);
 
+    void update_value(const std::string& val) {
+        switch (currentType) {
+            case ValueType::INT64:
+                value.int64Value = std::stoll(val);
+                break;
+            case ValueType::INT32:
+                value.int32Value = std::stoi(val);
+                break;
+            case ValueType::FLOAT:
+                value.floatValue = std::stof(val);
+                break;
+            case ValueType::FLOAT16:
+                value.halfValue = half_float::half(std::stof(val));
+                break;
+            case ValueType::BF16:
+                value.bf16Value = op::bfloat16(std::stof(val));
+                break;
+            default:
+                throw std::invalid_argument("Unsupported type for string conversion");
+        }
+    }
+
     bool isInt64() const;
     bool isInt32() const;
     bool isFloat() const;

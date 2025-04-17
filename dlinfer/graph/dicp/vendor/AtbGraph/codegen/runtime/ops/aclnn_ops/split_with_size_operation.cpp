@@ -33,6 +33,7 @@ atb::Status AclNnSplitWithSizeOperation::InferShape(const atb::SVector<atb::Tens
 
     const auto& inputDims = inputTensorDesc.shape.dims;
 
+    int64_t splitDim = splitDim_ >= 0 ? splitDim_ : inputDimNum + splitDim_;
     for (size_t i = 0; i < splitSizes_.size(); ++i) {
         auto& outputTensorDesc = outTensorDescs.at(i);
         outputTensorDesc.format = inputFormat;
@@ -41,7 +42,7 @@ atb::Status AclNnSplitWithSizeOperation::InferShape(const atb::SVector<atb::Tens
         auto& outputDims = outputTensorDesc.shape.dims;
 
         for (size_t j = 0; j < inputDimNum; ++j) {
-            outputDims[j] = (j != splitDim_) ? inputDims[j] : splitSizes_[i];
+            outputDims[j] = (j != splitDim) ? inputDims[j] : splitSizes_[i];
         }
     }
 

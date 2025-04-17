@@ -252,7 +252,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
             ),
             (torch.ops.aten.mul.Tensor, "mul"): (
                 atb_op.Mul,
-                atb_op.Muls,
+                atb_op.AclNnMuls,
                 atb_op.AclNnMul,
             ),
             (torch.ops.aten.div.Tensor, "div"): (
@@ -270,7 +270,11 @@ class AtenToAtbTransformer(SingleOpTransformer):
                     out_dtype = fx_traceback.get_current_meta()["val"].dtype
                     if x.node.meta["val"].dtype != out_dtype:
                         x = self.get_proxy(atb_op.Cast, (x, out_dtype))
-                    if isinstance(y, torch.fx.Proxy):
+                    # y may be a SymInt type, e.g. {'val': s2, 'from_node': [('arg3_1', 'arg3_1')]}
+                    # In this case, we should call scalar_op.
+                    if isinstance(y, torch.fx.Proxy) and not isinstance(
+                        y.node.meta["val"], torch.SymInt
+                    ):
                         if y.node.meta["val"].dtype != out_dtype:
                             y = self.get_proxy(atb_op.Cast, (y, out_dtype))
                         if out_dtype in atb_supported_dtype:

@@ -149,6 +149,14 @@ class Muls(Operator):
         return a * b
 
 
+class AclNnMuls(Operator):
+    def __init__(self):
+        super().__init__("AclNnMuls")
+
+    def infer_result(self, a, b, dtype="FLOAT"):
+        return a * b
+
+
 class PowTensorScalar(Operator):
     def __init__(self):
         super().__init__("PowTensorScalar")
