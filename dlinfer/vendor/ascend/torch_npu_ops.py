@@ -117,39 +117,21 @@ def prefill_attention(
             actual_seq_kvlen=seq_kvlen_list,
         )[0]
     elif SocVersion.is_Ascend310P():
-        assert num_q_heads == num_kv_heads, f"Ascend310P only support mha models."
-        seq_qlen_list = (
-            [max_q_seq_len * (i + 1) for i in range(query.shape[0])]
-            if q_seq_len is None
-            else q_seq_len.tolist()
+        # Used for Qwen2.5-VL model vision block
+        import torch_npu
+
+        query = query.unsqueeze(0)
+        key = key.unsqueeze(0)
+        value = value.unsqueeze(0)
+        attn_output[:] = torch_npu.npu_prompt_flash_attention(
+            query,
+            key,
+            value,
+            num_heads=num_q_heads,
+            num_key_value_heads=num_kv_heads,
+            input_layout="BSND",
+            scale_value=scale_value,
         )
-        batch = len(seq_qlen_list)
-        start = 0
-        for i in range(batch):
-            end = start + seq_qlen_list[i]
-            single_seqlen = int(seq_qlen_list[i])
-            single_q = (
-                query[start:end].view(single_seqlen, num_q_heads, -1).transpose(0, 1)
-            )
-            single_k = (
-                key[start:end].view(single_seqlen, num_kv_heads, -1).transpose(0, 1)
-            )
-            single_v = (
-                value[start:end].view(single_seqlen, num_kv_heads, -1).transpose(0, 1)
-            )
-            single_out = attn_output[start:end, :].view(single_seqlen, num_q_heads, -1)
-            start = end
-            attn_weights = (
-                torch.matmul(single_q, single_k.transpose(-2, -1)) * scale_value
-            )
-            if len(attn_mask) > 0:
-                attn_weights += attn_mask[i].unsqueeze(0)
-            attn_probs = torch.softmax(attn_weights, dim=-1, dtype=torch.float32).to(
-                query.dtype
-            )
-            single_out[:] = (
-                torch.matmul(attn_probs, single_v).transpose(0, 1).contiguous()
-            )
     else:
         raise ValueError(
             f"dlinfer doesn't support {SocVersion.device_name()} device currently."
@@ -190,20 +172,8 @@ def fill_kv_cache(
 
     key_cache_reshaped = key_cache.view(block_total, head, dim)
     value_cache_reshaped = value_cache.view(block_total, head, dim)
-    if SocVersion.is_Ascend910B():
-        torch.ops.npu.npu_scatter_nd_update_(key_cache_reshaped, kv_indices, key)
-        torch.ops.npu.npu_scatter_nd_update_(value_cache_reshaped, kv_indices, value)
-    elif SocVersion.is_Ascend310P():
-        key_cache_reshaped[:] = torch.ops.npu.npu_scatter_nd_update(
-            key_cache_reshaped, kv_indices, key
-        )
-        value_cache_reshaped[:] = torch.ops.npu.npu_scatter_nd_update(
-            value_cache_reshaped, kv_indices, value
-        )
-    else:
-        raise ValueError(
-            f"dlinfer doesn't support {SocVersion.device_name()} device currently."
-        )
+    torch.ops.npu.npu_scatter_nd_update_(key_cache_reshaped, kv_indices, key)
+    torch.ops.npu.npu_scatter_nd_update_(value_cache_reshaped, kv_indices, value)
     return key_cache, value_cache
 
 

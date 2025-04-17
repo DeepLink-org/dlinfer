@@ -86,22 +86,22 @@ pip install dlinfer-ascend
 
 ## LMDeploy
 
-| | |华为Atlas 800T A2 | |华为Atlas 300I Duo| |沐曦C500|寒武纪云端智能加速卡|
-|---|---|---|---|---|---|---|---|
-| |bf16(eager)|w4a16(eager)|bf16(graph)|fp16(eager)|fp16(graph)| | |
-| InternLM3-8B       | √ | √ | √ | X | √ | √ | √ |
-| InternLM2.5-7B/20B | √ | √ | √ | X | √ | √ | √ |
-| InternLM2-7B/20B   | √ | √ | √ | X | √ | √ | √ |
-| InternVL2-2B       | √ | √ | √ | X | √ | √ | √ |
-| InternVL1-5        | √ | √ | - | - | - | √ | - |
-| Llama3(.1)-8B      | √ | √ | √ | X | √ | √ | √ |
-| Mixtral8x7B        | √ | X | √ | X | - | √ | √ |
-| Qwen2(.5)-7B       | √ | √ | √ | X | √ | √ | √ |
-| Qwen2-57B-A14B     | √ | √ | - | X | - | √ | - |
-| Qwen2(.5)VL-7B     | √ | √ | √ | X | √ | √ | √ |
-| CogVLM             | √ | X | - | - | - | √ | - |
-| CogVLM2            | √ | X | - | - | - | √ | - |
-| glm-4v-9b          | √ | - | - | - | - | - | - |
+| | |华为Atlas 800T A2 | |华为Atlas 300I Duo|沐曦C500|寒武纪云端智能加速卡|
+|---|---|---|---|---|---|---|
+| |bf16(eager)|w4a16(eager)|bf16(graph)|fp16(graph)| | |
+| InternLM3-8B       | √ | √ | √ | √ | √ | √ |
+| InternLM2.5-7B/20B | √ | √ | √ | √ | √ | √ |
+| InternLM2-7B/20B   | √ | √ | √ | √ | √ | √ |
+| InternVL2-2B       | √ | √ | √ | √ | √ | √ |
+| InternVL1-5        | √ | √ | - | - | √ | - |
+| Llama3(.1)-8B      | √ | √ | √ | √ | √ | √ |
+| Mixtral8x7B        | √ | X | √ | - | √ | √ |
+| Qwen2(.5)-7B       | √ | √ | √ | √ | √ | √ |
+| Qwen2-57B-A14B     | √ | √ | - | - | √ | - |
+| Qwen2(.5)VL-7B     | √ | √ | √ | √ | √ | √ |
+| CogVLM             | √ | X | - | - | √ | - |
+| CogVLM2            | √ | X | - | - | √ | - |
+| glm-4v-9b          | √ | - | - | - | - | - |
 
 ‘√’代表测试通过，‘X’代表不支持，‘-’代表未测试
 
