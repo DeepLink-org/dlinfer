@@ -118,12 +118,10 @@ def prefill_attention(
         )[0]
     elif SocVersion.is_Ascend310P():
         # Used for Qwen2.5-VL model vision block
-        import torch_npu
-
         query = query.unsqueeze(0)
         key = key.unsqueeze(0)
         value = value.unsqueeze(0)
-        attn_output[:] = torch_npu.npu_prompt_flash_attention(
+        attn_output[:] = torch.ops.npu.npu_prompt_flash_attention(
             query,
             key,
             value,
