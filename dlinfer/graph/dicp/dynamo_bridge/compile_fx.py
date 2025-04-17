@@ -66,7 +66,6 @@ def compile_fx_inner(
     is_backward=False,
     graph_id=None,
     backend=None,
-    is_inference=None,
 ):
     if dynamo_utils.count_calls(gm.graph) == 0:
         return make_boxed_func(gm.forward)
