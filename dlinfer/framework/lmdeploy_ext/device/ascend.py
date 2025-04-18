@@ -268,12 +268,8 @@ def _allocate_cache_310P(self, num_blocks: int, device: torch.device):
 
 SelfAttention._fill_rope = ascend_chatglm2_fill_rope
 if SocVersion.is_Ascend310P():
+    # Ascend310P dose't support broadcast for now, so we need to use gloo for broadcast next_token_ids and then transfer it to npu
     DistContext.build = build_310P
     AutoModelAgent._async_step_background = _async_step_background_310P
-    logger.info(
-        "Ascend310P: replace _async_step_background by using gloo for broadcast next_token_ids"
-    )
+    # Ascend310P requires kv_cache to be acl NZ format. So allocate gpu cache in NZ format.
     CacheEngine._allocate_cache = _allocate_cache_310P
-    logger.info(
-        "Ascend310P: replace _allocate_cache by using acl NZ format for kv_cache"
-    )
