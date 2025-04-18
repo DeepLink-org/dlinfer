@@ -25,6 +25,15 @@ if is_torch_210_or_higher:
         torch_patterns_cls_list_3,
     )
 
+# This is a workaround for Ascend310P device since it need mask to be NZ format
+# Global cache for NZ mask, just Transdata once at prefill stage
+NZ_MASK = None
+
+
+def set_nz_mask(value):
+    global NZ_MASK
+    NZ_MASK = value
+
 
 @contextmanager
 def preserve_meta_val():
@@ -51,6 +60,8 @@ def preserve_meta_val():
 def atbgraph_opset_convert(
     gm: torch.fx.GraphModule,
 ):
+    # reset nz mask to None each time a new graph is converted
+    set_nz_mask(None)
     with preserve_meta_val():
         gm = ViewSymIntTransformer(gm).transform()
         gm.graph.eliminate_dead_code()
