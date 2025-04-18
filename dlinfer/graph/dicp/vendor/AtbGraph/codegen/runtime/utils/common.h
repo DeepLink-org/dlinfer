@@ -70,5 +70,6 @@ std::string vectorToString(const std::vector<T>& vec, const std::string& delimit
 }
 
 std::string atbDimsToString(const atb::Dims& d);
+aclDataType get_acl_dtype(const std::string& dtype);
 
 }  // namespace dicp
