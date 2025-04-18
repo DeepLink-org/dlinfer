@@ -479,11 +479,12 @@ class AtenToAtbTransformer(SingleOpTransformer):
         # NOTE: Ascend310P need to convert mask to acl nz format
         if SocVersion.is_Ascend310P():
             from .opset_convert import NZ_MASK, set_nz_mask
+
             if NZ_MASK is None:
                 mask = self.get_proxy(atb_op.Transdata, (mask, 2))
                 set_nz_mask(mask)
             else:
-                mask = NZ_MASK                  
+                mask = NZ_MASK
         out = self.get_proxy(
             atb_op.SelfAttentionPAEncoder,
             (
@@ -536,11 +537,12 @@ class AtenToAtbTransformer(SingleOpTransformer):
         # NOTE: Ascend310P need to convert mask to acl nz format
         if SocVersion.is_Ascend310P():
             from .opset_convert import NZ_MASK, set_nz_mask
+
             if NZ_MASK is None:
                 mask = self.get_proxy(atb_op.Transdata, (mask, 2))
                 set_nz_mask(mask)
             else:
-                mask = NZ_MASK    
+                mask = NZ_MASK
         out = self.get_proxy(
             atb_op.PagedAttention,
             (

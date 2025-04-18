@@ -29,6 +29,7 @@ if is_torch_210_or_higher:
 # Global cache for NZ mask, just Transdata once at prefill stage
 NZ_MASK = None
 
+
 def set_nz_mask(value):
     global NZ_MASK
     NZ_MASK = value
