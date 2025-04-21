@@ -66,7 +66,11 @@ class AtbOverrides:
         # HCCL should be used.
         use_lccl = os.environ.get("DLINFER_ASCEND_USE_LCCL", "1")
         rank_table_file = os.environ.get("ASCEND_RANK_TABLE_FILE_PATH", None)
-        if use_lccl == "1" and rank_table_file is None and SocVersion.is_Ascend910B():
+        if (
+            use_lccl == "1"
+            and rank_table_file is None
+            and not SocVersion.is_Ascend310P()
+        ):
             param.backend = "lccl"
         else:
             param.backend = "hccl"
@@ -97,7 +101,11 @@ class AtbOverrides:
         # HCCL should be used.
         use_lccl = os.environ.get("DLINFER_ASCEND_USE_LCCL", "1")
         rank_table_file = os.environ.get("ASCEND_RANK_TABLE_FILE_PATH", None)
-        if use_lccl == "1" and rank_table_file is None and SocVersion.is_Ascend910B():
+        if (
+            use_lccl == "1"
+            and rank_table_file is None
+            and not SocVersion.is_Ascend310P()
+        ):
             param.backend = "lccl"
         else:
             param.backend = "hccl"
