@@ -47,6 +47,8 @@ class ActivationType(IntEnum):
     ACTIVATION_LOG = auto()
     ACTIVATION_SWIGLU_FORWARD = auto()
     ACTIVATION_SWIGLU_BACKWARD = auto()
+    ACTIVATION_SIGMOID = auto()
+    ACTIVATION_FASTER_GELU_FORWARD = auto()
     ACTIVATION_MAX = auto()
 
 
@@ -512,12 +514,13 @@ class AllReduceParam:
     rankTableFile: str = ""
     outDataType: AclDataType = AclDataType.ACL_DT_UNDEFINED
     commMode: CommMode = CommMode.COMM_MULTI_PROCESS
-    commDomain = ""
+    commDomain: str = ""
 
 
 @dataclass
 class SortParam:
     num: int = 0
+    dim: int = 0
 
 
 @dataclass
@@ -693,6 +696,37 @@ class NewEmptyParam:
 class AclNnQuantMatmulParam:
     name: str = ""
     hasBias: bool = False
+
+
+@dataclass
+class AclNnScatterValueParam:
+    name: str = ""
+    dim: int = 0
+    value: float = 0
+    dtype: str = "FLOAT"
+    reduce: int = 0
+
+
+@dataclass
+class AclNnInplaceMaskedFillScalarParam:
+    name: str = ""
+    value: float = 0
+    dtype: str = "FLOAT"
+
+
+@dataclass
+class AclNnMaskedFillScalarParam:
+    name: str = ""
+    value: float = 0
+    dtype: str = "FLOAT"
+
+
+@dataclass
+class AclNnReduceSumParam:
+    name: str = ""
+    dims: list[int] = field(default_factory=list)
+    keepDim: bool = False
+    dtype: str = "FLOAT"
 
 
 def custom_asdict_factory(data):

@@ -263,7 +263,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
             ),
             (torch.ops.aten.mul.Tensor, "mul"): (
                 atb_op.Mul,
-                atb_op.Muls,
+                atb_op.AclNnMuls,
                 atb_op.AclNnMul,
             ),
             (torch.ops.aten.div.Tensor, "div"): (
@@ -281,7 +281,11 @@ class AtenToAtbTransformer(SingleOpTransformer):
                     out_dtype = fx_traceback.get_current_meta()["val"].dtype
                     if x.node.meta["val"].dtype != out_dtype:
                         x = self.get_proxy(atb_op.Cast, (x, out_dtype))
-                    if isinstance(y, torch.fx.Proxy):
+                    # y may be a SymInt type, e.g. {'val': s2, 'from_node': [('arg3_1', 'arg3_1')]}
+                    # In this case, we should call scalar_op.
+                    if isinstance(y, torch.fx.Proxy) and not isinstance(
+                        y.node.meta["val"], torch.SymInt
+                    ):
                         if y.node.meta["val"].dtype != out_dtype:
                             y = self.get_proxy(atb_op.Cast, (y, out_dtype))
                         if out_dtype in atb_supported_dtype:
@@ -712,11 +716,20 @@ class AtenToAtbTransformer(SingleOpTransformer):
     @register_conversion(torch.ops.aten.expand.default)
     def aten_expand_default(self, x, size):
         x_shape = x.node.meta["val"].shape
-        size = [
-            x_shape[i] if size[i] == -1 and isinstance(x_shape[i], int) else size[i]
-            for i in range(len(size))
-        ]
-        return self.get_proxy(atb_op.Expand, (x, size))
+
+        new_size = []
+        for i, item in enumerate(size):
+            if isinstance(item, torch.fx.Proxy):
+                if isinstance(x_shape[i], int):
+                    new_size.append(x_shape[i])
+                else:
+                    assert item.node.meta["val"] == x_shape[i]
+                    new_size.append(-1)
+            elif item == -1:
+                new_size.append(x_shape[i] if isinstance(x_shape[i], int) else -1)
+            else:
+                new_size.append(item)
+        return self.get_proxy(atb_op.Expand, (x, new_size))
 
     @register_conversion(torch.ops.aten.gather.default)
     def aten_gather_default(self, x, dim, indices):
@@ -731,9 +744,24 @@ class AtenToAtbTransformer(SingleOpTransformer):
         return self.get_proxy(atb_op.ScalarTensor, (float(x), dtype))
 
     @register_conversion(torch.ops.aten.sum.dim_IntList)
-    def aten_reduce_sum(self, x, dim):
-        dim = get_reduce_dim(x, dim)
-        return self.get_proxy(atb_op.ReduceSum, (x, dim))
+    def aten_reduce_sum(self, x, dim, keep_dim=False, dtype=None):
+        if keep_dim == False and dtype is None:
+            dim = get_reduce_dim(x, dim)
+            return self.get_proxy(atb_op.ReduceSum, (x, dim))
+        if dtype is None:
+            x_dtype = x.node.meta["val"].dtype
+            ascend_dtype = get_ascend_dtype(x_dtype)
+        else:
+            ascend_dtype = get_ascend_dtype(dtype)
+        x_shape = x.node.meta["val"].shape
+        new_dim = []
+        for i in dim:
+            if i < 0:
+                i = len(x_shape) + i
+            new_dim.append(i)
+        return self.get_proxy(
+            atb_op.AclNnReduceSum, (x, new_dim, keep_dim, dtype, ascend_dtype)
+        )
 
     @register_conversion(torch.ops.aten.amax.default)
     def aten_reduce_max(self, x, dim):
@@ -784,6 +812,40 @@ class AtenToAtbTransformer(SingleOpTransformer):
             atb_op.AclNnQuantMatmul,
             (x, y, rms_scale, linear_scale, out_type, quant_dtype, bias),
         )
+
+    @register_conversion(torch.ops.aten.empty_like.default)
+    def aten_empty_like_default(self, x, pin_memory=False):
+        return self.get_proxy(atb_op.ZerosLike, (x,))
+
+    @register_conversion(torch.ops.aten.scatter.value)
+    def aten_scatter_value(self, x, dim, index, value):
+        dtype = fx_traceback.get_current_meta()["val"].dtype
+        return self.get_proxy(
+            atb_op.AclNnScatterValue, (x, dim, index, value, get_ascend_dtype(dtype), 0)
+        )
+
+    @register_conversion(torch.ops.aten.bitwise_not.default)
+    def aten_bitwise_not(self, x):
+        return self.get_proxy(atb_op.AclNnBitwiseNot, (x,))
+
+    @register_conversion(torch.ops.aten.sigmoid.default)
+    def aten_sigmoid(self, x):
+        return self.get_proxy(atb_op.Sigmoid, (x,))
+
+    @register_conversion(torch.ops.aten.masked_fill.Scalar)
+    def aten_masked_fill_scalar(self, x, mask, value):
+        x_dtype = x.node.meta["val"].dtype
+        ascend_dtype = get_ascend_dtype(x_dtype)
+        out = self.get_proxy(
+            atb_op.AclNnMaskedFillScalar, (x, mask, value, ascend_dtype)
+        )
+        return out
+
+    @register_conversion(torch.ops.aten.topk.default)
+    def aten_topk(self, x, k, dim=-1, largest=True, sorted=True):
+        assert dim == -1
+        assert largest == True
+        return self.get_proxy(atb_op.Sort, (x, k))
 
 
 class ViewSymIntTransformer(torch.fx.Transformer):

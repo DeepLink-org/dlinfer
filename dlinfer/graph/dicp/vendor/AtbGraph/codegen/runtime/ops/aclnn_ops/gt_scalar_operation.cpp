@@ -1,6 +1,9 @@
 #include "gt_scalar_operation.h"
 
+#include <cstdint>
+
 #include "aclnnop/aclnn_gt_scalar.h"
+#include "utils/global_dict.h"
 #include "utils/log.h"
 #include "utils/misc.h"
 
@@ -8,8 +11,15 @@ namespace dicp {
 
 const int NUM1 = 1;
 
-AclNnGtScalarOperation::AclNnGtScalarOperation(const std::string& name, float value, const std::string& dtype) : AclNnOperation(name) {
-    other_ = DICPScalar(value, dtype);
+AclNnGtScalarOperation::AclNnGtScalarOperation(const std::string& name, const std::string& value, const std::string& dtype)
+    : AclNnOperation(name), value_(value) {
+    if (!value_.empty() && !std::isdigit(value_[0])) {
+        need_update_value_ = true;
+        other_ = DICPScalar(0.0f, dtype);
+    } else {
+        need_update_value_ = false;
+        other_ = DICPScalar(std::stof(value_), dtype);
+    }
     aclOther_ = aclCreateScalar(other_.getValuePtr(), other_.getDataType());
 }
 
@@ -38,6 +48,16 @@ uint32_t AclNnGtScalarOperation::GetOutputNum() const { return NUM1; }
 int AclNnGtScalarOperation::SetAclNnWorkspaceExecutor(uint64_t& workspaceSize) {
     DICP_LOG(INFO) << opName_ << " aclnnGtScalarGetWorkspaceSize start";
 
+    if (need_update_value_) {
+        auto& global_dict = GetGlobalDictData();
+        auto it = global_dict.find(value_);
+        if (it != global_dict.end()) {
+            other_.update_value(std::to_string(it->second));
+        } else {
+            DICP_LOG(ERROR) << "Cannot find key " << it->second << " in global_dict";
+        }
+    }
+
     int ret = aclnnGtScalarGetWorkspaceSize(aclInTensors_.at(0).tensor, aclOther_, aclOutTensors_.at(0).tensor, &workspaceSize, &aclExecutor_);
     DICP_LOG(INFO) << opName_ << " aclnnGtScalarGetWorkspaceSize end, ret:" << ret << ", workspaceSize:" << workspaceSize << ", aclExecutor:" << aclExecutor_;
 
@@ -53,13 +73,13 @@ int AclNnGtScalarOperation::CallAclExecute(uint8_t* workspace, uint64_t workspac
 
 atb::Operation* AclNnGtScalarOperationCreate(const nlohmann::json& paramJson) {
     std::string opName;
-    float value;
+    std::string value;
     std::string dtype;
     if (paramJson.contains("name")) {
         opName = paramJson["name"].get<std::string>();
     }
     if (paramJson.contains("value")) {
-        value = paramJson["value"].get<float>();
+        value = paramJson["value"].get<std::string>();
     }
     if (paramJson.contains("dtype")) {
         dtype = paramJson["dtype"].get<std::string>();

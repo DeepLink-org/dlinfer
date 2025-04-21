@@ -60,21 +60,19 @@ class AtbOverrides:
         param.parallelType = infer_param.ParallelType.LINEAR_ALL_REDUCE
         param.commMode = infer_param.CommMode.COMM_MULTI_PROCESS
 
+        # LCCL has issues with multiple communication domains. By default,
+        # in single-machine multi-card scenarios, LCCL is enabled.
+        # If precision issues occur or multiple communication domains are required,
+        # HCCL should be used.
+        use_lccl = os.environ.get("DLINFER_ASCEND_USE_LCCL", "1")
         rank_table_file = os.environ.get("ASCEND_RANK_TABLE_FILE_PATH", None)
-        if rank_table_file:
-            param.backend = "hccl"
-            param.rankTableFile = rank_table_file
-            if group and group != "":
-                param.commDomain = group
+        if use_lccl == "1" and rank_table_file is None and SocVersion.is_Ascend910B():
+            param.backend = "lccl"
         else:
-            if SocVersion.is_Ascend910B():
-                param.backend = "lccl"
-            elif SocVersion.is_Ascend310P():
-                param.backend = "hccl"
-            else:
-                raise RuntimeError(
-                    f"Unsupported device name: {SocVersion.device_name()}"
-                )
+            param.backend = "hccl"
+            param.commDomain = group if group is not None else ""
+            if rank_table_file is not None:
+                param.rankTableFile = rank_table_file
 
         if bias:
             op.set_input([x, weight, bias])
@@ -93,21 +91,19 @@ class AtbOverrides:
         param.allReduceType = reduce_type
         param.commMode = infer_param.CommMode.COMM_MULTI_PROCESS
 
+        # LCCL has issues with multiple communication domains. By default,
+        # in single-machine multi-card scenarios, LCCL is enabled.
+        # If precision issues occur or multiple communication domains are required,
+        # HCCL should be used.
+        use_lccl = os.environ.get("DLINFER_ASCEND_USE_LCCL", "1")
         rank_table_file = os.environ.get("ASCEND_RANK_TABLE_FILE_PATH", None)
-        if rank_table_file is not None:
-            param.backend = "hccl"
-            param.rankTableFile = rank_table_file
-            if group and group != "":
-                param.commDomain = group
+        if use_lccl == "1" and rank_table_file is None and SocVersion.is_Ascend910B():
+            param.backend = "lccl"
         else:
-            if SocVersion.is_Ascend910B():
-                param.backend = "lccl"
-            elif SocVersion.is_Ascend310P():
-                param.backend = "hccl"
-            else:
-                raise RuntimeError(
-                    f"Unsupported device name: {SocVersion.device_name()}"
-                )
+            param.backend = "hccl"
+            param.commDomain = group if group is not None else ""
+            if rank_table_file is not None:
+                param.rankTableFile = rank_table_file
 
         op.set_input([x])
         op.set_param(param)
@@ -217,7 +213,7 @@ class AtbOverrides:
         op = Operation(name, "AclNnMulsOperation")
         param = infer_param.MulsParam()
         param.name = name
-        param.value = float(y)
+        param.value = str(y)
         param.dtype = dtype
 
         op.set_input([x])
@@ -294,7 +290,7 @@ class AtbOverrides:
         op = Operation(name, "AclNnGtScalarOperation")
         param = infer_param.GtScalarParam()
         param.name = name
-        param.value = float(y)
+        param.value = str(y)
         param.dtype = dtype
 
         op.set_input([x])
@@ -667,9 +663,11 @@ class AtbOverrides:
         return op
 
     def Sort(name, x, topk):
-        op = Operation(name, "AclNnTopkOperation")
+        # op = Operation(name, "AclNnTopkOperation")
+        op = Operation(name, "SortOperation")
         param = infer_param.SortParam()
         param.num = topk
+        param.dim = -1
 
         op.set_input([x])
         op.set_param(param)
@@ -1166,6 +1164,73 @@ class AtbOverrides:
         else:
             param.hasBias = True
             op.set_input([x, y, linear_scale, rms_scale, bias])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def AclNnScatterValue(name, x, dim, index, value, dtype, reduce):
+        op = Operation(name, "AclNnScatterValueOperation")
+        param = infer_param.AclNnScatterValueParam()
+        param.name = name
+        param.dim = dim
+        param.value = value
+        param.dtype = dtype
+        param.reduce = reduce
+        op.set_input([x, index])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def AclNnBitwiseNot(name, x):
+        op = Operation(name, "AclNnBitwiseNotOperation")
+        param = infer_param.OnlyNameParam()
+        param.name = name
+        op.set_input([x])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def Sigmoid(name, x):
+        op = Operation(name, "ActivationOperation")
+        param = infer_param.ActivationParam()
+        param.activationType = infer_param.ActivationType.ACTIVATION_SIGMOID
+        op.set_param(param)
+        op.set_input([x])
+        op.set_output([name])
+        return op
+
+    def AclNnInplaceMaskedFillScalar(name, x, mask, value, dtype):
+        op = Operation(name, "AclNnInplaceMaskedFillScalarOperation")
+        param = infer_param.AclNnInplaceMaskedFillScalarParam()
+        param.name = name
+        param.value = value
+        param.dtype = dtype
+        op.set_input([x, mask])
+        op.set_param(param)
+        op.set_output([name])
+        op.has_inplace_output = True
+        op.add_inplace_output(0, 0)
+        return op
+
+    def AclNnMaskedFillScalar(name, x, mask, value, dtype):
+        op = Operation(name, "MaskedFillScalarOperation")
+        param = infer_param.AclNnMaskedFillScalarParam()
+        param.name = name
+        param.value = value
+        param.dtype = dtype
+        op.set_input([x, mask])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def AclNnReduceSum(name, x, dim, keep_dim, dtype, ascend_dtype):
+        op = Operation(name, "AclNnReduceSumOperation")
+        param = infer_param.AclNnReduceSumParam()
+        param.name = name
+        param.dims = dim if isinstance(dim, list) else [dim]
+        param.keepDim = keep_dim
+        param.dtype = ascend_dtype
+        op.set_input([x])
         op.set_param(param)
         op.set_output([name])
         return op

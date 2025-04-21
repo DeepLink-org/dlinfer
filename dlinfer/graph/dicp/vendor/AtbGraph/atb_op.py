@@ -149,6 +149,14 @@ class Muls(Operator):
         return a * b
 
 
+class AclNnMuls(Operator):
+    def __init__(self):
+        super().__init__("AclNnMuls")
+
+    def infer_result(self, a, b, dtype="FLOAT"):
+        return a * b
+
+
 class PowTensorScalar(Operator):
     def __init__(self):
         super().__init__("PowTensorScalar")
@@ -753,4 +761,52 @@ class AclNnQuantMatmul(Operator):
         super().__init__("AclNnQuantMatmul")
 
     def infer_result(self, x, y, rms_scale, linear_scale, out_dtype, quant_dtype, bias):
-        return torch.matmu(x, y.tanspose(0, 1)).to(out_dtype)
+        return torch.matmul(x, y.tanspose(0, 1)).to(out_dtype)
+
+
+class AclNnScatterValue(Operator):
+    def __init__(self):
+        super().__init__("AclNnScatterValue")
+
+    def infer_result(self, x, dim, index, value, dtype, reduce=0):
+        return x
+
+
+class AclNnBitwiseNot(Operator):
+    def __init__(self):
+        super().__init__("AclNnBitwiseNot")
+
+    def infer_result(self, x):
+        return ~x
+
+
+class Sigmoid(Operator):
+    def __init__(self):
+        super().__init__("Sigmoid")
+
+    def infer_result(self, x):
+        return x.sigmoid()
+
+
+class AclNnInplaceMaskedFillScalar(Operator):
+    def __init__(self):
+        super().__init__("AclNnInplaceMaskedFillScalar")
+
+    def infer_result(self, x, mask, value, dtype):
+        return x
+
+
+class AclNnMaskedFillScalar(Operator):
+    def __init__(self):
+        super().__init__("AclNnMaskedFillScalar")
+
+    def infer_result(self, x, mask, value, dtype):
+        return x
+
+
+class AclNnReduceSum(Operator):
+    def __init__(self):
+        super().__init__("AclNnReduceSum")
+
+    def infer_result(self, x, dim, keep_dim, dtype, ascend_dtype):
+        return x.sum(dim, keep_dim=keep_dim, dtype=dtype)
