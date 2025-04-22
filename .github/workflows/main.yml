@@ -74,7 +74,7 @@ jobs:
       - name: Clone lmdeploy
         run: |
           set -ex
-          https://github.com/JackWeiw/lmdeploy.git ${{ env.LMDEPLOY_PATH }}
+          git clone https://github.com/JackWeiw/lmdeploy.git ${{ env.LMDEPLOY_PATH }}
           cd ${{ env.LMDEPLOY_PATH }} && git checkout ${{ env.LMDEPLOY_COMMIT_OR_BRANCH }}
           # git apply ${{env.CI_PATH }}/.github/ci/fix-exit-multi-npu.patch
 
