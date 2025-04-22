@@ -16,6 +16,7 @@ def ascend_chatglm2_fill_rope(states: torch.Tensor, rope: torch.Tensor):
 
     return states
 
+
 SelfAttention._fill_rope = ascend_chatglm2_fill_rope
 
 ########## below is for ascend310P ##########
@@ -37,7 +38,6 @@ if SocVersion.is_Ascend310P():
     from lmdeploy.pytorch.engine.cache_engine import CacheEngine
 
     logger = get_logger("lmdeploy")
-
 
     async def _async_step_background_310P(
         self,
@@ -69,7 +69,10 @@ if SocVersion.is_Ascend310P():
                 )
             if guided_input_ids is not None:
                 guided_input_ids = torch.cat(
-                    [guided_input_ids, next_token_ids[:, None].to(guided_input_ids.device)],
+                    [
+                        guided_input_ids,
+                        next_token_ids[:, None].to(guided_input_ids.device),
+                    ],
                     1,
                 )
             if sampling_inputs.random_offsets is not None:
@@ -158,9 +161,10 @@ if SocVersion.is_Ascend310P():
                 inputs.model_metas = model_metas
                 __update_inputs(next_token_ids)
 
-
     @classmethod
-    def build_310P(cls, rank: int = 0, tp: int = 1, dp: int = 1, ccl_backend: str = "nccl"):
+    def build_310P(
+        cls, rank: int = 0, tp: int = 1, dp: int = 1, ccl_backend: str = "nccl"
+    ):
         """
         build dist context.
         # NOTE: Ascend310P does not support broadcast, so we use need to use gloo for broadcast next_token_ids and then transfer it to npu
@@ -187,7 +191,9 @@ if SocVersion.is_Ascend310P():
             tp_gpu_group = dist.new_group(
                 ranks=tp_ranks, timeout=timeout, backend=ccl_backend
             )
-            tp_cpu_group = dist.new_group(ranks=tp_ranks, timeout=timeout, backend="gloo")
+            tp_cpu_group = dist.new_group(
+                ranks=tp_ranks, timeout=timeout, backend="gloo"
+            )
 
         # dp
         dp_gpu_group = None
@@ -210,7 +216,6 @@ if SocVersion.is_Ascend310P():
             dp_gpu_group=dp_gpu_group,
         )
         return context
-
 
     def _allocate_cache_310P(self, num_blocks: int, device: torch.device):
         """
