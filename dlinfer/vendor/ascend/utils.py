@@ -9,12 +9,12 @@ class SocVersion:
     @classmethod
     @lru_cache(maxsize=1)
     def device_name(cls) -> str:
-        return torch.npu.get_device_name()[:10]
+        return torch.npu.get_device_name()
 
     @classmethod
     def is_Ascend310P(cls) -> bool:
-        return cls.device_name() == cls.Ascend310P
+        return cls.device_name().startswith(cls.Ascend310P)
 
     @classmethod
     def is_Ascend910B(cls) -> bool:
-        return cls.device_name() == cls.Ascend910B
+        return cls.device_name().startswith(cls.Ascend910B)
