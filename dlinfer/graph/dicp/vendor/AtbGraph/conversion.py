@@ -18,6 +18,7 @@ from dlinfer.graph.dicp.vendor.AtbGraph.codegen.utils import (
     get_ascend_dtype,
     get_reduce_dim,
 )
+from dlinfer.vendor.ascend.utils import SocVersion
 
 
 aten = torch.ops.aten
@@ -171,19 +172,29 @@ class AtenToAtbTransformer(SingleOpTransformer):
         v_scales_zeros,
         quant_bits,
     ):
-        key_shape = key.node.meta["val"].shape
-        value_shape = value.node.meta["val"].shape
-        is_mla = key_shape[-1] != value_shape[-1]
-        if is_mla:
-            out = self.get_proxy(
-                atb_op.MlaReshapeAndCache,
-                (key, key_cache, kv_indices),
-            )
-            out = self.get_proxy(atb_op.Tuple, (out, value_cache))
-        else:
+        if SocVersion.is_Ascend910B():
+            key_shape = key.node.meta["val"].shape
+            value_shape = value.node.meta["val"].shape
+            is_mla = key_shape[-1] != value_shape[-1]
+            if is_mla:
+                out = self.get_proxy(
+                    atb_op.MlaReshapeAndCache,
+                    (key, key_cache, kv_indices),
+                )
+                out = self.get_proxy(atb_op.Tuple, (out, value_cache))
+            else:
+                out = self.get_proxy(
+                    atb_op.ReshapeAndCache,
+                    (key, value, key_cache, value_cache, kv_indices),
+                )
+        elif SocVersion.is_Ascend310P():
             out = self.get_proxy(
                 atb_op.ReshapeAndCache,
                 (key, value, key_cache, value_cache, kv_indices),
+            )
+        else:
+            raise ValueError(
+                f"dlinfer doesn't support {SocVersion.device_name()} device currently."
             )
         return out
 
@@ -469,6 +480,15 @@ class AtenToAtbTransformer(SingleOpTransformer):
         scale = softmax_scale if softmax_scale else 1.0 / math.sqrt(head_size)
         if query.node.meta["val"].dtype != mask.node.meta["val"].dtype:
             mask = self.get_proxy(atb_op.Cast, (mask, query.node.meta["val"].dtype))
+        # NOTE: Ascend310P need to convert mask to acl nz format
+        if SocVersion.is_Ascend310P():
+            from .opset_convert import NZ_MASK, set_nz_mask
+
+            if NZ_MASK is None:
+                mask = self.get_proxy(atb_op.Transdata, (mask, 2))
+                set_nz_mask(mask)
+            else:
+                mask = NZ_MASK
         out = self.get_proxy(
             atb_op.SelfAttentionPAEncoder,
             (
@@ -518,6 +538,15 @@ class AtenToAtbTransformer(SingleOpTransformer):
         scale = softmax_scale if softmax_scale else 1.0 / math.sqrt(head_size)
         if query.node.meta["val"].dtype != mask.node.meta["val"].dtype:
             mask = self.get_proxy(atb_op.Cast, (mask, query.node.meta["val"].dtype))
+        # NOTE: Ascend310P need to convert mask to acl nz format
+        if SocVersion.is_Ascend310P():
+            from .opset_convert import NZ_MASK, set_nz_mask
+
+            if NZ_MASK is None:
+                mask = self.get_proxy(atb_op.Transdata, (mask, 2))
+                set_nz_mask(mask)
+            else:
+                mask = NZ_MASK
         out = self.get_proxy(
             atb_op.PagedAttention,
             (

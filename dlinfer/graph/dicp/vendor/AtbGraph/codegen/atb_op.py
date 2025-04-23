@@ -20,6 +20,7 @@ from dlinfer.graph.dicp.vendor.AtbGraph.codegen.utils import (
     get_acl_dtype,
     get_ascend_dtype,
 )
+from dlinfer.vendor.ascend.utils import SocVersion
 
 
 class AtbOverrides:
@@ -65,7 +66,11 @@ class AtbOverrides:
         # HCCL should be used.
         use_lccl = os.environ.get("DLINFER_ASCEND_USE_LCCL", "1")
         rank_table_file = os.environ.get("ASCEND_RANK_TABLE_FILE_PATH", None)
-        if use_lccl == "1" and rank_table_file is None:
+        if (
+            use_lccl == "1"
+            and rank_table_file is None
+            and not SocVersion.is_Ascend310P()
+        ):
             param.backend = "lccl"
         else:
             param.backend = "hccl"
@@ -96,7 +101,11 @@ class AtbOverrides:
         # HCCL should be used.
         use_lccl = os.environ.get("DLINFER_ASCEND_USE_LCCL", "1")
         rank_table_file = os.environ.get("ASCEND_RANK_TABLE_FILE_PATH", None)
-        if use_lccl == "1" and rank_table_file is None:
+        if (
+            use_lccl == "1"
+            and rank_table_file is None
+            and not SocVersion.is_Ascend310P()
+        ):
             param.backend = "lccl"
         else:
             param.backend = "hccl"
@@ -521,6 +530,14 @@ class AtbOverrides:
         # op = Operation(name, "TransposeOperation")
         param = infer_param.TransposeParam(name, perm)
 
+        op.set_param(param)
+        op.set_input([x])
+        op.set_output([name])
+        return op
+
+    def Transdata(name, x, transdataType):
+        op = Operation(name, "TransdataOperation")
+        param = infer_param.TransdataParam(transdataType)
         op.set_param(param)
         op.set_input([x])
         op.set_output([name])

@@ -5,6 +5,7 @@ import torch
 from dlinfer.vendor import vendor_ops_registry
 from dlinfer.utils.registry import register_ops
 from dlinfer.utils.type_annotation import Tensor, Optional, Sequence, Tuple
+from .utils import SocVersion
 
 __all__ = [
     "add_rms_norm",
@@ -86,34 +87,53 @@ def prefill_attention(
     query = query.contiguous()
     key = key.contiguous()
     value = value.contiguous()
-    seq_qlen_list = (
-        [max_q_seq_len * (i + 1) for i in range(query.shape[0])]
-        if q_seq_len is None
-        else q_seq_len.cumsum(0).tolist()
-    )
-    seq_kvlen_list = seq_qlen_list
-    if (attn_mask is None or len(attn_mask) == 0) and q_seq_len is None:
-        query = query.view(query.shape[0] * query.shape[1], num_q_heads, -1)
-        key = key.view(key.shape[0] * key.shape[1], num_kv_heads, -1)
-        value = value.view(value.shape[0] * value.shape[1], num_kv_heads, -1)
     scale_value = softmax_scale if softmax_scale else 1.0 / math.sqrt(query.shape[-1])
-    # some vl models pass a fp16 mask from lmdeploy in vision part of prefill phase.
-    attn_mask_ = (
-        None
-        if (attn_mask is None or len(attn_mask) == 0)
-        else attn_mask[0].to(torch.bool)
-    )
-    attn_output.view(query.shape)[:] = torch.ops.npu.npu_fusion_attention(
-        query,
-        key,
-        value,
-        num_q_heads,
-        "TND",
-        scale=scale_value,
-        atten_mask=attn_mask_,
-        actual_seq_qlen=seq_qlen_list,
-        actual_seq_kvlen=seq_kvlen_list,
-    )[0]
+    if SocVersion.is_Ascend910B():
+        seq_qlen_list = (
+            [max_q_seq_len * (i + 1) for i in range(query.shape[0])]
+            if q_seq_len is None
+            else q_seq_len.cumsum(0).tolist()
+        )
+        seq_kvlen_list = seq_qlen_list
+        if (attn_mask is None or len(attn_mask) == 0) and q_seq_len is None:
+            query = query.view(query.shape[0] * query.shape[1], num_q_heads, -1)
+            key = key.view(key.shape[0] * key.shape[1], num_kv_heads, -1)
+            value = value.view(value.shape[0] * value.shape[1], num_kv_heads, -1)
+        # some vl models pass a fp16 mask from lmdeploy in vision part of prefill phase.
+        attn_mask_ = (
+            None
+            if (attn_mask is None or len(attn_mask) == 0)
+            else attn_mask[0].to(torch.bool)
+        )
+        attn_output.view(query.shape)[:] = torch.ops.npu.npu_fusion_attention(
+            query,
+            key,
+            value,
+            num_q_heads,
+            "TND",
+            scale=scale_value,
+            atten_mask=attn_mask_,
+            actual_seq_qlen=seq_qlen_list,
+            actual_seq_kvlen=seq_kvlen_list,
+        )[0]
+    elif SocVersion.is_Ascend310P():
+        # Used for Qwen2.5-VL model vision block
+        query = query.unsqueeze(0)
+        key = key.unsqueeze(0)
+        value = value.unsqueeze(0)
+        attn_output[:] = torch.ops.npu.npu_prompt_flash_attention(
+            query,
+            key,
+            value,
+            num_heads=num_q_heads,
+            num_key_value_heads=num_kv_heads,
+            input_layout="BSND",
+            scale_value=scale_value,
+        )
+    else:
+        raise ValueError(
+            f"dlinfer doesn't support {SocVersion.device_name()} device currently."
+        )
     return attn_output
 
 
@@ -302,7 +322,11 @@ def rms_norm(hidden_states: Tensor, weight: Tensor, epsilon: float) -> Tensor:
 
 @register_ops(vendor_ops_registry)
 def silu_and_mul(input_tensor: Tensor, dim: int) -> Tensor:
-    return torch.ops.npu.npu_swiglu(input_tensor, dim)
+    if SocVersion.is_Ascend910B():
+        return torch.ops.npu.npu_swiglu(input_tensor, dim)
+    elif SocVersion.is_Ascend310P():
+        gate_cache, up_cache = input_tensor.chunk(2, dim)
+        return torch.ops.npu.npu_silu(gate_cache) * up_cache
 
 
 @register_ops(vendor_ops_registry)
