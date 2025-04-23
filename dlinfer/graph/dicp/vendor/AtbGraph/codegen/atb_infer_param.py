@@ -61,6 +61,12 @@ class QuantType(Enum):
     QUANT_FLOAT16 = auto()
 
 
+class TransdataType(Enum):
+    UNDEFINED = 0
+    FRACTAL_NZ_TO_ND = 1
+    ND_TO_FRACTAL_NZ = 2
+
+
 @dataclass
 class ElewiseQuantParam:
     inputScale: float = 1.0
@@ -267,6 +273,11 @@ class AddRmsNormParam:
 class TransposeParam:
     name: str
     perm: list[int]
+
+
+@dataclass
+class TransdataParam:
+    transdataType: TransdataType = TransdataType.ND_TO_FRACTAL_NZ
 
 
 @dataclass
