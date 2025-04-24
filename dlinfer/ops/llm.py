@@ -26,6 +26,7 @@ __all__ = [
     "linear_w8a8",
     "rms_norm_w8a8",
     "add_rms_norm_w8a8",
+    "transdata",
 ]
 
 
@@ -591,10 +592,12 @@ def linear_impl_abstract_func(
     shape_x = x.shape
     shape_w = weight.shape
     rank_w = len(weight.shape)
-    assert rank_w == 2, "weight in linear must be a 2D tensor"
+    assert rank_w in [2, 4], "weight in linear must be a 2D tensor or 4D tensor."
     cx = shape_x[-1]
-    cy = shape_w[-1]
-    assert cx == cy, "The last dimension of x must match the last dimension of weight."
+    cy = shape_w[-1] if rank_w == 2 else shape_w[-1] * shape_w[-3]  # NZ format
+    assert (
+        cx == cy
+    ), f"The last dimension of x must match the last dimension of weight. {cx} != {cy}"
     return x.new_empty((shape_x[:-1] + shape_w[-2:-1]))
 
 
@@ -792,3 +795,34 @@ def add_rms_norm_w8a8(
     return vendor_ops_registry["add_rms_norm_w8a8"](
         hidden_states, residual, weight, epsilon, quant_dtype
     )
+
+
+def transdata_abstract_func(x: Tensor, transdata_type: int):
+    assert x.dim() in [2, 3], "x must be 2D or 3D tensor"
+    assert transdata_type == 2, "currently transdata_type must be 2"
+    assert x.dtype in [
+        torch.float16,
+        torch.int8,
+    ], "x must be float16, int8 tensor"
+    bsz = 1 if x.dim() == 2 else x.shape[0]
+    m = 16
+    n = 16 if x.dtype == torch.float16 else 32
+    res = torch.empty(
+        size=(bsz, (x.shape[-1] + n - 1) // n, (x.shape[-2] + m - 1) // m * m, n),
+        dtype=x.dtype,
+        device=x.device,
+    )
+    return res
+
+
+@register_custom_op(
+    "dlinfer::transdata",
+    ["hidden_states"],
+    impl_abstract_func=transdata_abstract_func,
+    default_value={"transdata_type": 0},
+)
+def transdata(
+    hidden_states: Tensor,
+    transdata_type: int,
+) -> Tensor:
+    return vendor_ops_registry["transdata"](hidden_states, transdata_type)

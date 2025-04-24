@@ -480,15 +480,6 @@ class AtenToAtbTransformer(SingleOpTransformer):
         scale = softmax_scale if softmax_scale else 1.0 / math.sqrt(head_size)
         if query.node.meta["val"].dtype != mask.node.meta["val"].dtype:
             mask = self.get_proxy(atb_op.Cast, (mask, query.node.meta["val"].dtype))
-        # NOTE: Ascend310P need to convert mask to acl nz format
-        if SocVersion.is_Ascend310P():
-            from .opset_convert import NZ_MASK, set_nz_mask
-
-            if NZ_MASK is None:
-                mask = self.get_proxy(atb_op.Transdata, (mask, 2))
-                set_nz_mask(mask)
-            else:
-                mask = NZ_MASK
         out = self.get_proxy(
             atb_op.SelfAttentionPAEncoder,
             (
@@ -538,15 +529,6 @@ class AtenToAtbTransformer(SingleOpTransformer):
         scale = softmax_scale if softmax_scale else 1.0 / math.sqrt(head_size)
         if query.node.meta["val"].dtype != mask.node.meta["val"].dtype:
             mask = self.get_proxy(atb_op.Cast, (mask, query.node.meta["val"].dtype))
-        # NOTE: Ascend310P need to convert mask to acl nz format
-        if SocVersion.is_Ascend310P():
-            from .opset_convert import NZ_MASK, set_nz_mask
-
-            if NZ_MASK is None:
-                mask = self.get_proxy(atb_op.Transdata, (mask, 2))
-                set_nz_mask(mask)
-            else:
-                mask = NZ_MASK
         out = self.get_proxy(
             atb_op.PagedAttention,
             (
@@ -846,6 +828,10 @@ class AtenToAtbTransformer(SingleOpTransformer):
         assert dim == -1
         assert largest == True
         return self.get_proxy(atb_op.Sort, (x, k))
+
+    @register_conversion(torch.ops.dlinfer.transdata.default)
+    def dlinfer_transdata(self, x, transdata_type):
+        return self.get_proxy(atb_op.Transdata, (x, transdata_type))
 
 
 class ViewSymIntTransformer(torch.fx.Transformer):

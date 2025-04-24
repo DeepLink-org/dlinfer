@@ -281,14 +281,22 @@ def get_input_data_node(node_list, node_name):
 def make_output_tensor_desc(
     output_names,
     output_data_nodes,
+    optimized_graph,
 ):
     output_tensor_descs = {"param": {}, "create": {}}
 
-    def process_node(output_name, node, input_name=None, need_reshape=False):
+    def process_node(output_name, node, atb_op, input_name=None, need_reshape=False):
         dims, dim_num = get_shape(node)
         dims_str = f'[{",".join(dims)}]'
         dtype = get_dtype(node)
-        info = f""" {{"format": {AclFormat.ACL_FORMAT_ND.value}, "dtype": {dtype}, "dimNum": {dim_num}, "dims": {dims_str} }} """
+        # TransdataOperation transdataType is 2 means convert from ND to FractalNZ
+        out_format = (
+            AclFormat.ACL_FORMAT_FRACTAL_NZ.value
+            if atb_op["type"] == "TransdataOperation"
+            and atb_op["param"]["transdataType"] == 2
+            else AclFormat.ACL_FORMAT_ND.value
+        )
+        info = f""" {{"format": {out_format}, "dtype": {dtype}, "dimNum": {dim_num}, "dims": {dims_str} }} """
 
         output_tensor_descs["param"][output_name] = info
         output_tensor_descs["create"][output_name] = {
@@ -296,12 +304,13 @@ def make_output_tensor_desc(
             "shape": dims_str,
             "input": input_name,
             "need_reshape": need_reshape,
+            "format": out_format,
         }
 
     for idx, output in enumerate(output_data_nodes):
         output_name = output_names[idx]
-        process_node(output_name, output)
-
+        atb_op = optimized_graph.nodes.get(output_name).get("value")
+        process_node(output_name, output, atb_op)
     return output_tensor_descs
 
 
@@ -746,6 +755,7 @@ def parse_graph(
     output_tensor_descs = make_output_tensor_desc(
         optimizer.context.get("output_names", {}),
         output_data_nodes,
+        optimized_graph,
     )
 
     getitem_replace = optimizer.context.get("getitem_replace", {})
