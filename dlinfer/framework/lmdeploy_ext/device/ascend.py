@@ -32,9 +32,9 @@ if SocVersion.is_Ascend310P():
     from lmdeploy.pytorch.engine.logits_process import SamplingInputs
     from lmdeploy.pytorch.engine.model_agent import (
         _batch_stopping_criteria,
+        _try_to_cuda,
         AutoModelAgent,
     )
-    from lmdeploy.pytorch.distributed import DistContext
     from lmdeploy.pytorch.engine.cache_engine import CacheEngine
 
     logger = get_logger("lmdeploy")
@@ -44,14 +44,15 @@ if SocVersion.is_Ascend310P():
         inputs: ModelInputs,
         swap_in_map: Dict,
         swap_out_map: Dict,
-        all_ids: torch.Tensor,
-        guided_input_ids: torch.Tensor,
-        sampling_inputs: SamplingInputs,
-        num_appendable_ids: torch.LongTensor,
-        num_ignore_eos: torch.LongTensor,
         loop_count: int,
-        return_logits: bool,
-        output_que: asyncio.Queue,
+        all_ids: torch.Tensor = None,
+        guided_input_ids: torch.Tensor = None,
+        sampling_inputs: SamplingInputs = None,
+        num_appendable_ids: torch.LongTensor = None,
+        num_ignore_eos: torch.LongTensor = None,
+        return_logits: bool = False,
+        is_dummy: bool = False,
+        sync_long_context: bool = False,
     ):
         """
         asyc forward task.
@@ -78,42 +79,91 @@ if SocVersion.is_Ascend310P():
             if sampling_inputs.random_offsets is not None:
                 sampling_inputs.random_offsets += 1
 
-        logger.debug(
-            "<ForwardTask>: "
-            f"batch_size={inputs.seq_length.size(0)} "
-            f"num_tokens={inputs.input_ids.size(-1)}"
-        )
-        non_blocking = True
-        inputs = inputs.to_device("cuda", non_blocking=non_blocking)
-        is_decoding = inputs.is_decoding
-        if all_ids is not None:
-            all_ids = all_ids.cuda(non_blocking=non_blocking)
-        if guided_input_ids is not None:
-            guided_input_ids = guided_input_ids.cuda(non_blocking=non_blocking)
-        sampling_inputs = sampling_inputs.to_device("cuda", non_blocking=non_blocking)
-        num_appendable_ids = num_appendable_ids.cuda(non_blocking=non_blocking)
-        num_ignore_eos = num_ignore_eos.cuda(non_blocking=non_blocking)
-
-        self.stream.synchronize()
+        async def __await_distworker(worker, timeout: float = 0.001):
+            while not worker.is_completed():
+                await asyncio.sleep(timeout)
+            worker.wait()
 
         # dist tools
         dist_ctx = get_dist_manager().current_context()
         rank = dist_ctx.rank
         tp = dist_ctx.tp
+        dp = dist_ctx.dp
+
+        logger.info(
+            f"<ForwardTask> rank[{rank}]: "
+            f"batch_size={inputs.seq_length.size(0)} "
+            f"num_tokens={inputs.input_ids.size(-1)}"
+        )
+
+        is_decoding = inputs.is_decoding
+        eager_mode = self.backend_config.eager_mode
+        if dp > 1:
+            if is_decoding and not eager_mode:
+                batch_size = inputs.seq_length.numel()
+                all_batch_sizes = torch.tensor([0] * dp, device="cuda")
+                lc_handle = dist.all_gather_into_tensor(
+                    all_batch_sizes,
+                    all_batch_sizes.new_tensor(batch_size),
+                    async_op=True,
+                )
+            else:
+                all_sync_flags = torch.tensor([False] * dp, device="cuda")
+                lc_handle = dist.all_gather_into_tensor(
+                    all_sync_flags,
+                    torch.tensor(sync_long_context, device="cuda"),
+                    async_op=True,
+                )
+
+        non_blocking = True
+        inputs = _try_to_cuda(inputs, non_blocking=non_blocking)
+        all_ids = _try_to_cuda(all_ids, non_blocking=non_blocking)
+        guided_input_ids = _try_to_cuda(guided_input_ids, non_blocking=non_blocking)
+        sampling_inputs = _try_to_cuda(sampling_inputs, non_blocking=non_blocking)
+        num_appendable_ids = _try_to_cuda(num_appendable_ids, non_blocking=non_blocking)
+        num_ignore_eos = _try_to_cuda(num_ignore_eos, non_blocking=non_blocking)
+
+        self.stream.synchronize()
+
+        if dp > 1:
+            if is_decoding and not eager_mode:
+                await __await_distworker(lc_handle)
+                padding_batch_size = all_batch_sizes.cpu().max().item()
+                meta = self.patched_model.get_meta()
+                meta.padding_batch_size = padding_batch_size
+                logger.debug(f"padding_batch_size={padding_batch_size}")
+            else:
+                await __await_distworker(lc_handle)
+                sync_long_context = all_sync_flags.any()
+                logger.debug(f"sync_long_context={sync_long_context}")
+            inputs.build_dp_meta()
+            inputs = self.patched_model.update_inputs(inputs)
+        else:
+            sync_long_context = False
+
+        need_output = dp > 1 or rank % tp == 0
 
         for idx in range(loop_count):
             # inference
+            logger.debug(f"<ForwardTask> rank[{rank}]: model forward [{idx}].")
             output = await self._async_model_forward(
                 inputs,
                 swap_in_map=swap_in_map,
                 swap_out_map=swap_out_map,
                 return_logits=return_logits,
+                sync_long_context=sync_long_context,
             )
             logits = output["logits"]
             logits = logits[0]  # [bs, seq, prob] -> [seq, prob]
 
-            if rank % tp == 0:
+            if is_dummy:
+                self._out_que.put_nowait(None)
+                continue
+
+            need_broadcast_next = dp == 1 and tp > 1 and idx < loop_count - 1
+            if need_output:
                 # sampling
+                logger.debug(f"<ForwardTask> rank[{rank}]: Sampling [{idx}].")
                 next_token_ids = await self.async_sampling_logits(
                     logits,
                     all_ids,
@@ -132,7 +182,10 @@ if SocVersion.is_Ascend310P():
                 next_token_ids = torch.empty_like(num_ignore_eos)
                 stopped = None
 
-            if tp > 1 and idx < loop_count - 1:
+            if need_broadcast_next:
+                logger.debug(
+                    f"<ForwardTask> rank[{rank}]: synchornize token ids [{idx}]"
+                )
                 # NOTE: Ascend310P does not support broadcast, so we use need to use gloo for broadcast next_token_ids and then transfer it to npu
                 tp_cpu_group = dist_ctx.tp_cpu_group
                 original_device = next_token_ids.device
@@ -142,7 +195,7 @@ if SocVersion.is_Ascend310P():
 
             # send output
             model_metas = output.get("model_metas")
-            if rank % tp == 0:
+            if need_output:
                 event = torch.cuda.Event()
                 event.record()
                 output = dict(
@@ -152,7 +205,8 @@ if SocVersion.is_Ascend310P():
                     model_metas=model_metas,
                     event=event,
                 )
-                output_que.put_nowait(output)
+                logger.debug(f"<ForwardTask> rank[{rank}]: Output [{idx}]")
+                self._out_que.put_nowait(output)
 
             # update for next loop
             if is_decoding and idx < loop_count - 1:
@@ -160,62 +214,6 @@ if SocVersion.is_Ascend310P():
                 swap_out_map = dict()
                 inputs.model_metas = model_metas
                 __update_inputs(next_token_ids)
-
-    @classmethod
-    def build_310P(
-        cls, rank: int = 0, tp: int = 1, dp: int = 1, ccl_backend: str = "nccl"
-    ):
-        """
-        build dist context.
-        # NOTE: Ascend310P does not support broadcast, so we use need to use gloo for broadcast next_token_ids and then transfer it to npu
-        # We need to inistialize the dist group for gloo backend as tp_cpu_group for next_token_ids broadcast.
-        """
-        from datetime import timedelta
-
-        timeout = timedelta(days=35600)
-
-        world_size = cls.get_world_size(tp, dp)
-        if world_size == 1:
-            return DistContext()
-
-        assert dist.is_initialized()
-        # world(assume world group is gloo)
-        world_cpu_group = dist.GroupMember.WORLD
-
-        # tp
-        tp_gpu_group = None
-        tp_rank = rank % tp
-        if tp > 1:
-            tp_rank0 = rank // tp
-            tp_ranks = list(range(tp_rank0, tp_rank0 + tp))
-            tp_gpu_group = dist.new_group(
-                ranks=tp_ranks, timeout=timeout, backend=ccl_backend
-            )
-            tp_cpu_group = dist.new_group(
-                ranks=tp_ranks, timeout=timeout, backend="gloo"
-            )
-
-        # dp
-        dp_gpu_group = None
-        if dp > 1 and rank % tp == 0:
-            dp_ranks = list(range(0, world_size, tp))
-            dp_gpu_group = dist.new_group(
-                ranks=dp_ranks, timeout=timeout, backend=ccl_backend
-            )
-
-        context = DistContext(
-            rank=rank,
-            world_size=world_size,
-            tp=tp,
-            dp=dp,
-            tp_rank=tp_rank,
-            world_cpu_group=world_cpu_group,
-            tp_cpu_group=tp_cpu_group,
-            tp_gpu_group=tp_gpu_group,
-            dp_cpu_group=None,
-            dp_gpu_group=dp_gpu_group,
-        )
-        return context
 
     def _allocate_cache_310P(self, num_blocks: int, device: torch.device):
         """
@@ -274,7 +272,6 @@ if SocVersion.is_Ascend310P():
         return output
 
     # Ascend310P dose't support broadcast for now, so we need to use gloo for broadcast next_token_ids and then transfer it to npu
-    DistContext.build = build_310P
     AutoModelAgent._async_step_background = _async_step_background_310P
     # Ascend310P requires kv_cache to be acl NZ format. So allocate gpu cache in NZ format.
     CacheEngine._allocate_cache = _allocate_cache_310P
