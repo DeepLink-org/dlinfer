@@ -14,8 +14,7 @@ namespace dicp {
 const int NUM0 = 0;
 const int NUM1 = 1;
 
-ZerosOperation::ZerosOperation(const std::string& name, const std::vector<std::string>& size, aclDataType dtype)
-    : AclNnOperation(name), opName_(name) {
+ZerosOperation::ZerosOperation(const std::string& name, const std::vector<std::string>& size, aclDataType dtype) : AclNnOperation(name), opName_(name) {
     dtype_ = dtype;
     size_.resize(size.size());
     for (size_t i = 0; i < size.size(); ++i) {
@@ -39,7 +38,7 @@ atb::Status ZerosOperation::InferShape(const atb::SVector<atb::TensorDesc>& inTe
     outTensorDescs.at(0).shape.dimNum = size_.size();
 
     const auto* global_dict = has_dynamic_size_ ? &GetGlobalDictData() : nullptr;
-    
+
     for (size_t i = 0; i < size_.size(); ++i) {
         if (has_dynamic_size_ && global_dict) {
             const auto dynamic_size = dynamic_size_.find(i);

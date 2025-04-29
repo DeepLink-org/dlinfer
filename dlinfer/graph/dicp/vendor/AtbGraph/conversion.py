@@ -787,7 +787,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
         size_str = []
         for item in size:
             if isinstance(item, torch.fx.Proxy):
-                if hasattr(item.node, "meta") and 'val' in item.node.meta:
+                if hasattr(item.node, "meta") and "val" in item.node.meta:
                     size_str.append(str(item.node.meta["val"]))
                 else:
                     size_str.append(str(item.node))
