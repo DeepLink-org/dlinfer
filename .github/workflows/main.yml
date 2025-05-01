@@ -26,7 +26,7 @@ concurrency:
 jobs:
   AscendEndtoEndTests:
     if: github.repository == 'DeepLink-org/dlinfer'
-    runs-on: Atlas_800T_A2
+    runs-on: dlinfer-1
 
     steps:
       - name: Checkout code
@@ -88,6 +88,7 @@ jobs:
           export DLINFER_TEST_DIR=${{env.CI_PATH }}/tests
           echo $PYTHONPATH && pwd
           export HCCL_EXEC_TIMEOUT=600
+          export ASCEND_RT_VISIBLE_DEVICES=6,7
           pytest ./ -m 'lmdeploy' -s -x --alluredir=allure-results --clean-alluredir
           bash ${{env.CI_PATH }}/tests/test_lmdeploy/scripts/test_model_tp2.sh
 
