@@ -14,13 +14,13 @@ graph_config:
 
 pytorch_chat_model:
     - internlm_model/internlm3-8b-instruct
-    - llama_model_data/Meta-Llama-3-8B-Instruct
-    - mixtral_model_data/Mixtral-8x7B-Instruct-v0.1
-    - qwen_model_data/Qwen2.5-7B-Instruct
+    - llama_model/Meta-Llama-3.1-8B-Instruct
+    - mixtral_model/Mixtral-8x7B-Instruct-v0.1
+    - qwen_model/Qwen2.5-7B-Instruct
 
 pytorch_vl_model:
-    - internvl_model_data/InternVL2-26B
-    - internvl_model_data/InternVL2-2B
+    - internvl_model/InternVL2-26B
+    - internvl_model/InternVL2-2B
     # - cogvlm_model_data/cogvlm-chat
     # - cogvlm_model_data/cogvlm2-llama3-chat-19B
-    - qwen_model_data/Qwen2-VL-7B-Instruct
+    - qwen_model/Qwen2-VL-7B-Instruct
