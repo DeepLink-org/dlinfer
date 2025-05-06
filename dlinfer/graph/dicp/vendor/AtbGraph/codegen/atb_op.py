@@ -19,6 +19,7 @@ from dlinfer.graph.dicp.vendor.AtbGraph.codegen.atb_graph import (
 from dlinfer.graph.dicp.vendor.AtbGraph.codegen.utils import (
     get_acl_dtype,
     get_ascend_dtype,
+    AclFormat,
 )
 from dlinfer.vendor.ascend.utils import SocVersion
 
@@ -538,6 +539,9 @@ class AtbOverrides:
     def Transdata(name, x, transdataType):
         op = Operation(name, "TransdataOperation")
         param = infer_param.TransdataParam(transdataType)
+        if transdataType == 2:
+            # TransdataType==2, means convert from ND to NZ
+            op.set_output_format(AclFormat.ACL_FORMAT_FRACTAL_NZ.value)
         op.set_param(param)
         op.set_input([x])
         op.set_output([name])
