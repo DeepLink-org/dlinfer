@@ -33,9 +33,17 @@ if SocVersion.is_Ascend310P():
     from lmdeploy.pytorch.engine.model_agent import (
         _batch_stopping_criteria,
         _try_to_cuda,
+        msg_with_rank,
         AutoModelAgent,
+        BaseModelAgent,
     )
     from lmdeploy.pytorch.engine.cache_engine import CacheEngine
+    from lmdeploy.pytorch.models.patch import (
+        update_custom_module_map,
+        build_patched_model,
+        add_adapters,
+    )
+    from lmdeploy.pytorch.weight_loader.model_weight_loader import ModelWeightLoader
 
     logger = get_logger("lmdeploy")
 
@@ -179,7 +187,10 @@ if SocVersion.is_Ascend310P():
                     next_token_ids, sampling_inputs.stop_words, num_appendable_ids
                 )
             else:
-                next_token_ids = torch.empty_like(num_ignore_eos)
+                # Avoid adding the ADInplaceOrView dispatch key to `next_token_ids`,
+                # as it can trigger recompilation on different ranks when using torch.compile.
+                with torch.inference_mode():
+                    next_token_ids = torch.empty_like(num_ignore_eos)
                 stopped = None
 
             if need_broadcast_next:
@@ -271,7 +282,57 @@ if SocVersion.is_Ascend310P():
 
         return output
 
+    @torch.inference_mode()
+    def load_model_weights_310P(
+        model: torch.nn.Module,
+        checkpoint_path: str,
+        prefix: str = None,
+        device: torch.device = None,
+    ):
+        """Loading model weights."""
+        loader = ModelWeightLoader(checkpoint_path, prefix=prefix)
+        loader.load_model_weights(model, device=device)
+        model.eval()
+        # NOTE: Ascend310P convert Linear weight to NZ format defaultly in graph mode.
+        # However, vision_model part is not compiled in graph mode, so we skip converting weights of vision_model part.
+        # This is a workaround for Ascend310P.
+        for name, mod in model.named_modules():
+            if (
+                not hasattr(mod, "update_weights")
+                or name.startswith("vision_model")
+                or name.startswith("visual")
+            ):
+                continue
+            mod.update_weights()
+
+    def _build_model_310P(self):
+        """
+        build patched model.
+        NOTE: Ascend310P convert Linear weight to NZ format defaultly in graph mode.
+        However, vision_model part is not compiled in graph mode, so we skip converting weights of vision_model part.
+        """
+        model_path = self.model_path
+        adapters = self.adapters
+        device = self.device
+        rank = self.rank
+        custom_module_map = self.model_config.custom_module_map
+        if custom_module_map is not None:
+            update_custom_module_map(custom_module_map)
+        logger.debug(msg_with_rank(rank, "build model."))
+        patched_model = build_patched_model(self.model_config, device=device)
+        logger.debug(msg_with_rank(rank, "loading weights."))
+        load_model_weights_310P(patched_model, model_path, device=device)
+        if adapters is not None:
+            logger.debug(msg_with_rank(rank, "loading adapters."))
+            add_adapters(
+                patched_model, adapters, dtype=self.model_config.dtype, device=device
+            )
+        self.patched_model = patched_model
+
     # Ascend310P dose't support broadcast for now, so we need to use gloo for broadcast next_token_ids and then transfer it to npu
     AutoModelAgent._async_step_background = _async_step_background_310P
     # Ascend310P requires kv_cache to be acl NZ format. So allocate gpu cache in NZ format.
     CacheEngine._allocate_cache = _allocate_cache_310P
+    # We convert Linear weight to NZ format on Ascend310P device defaultly in graph mode.
+    # However, vision_model part is not compiled in graph mode, so we skip converting weights of vision_model part.
+    BaseModelAgent._build_model = _build_model_310P

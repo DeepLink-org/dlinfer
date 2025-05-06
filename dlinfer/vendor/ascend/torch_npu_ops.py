@@ -529,3 +529,11 @@ def linear(
     else:
         out = torch.nn.functional.linear(x, weight, bias)
     return out
+
+
+@register_ops(vendor_ops_registry)
+def transdata(
+    hidden_states: Tensor,
+    transdata_type: int,
+):
+    raise NotImplementedError("transdata in eager mode is not implemented yet!")

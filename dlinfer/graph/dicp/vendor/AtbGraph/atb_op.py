@@ -369,7 +369,22 @@ class Transdata(Operator):
     def __init__(self):
         super().__init__("Transdata")
 
-    def infer_result(self, x, transdataType):
+    def infer_result(self, x, transdata_type):
+        # assume transdata_type is always 2
+        assert x.dim() in [2, 3], "x must be 2D or 3D tensor"
+        assert transdata_type == 2, "currently transdata_type must be 2"
+        assert x.dtype in [
+            torch.float16,
+            torch.int8,
+        ], "x must be float16, int8 tensor"
+        bsz = 1 if x.dim() == 2 else x.shape[0]
+        m = 16
+        n = 16 if x.dtype == torch.float16 else 32
+        res = torch.empty(
+            size=(bsz, (x.shape[-1] + n - 1) // n, (x.shape[-2] + m - 1) // m * m, n),
+            dtype=x.dtype,
+            device=x.device,
+        )
         return x
 
 
