@@ -53,6 +53,8 @@ class Operation:
         self.special_constants_map = {}
         self.has_inplace_output = False
         self.inplace_outputs = []
+        # Defaultly, output format is ND, If Transdata is called, output format would be NZ
+        self.output_format = AclFormat.ACL_FORMAT_ND.value
 
     def add_inplace_output(self, output_idx, input_idx):
         self.inplace_outputs.append(
@@ -82,6 +84,9 @@ class Operation:
             x = infer_param.to_dict(x)
         self.param = x
 
+    def set_output_format(self, x):
+        self.output_format = x
+
     def build(self):
         node = {
             "nodeType": "singleOperation",
@@ -91,6 +96,7 @@ class Operation:
                 "param": self.param,
                 "inputNames": self.inputs,
                 "outputNames": self.outputs,
+                "outputFormat": self.output_format,
                 "hasHostInputs": self.has_host_inputs,
                 "hostInputNames": self.host_inputs,
                 "hasReshapeInputs": self.has_reshape_inputs,
@@ -281,14 +287,16 @@ def get_input_data_node(node_list, node_name):
 def make_output_tensor_desc(
     output_names,
     output_data_nodes,
+    optimized_graph,
 ):
     output_tensor_descs = {"param": {}, "create": {}}
 
-    def process_node(output_name, node, input_name=None, need_reshape=False):
+    def process_node(output_name, node, atb_op, input_name=None, need_reshape=False):
         dims, dim_num = get_shape(node)
         dims_str = f'[{",".join(dims)}]'
         dtype = get_dtype(node)
-        info = f""" {{"format": {AclFormat.ACL_FORMAT_ND.value}, "dtype": {dtype}, "dimNum": {dim_num}, "dims": {dims_str} }} """
+        out_format = atb_op.get("outputFormat", AclFormat.ACL_FORMAT_ND.value)
+        info = f""" {{"format": {out_format}, "dtype": {dtype}, "dimNum": {dim_num}, "dims": {dims_str} }} """
 
         output_tensor_descs["param"][output_name] = info
         output_tensor_descs["create"][output_name] = {
@@ -296,12 +304,13 @@ def make_output_tensor_desc(
             "shape": dims_str,
             "input": input_name,
             "need_reshape": need_reshape,
+            "format": out_format,
         }
 
     for idx, output in enumerate(output_data_nodes):
         output_name = output_names[idx]
-        process_node(output_name, output)
-
+        atb_op = optimized_graph.nodes.get(output_name).get("value")
+        process_node(output_name, output, atb_op)
     return output_tensor_descs
 
 
@@ -746,6 +755,7 @@ def parse_graph(
     output_tensor_descs = make_output_tensor_desc(
         optimizer.context.get("output_names", {}),
         output_data_nodes,
+        optimized_graph,
     )
 
     getitem_replace = optimizer.context.get("getitem_replace", {})

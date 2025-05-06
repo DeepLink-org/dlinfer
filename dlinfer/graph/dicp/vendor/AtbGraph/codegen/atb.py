@@ -189,8 +189,9 @@ class AtbCodegen(torch.fx.Interpreter):
                 device = "npu"
                 dtype = create_info["dtype"]
                 shape = create_info["shape"]
+                format = create_info["format"]
                 call_body.writeline(
-                    f"""{output} = torch.empty({shape}, dtype={dtype}, device='{device}')"""
+                    f"""{output} = torch_npu.empty_with_format(size={shape}, dtype={dtype}, device='{device}', acl_format={format})"""
                 )
             elif create_info["need_reshape"]:
                 shape = create_info["shape"]
