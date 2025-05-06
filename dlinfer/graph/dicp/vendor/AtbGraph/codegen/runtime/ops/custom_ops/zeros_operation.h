@@ -6,7 +6,7 @@ namespace dicp {
 
 class ZerosOperation : public AclNnOperation {
 public:
-    explicit ZerosOperation(const std::string& name, const std::vector<int64_t>& size, aclDataType dtype);
+    explicit ZerosOperation(const std::string& name, const std::vector<std::string>& size, aclDataType dtype);
     ~ZerosOperation() override;
 
     std::string GetName() const override;
@@ -17,6 +17,8 @@ public:
 protected:
     std::string opName_;
     std::vector<int64_t> size_;
+    std::unordered_map<int64_t, std::string> dynamic_size_;
+    bool has_dynamic_size_;
     aclDataType dtype_;
 
     int SetAclNnWorkspaceExecutor(uint64_t& workspaceSize) override;

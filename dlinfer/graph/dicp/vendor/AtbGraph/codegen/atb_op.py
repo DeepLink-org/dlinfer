@@ -975,7 +975,7 @@ class AtbOverrides:
         op.set_output(param)
         return op
 
-    def Zeros(name, size, dtype):
+    def Zeros(name, size, dtype, origin_size):
         op = Operation(name, "ZerosOperation")
         param = infer_param.ZerosParam()
         param.name = name
