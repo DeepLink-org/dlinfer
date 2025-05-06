@@ -290,6 +290,9 @@ if SocVersion.is_Ascend310P():
         loader = ModelWeightLoader(checkpoint_path, prefix=prefix)
         loader.load_model_weights(model, device=device)
         model.eval()
+        # NOTE: Ascend310P convert Linear weight to NZ format defaultly in graph mode.
+        # However, vision_model part is not compiled in graph mode, so we skip converting weights of vision_model part.
+        # This is a workaround for Ascend310P.
         for name, mod in model.named_modules():
             if (
                 not hasattr(mod, "update_weights")
@@ -297,11 +300,14 @@ if SocVersion.is_Ascend310P():
                 or name.startswith("visual")
             ):
                 continue
-            print(f"############ update_weights {name}")
             mod.update_weights()
 
     def _build_model_310P(self):
-        """build patched model."""
+        """
+        build patched model.
+        NOTE: Ascend310P convert Linear weight to NZ format defaultly in graph mode.
+        However, vision_model part is not compiled in graph mode, so we skip converting weights of vision_model part.
+        """
         model_path = self.model_path
         adapters = self.adapters
         device = self.device
@@ -312,8 +318,6 @@ if SocVersion.is_Ascend310P():
         logger.debug(msg_with_rank(rank, "build model."))
         patched_model = build_patched_model(self.model_config, device=device)
         logger.debug(msg_with_rank(rank, "loading weights."))
-        from lmdeploy.utils import try_import_deeplink
-
         load_model_weights_310P(patched_model, model_path, device=device)
         if adapters is not None:
             logger.debug(msg_with_rank(rank, "loading adapters."))
@@ -326,4 +330,6 @@ if SocVersion.is_Ascend310P():
     AutoModelAgent._async_step_background = _async_step_background_310P
     # Ascend310P requires kv_cache to be acl NZ format. So allocate gpu cache in NZ format.
     CacheEngine._allocate_cache = _allocate_cache_310P
+    # We convert Linear weight to NZ format on Ascend310P device defaultly in graph mode.
+    # However, vision_model part is not compiled in graph mode, so we skip converting weights of vision_model part.
     BaseModelAgent._build_model = _build_model_310P
