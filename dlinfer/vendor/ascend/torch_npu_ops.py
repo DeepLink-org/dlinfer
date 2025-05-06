@@ -532,8 +532,8 @@ def linear(
 
 
 @register_ops(vendor_ops_registry)
-def ascend_transdata(
+def transdata(
     hidden_states: Tensor,
     transdata_type: int,
 ):
-    raise NotImplementedError("ascend_transdata in eager mode is not implemented yet!")
+    raise NotImplementedError("transdata in eager mode is not implemented yet!")

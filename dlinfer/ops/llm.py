@@ -26,7 +26,7 @@ __all__ = [
     "linear_w8a8",
     "rms_norm_w8a8",
     "add_rms_norm_w8a8",
-    "ascend_transdata",
+    "transdata",
 ]
 
 
@@ -797,7 +797,7 @@ def add_rms_norm_w8a8(
     )
 
 
-def ascend_transdata_abstract_func(x: Tensor, transdata_type: int):
+def transdata_abstract_func(x: Tensor, transdata_type: int):
     assert x.dim() in [2, 3], "x must be 2D or 3D tensor"
     assert transdata_type == 2, "currently transdata_type must be 2"
     assert x.dtype in [
@@ -816,12 +816,12 @@ def ascend_transdata_abstract_func(x: Tensor, transdata_type: int):
 
 
 @register_custom_op(
-    "dlinfer::ascend_transdata",
+    "dlinfer::transdata",
     ["hidden_states"],
-    impl_abstract_func=ascend_transdata_abstract_func,
+    impl_abstract_func=transdata_abstract_func,
     default_value={"transdata_type": 2},
 )
-def ascend_transdata(
+def transdata(
     hidden_states: Tensor,
     transdata_type: int,
 ) -> Tensor:
@@ -836,4 +836,4 @@ def ascend_transdata(
     Returns:
        Tensor : A tensor in target format.
     """
-    return vendor_ops_registry["ascend_transdata"](hidden_states, transdata_type)
+    return vendor_ops_registry["transdata"](hidden_states, transdata_type)
