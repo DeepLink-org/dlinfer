@@ -53,6 +53,8 @@ class Operation:
         self.special_constants_map = {}
         self.has_inplace_output = False
         self.inplace_outputs = []
+        # Defaultly, output format is ND, If Transdata is called, output format would be NZ
+        self.output_format = AclFormat.ACL_FORMAT_ND.value
 
     def add_inplace_output(self, output_idx, input_idx):
         self.inplace_outputs.append(
@@ -82,6 +84,9 @@ class Operation:
             x = infer_param.to_dict(x)
         self.param = x
 
+    def set_output_format(self, x):
+        self.output_format = x
+
     def build(self):
         node = {
             "nodeType": "singleOperation",
@@ -91,6 +96,7 @@ class Operation:
                 "param": self.param,
                 "inputNames": self.inputs,
                 "outputNames": self.outputs,
+                "outputFormat": self.output_format,
                 "hasHostInputs": self.has_host_inputs,
                 "hostInputNames": self.host_inputs,
                 "hasReshapeInputs": self.has_reshape_inputs,
@@ -289,13 +295,7 @@ def make_output_tensor_desc(
         dims, dim_num = get_shape(node)
         dims_str = f'[{",".join(dims)}]'
         dtype = get_dtype(node)
-        # TransdataOperation transdataType is 2 means convert from ND to FractalNZ
-        out_format = (
-            AclFormat.ACL_FORMAT_FRACTAL_NZ.value
-            if atb_op["type"] == "TransdataOperation"
-            and atb_op["param"]["transdataType"] == 2
-            else AclFormat.ACL_FORMAT_ND.value
-        )
+        out_format = atb_op.get("outputFormat", AclFormat.ACL_FORMAT_ND.value)
         info = f""" {{"format": {out_format}, "dtype": {dtype}, "dimNum": {dim_num}, "dims": {dims_str} }} """
 
         output_tensor_descs["param"][output_name] = info

@@ -26,7 +26,7 @@ __all__ = [
     "linear_w8a8",
     "rms_norm_w8a8",
     "add_rms_norm_w8a8",
-    "transdata",
+    "ascend_transdata",
 ]
 
 
@@ -797,7 +797,7 @@ def add_rms_norm_w8a8(
     )
 
 
-def transdata_abstract_func(x: Tensor, transdata_type: int):
+def ascend_transdata_abstract_func(x: Tensor, transdata_type: int):
     assert x.dim() in [2, 3], "x must be 2D or 3D tensor"
     assert transdata_type == 2, "currently transdata_type must be 2"
     assert x.dtype in [
@@ -816,13 +816,24 @@ def transdata_abstract_func(x: Tensor, transdata_type: int):
 
 
 @register_custom_op(
-    "dlinfer::transdata",
+    "dlinfer::ascend_transdata",
     ["hidden_states"],
-    impl_abstract_func=transdata_abstract_func,
-    default_value={"transdata_type": 0},
+    impl_abstract_func=ascend_transdata_abstract_func,
+    default_value={"transdata_type": 2},
 )
-def transdata(
+def ascend_transdata(
     hidden_states: Tensor,
     transdata_type: int,
 ) -> Tensor:
-    return vendor_ops_registry["transdata"](hidden_states, transdata_type)
+    """
+    NOTE. This is a Ascend specifical function.
+    Use ATB TransdataOperation to convert tensor format in graph mode.
+
+    Args:
+        hidden_states (Tensor): The input tensor to be transdata format.
+        transdata_type (int): If set to 2, means convert from ND to NZ format.
+
+    Returns:
+       Tensor : A tensor in target format.
+    """
+    return vendor_ops_registry["ascend_transdata"](hidden_states, transdata_type)

@@ -829,8 +829,8 @@ class AtenToAtbTransformer(SingleOpTransformer):
         assert largest == True
         return self.get_proxy(atb_op.Sort, (x, k))
 
-    @register_conversion(torch.ops.dlinfer.transdata.default)
-    def dlinfer_transdata(self, x, transdata_type):
+    @register_conversion(torch.ops.dlinfer.ascend_transdata.default)
+    def dlinfer_ascend_transdata(self, x, transdata_type):
         return self.get_proxy(atb_op.Transdata, (x, transdata_type))
 
 
