@@ -615,8 +615,8 @@ class Zeros(Operator):
     def __init__(self):
         super().__init__("Zeros")
 
-    def infer_result(self, size, dtype):
-        return torch.ops.aten.zeros.default(size, dtype=dtype)
+    def infer_result(self, size, dtype, origin_size):
+        return torch.ops.aten.zeros.default(origin_size, dtype=dtype)
 
 
 class ZerosLike(Operator):

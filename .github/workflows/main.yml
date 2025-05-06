@@ -12,7 +12,7 @@ on:
 env:
   CI_PATH: "${HOME}/GitHub/${{ github.repository }}/${GITHUB_RUN_NUMBER}"
   LMDEPLOY_PATH: "${HOME}/GitHub/lmdeploy"
-  LMDEPLOY_COMMIT_OR_BRANCH: 'dev'
+  LMDEPLOY_COMMIT_OR_BRANCH: 'main'
   REPORT_DIR: "${HOME}/GitHub/ci_log/test_reports"
   TEST_LMDEPLOY_E2E_LOG_PATH: "${HOME}/Github/ci_log/logs"
   TEST_LMDEPLOY_E2E_MODEL_PATH: "${HOME}/Github/model"
@@ -26,7 +26,7 @@ concurrency:
 jobs:
   AscendEndtoEndTests:
     if: github.repository == 'DeepLink-org/dlinfer'
-    runs-on: Atlas_800T_A2
+    runs-on: dlinfer-1
 
     steps:
       - name: Checkout code
@@ -88,6 +88,7 @@ jobs:
           export DLINFER_TEST_DIR=${{env.CI_PATH }}/tests
           echo $PYTHONPATH && pwd
           export HCCL_EXEC_TIMEOUT=600
+          export ASCEND_RT_VISIBLE_DEVICES=6,7
           pytest ./ -m 'lmdeploy' -s -x --alluredir=allure-results --clean-alluredir
           bash ${{env.CI_PATH }}/tests/test_lmdeploy/scripts/test_model_tp2.sh
 

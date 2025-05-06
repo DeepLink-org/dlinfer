@@ -629,7 +629,7 @@ class AclNnCumsumParam:
 @dataclass
 class ZerosParam:
     name: str = ""
-    size: list[int] = field(default_factory=list)
+    size: list[str] = field(default_factory=list)
     outTensorType: AclDataType = AclDataType.ACL_DT_UNDEFINED
 
 
