@@ -94,8 +94,24 @@ class AtenToAtbTransformer(SingleOpTransformer):
         self.graph_op_group = None
 
     @lru_cache
+    def get_size_str(self, size):
+        size_str = []
+        for item in size:
+            if isinstance(item, torch.fx.Proxy):
+                if hasattr(item.node, "meta") and "val" in item.node.meta:
+                    size_str.append(str(item.node.meta["val"]))
+                else:
+                    size_str.append(str(item.node))
+            elif isinstance(item, torch.SymInt):
+                size_str.append(str(item))
+            else:
+                size_str.append(str(item))
+        return size_str
+
+    @lru_cache
     def get_shared_zeros(self, size, dtype):
-        return self.get_proxy(atb_op.Zeros, (size, dtype))
+        size_str = self.get_size_str(size)
+        return self.get_proxy(atb_op.Zeros, (size_str, dtype, size))
 
     def get_proxy(self, target, args, kwargs=immutable_dict()):
         proxy = super().get_proxy(target, args, kwargs)
@@ -766,17 +782,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
 
     @register_conversion(torch.ops.aten.zeros.default)
     def aten_zeros_default(self, size, dtype, device=None, pin_memory=False):
-        size_str = []
-        for item in size:
-            if isinstance(item, torch.fx.Proxy):
-                if hasattr(item.node, "meta") and "val" in item.node.meta:
-                    size_str.append(str(item.node.meta["val"]))
-                else:
-                    size_str.append(str(item.node))
-            elif isinstance(item, torch.SymInt):
-                size_str.append(str(item))
-            else:
-                size_str.append(str(item))
+        size_str = self.get_size_str(size)
         return self.get_proxy(atb_op.Zeros, (size_str, dtype, size))
 
     @register_conversion(torch.ops.aten.zeros_like.default)
