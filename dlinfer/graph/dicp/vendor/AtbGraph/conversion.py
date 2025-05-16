@@ -268,30 +268,39 @@ class AtenToAtbTransformer(SingleOpTransformer):
     def _register_binary_ops(self):
         binary_ops = {
             (torch.ops.aten.add.Tensor, "add"): (
+                None,
                 atb_op.Add,
                 atb_op.AclNnAdds,
                 atb_op.AclNnAdd,
             ),
             (torch.ops.aten.sub.Tensor, "sub"): (
+                None,
                 atb_op.Sub,
                 atb_op.AclNnSubs,
                 atb_op.AclNnSub,
             ),
             (torch.ops.aten.mul.Tensor, "mul"): (
+                atb_op.Muls,
                 atb_op.Mul,
                 atb_op.AclNnMuls,
                 atb_op.AclNnMul,
             ),
             (torch.ops.aten.div.Tensor, "div"): (
+                None,
                 atb_op.Div,
                 atb_op.AclNnDivs,
                 atb_op.AclNnDiv,
             ),
         }
 
-        for (aten_op, op_name), (tensor_op, scalar_op, aclnn_op) in binary_ops.items():
+        for (aten_op, op_name), (
+            scalar_op,
+            tensor_op,
+            aclnn_scalar_op,
+            aclnn_op,
+        ) in binary_ops.items():
 
-            def make_handler(tensor_op, scalar_op, aclnn_op):
+            def make_handler(scalar_op, tensor_op, aclnn_scalar_op, aclnn_op):
                 def handler(self, x, y):
                     atb_supported_dtype = [torch.float16, torch.bfloat16]
                     out_dtype = fx_traceback.get_current_meta()["val"].dtype
@@ -311,11 +320,16 @@ class AtenToAtbTransformer(SingleOpTransformer):
                             return self.get_proxy(aclnn_op, (x, y, dtype))
                     else:
                         dtype = get_ascend_dtype(out_dtype)
-                        return self.get_proxy(scalar_op, (x, y, dtype))
+                        if out_dtype in atb_supported_dtype and scalar_op is not None:
+                            return self.get_proxy(scalar_op, (x, y, dtype))
+                        else:
+                            return self.get_proxy(aclnn_scalar_op, (x, y, dtype))
 
                 return handler
 
-            register_conversion(aten_op)(make_handler(tensor_op, scalar_op, aclnn_op))
+            register_conversion(aten_op)(
+                make_handler(scalar_op, tensor_op, aclnn_scalar_op, aclnn_op)
+            )
 
     @register_conversion(torch.ops.aten.pow.Tensor_Scalar)
     def aten_pow_tensor_scalar(self, x, y):
