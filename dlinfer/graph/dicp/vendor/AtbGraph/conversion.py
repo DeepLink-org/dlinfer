@@ -616,9 +616,10 @@ class AtenToAtbTransformer(SingleOpTransformer):
     @register_conversion(torch.ops.aten.slice.Tensor)
     def slice_tensor(self, x, dim, start, end, step=1):
         dtype = fx_traceback.get_current_meta()["val"].dtype
-        if dtype == torch.int64 or step != 1:
-            return self.get_proxy(atb_op.AclNnSlice, (x, dim, start, end, step))
         x_shape = x.node.meta["val"].shape
+        if dtype == torch.int64 or step != 1:
+            end = x_shape[dim] if end >= x_shape[dim] else end
+            return self.get_proxy(atb_op.AclNnSlice, (x, dim, start, end, step))
         offsets = [0] * len(x_shape)
         size = [-1] * len(x_shape)
 
