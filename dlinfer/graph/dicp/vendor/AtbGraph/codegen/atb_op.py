@@ -60,6 +60,7 @@ class AtbOverrides:
         param.hasResidual = False
         param.parallelType = infer_param.ParallelType.LINEAR_ALL_REDUCE
         param.commMode = infer_param.CommMode.COMM_MULTI_PROCESS
+        param.commDomain = group if group is not None else ""
 
         # LCCL has issues with multiple communication domains. By default,
         # in single-machine multi-card scenarios, LCCL is enabled.
@@ -75,7 +76,6 @@ class AtbOverrides:
             param.backend = "lccl"
         else:
             param.backend = "hccl"
-            param.commDomain = group if group is not None else ""
             if rank_table_file is not None:
                 param.rankTableFile = rank_table_file
 
@@ -95,6 +95,7 @@ class AtbOverrides:
         param.rankRoot = 0
         param.allReduceType = reduce_type
         param.commMode = infer_param.CommMode.COMM_MULTI_PROCESS
+        param.commDomain = group if group is not None else ""
 
         # LCCL has issues with multiple communication domains. By default,
         # in single-machine multi-card scenarios, LCCL is enabled.
@@ -110,7 +111,6 @@ class AtbOverrides:
             param.backend = "lccl"
         else:
             param.backend = "hccl"
-            param.commDomain = group if group is not None else ""
             if rank_table_file is not None:
                 param.rankTableFile = rank_table_file
 
