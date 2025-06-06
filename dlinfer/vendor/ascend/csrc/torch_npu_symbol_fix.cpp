@@ -28,4 +28,17 @@ bool checkUceErrAndRepair() {
     return false;
 }
 
+void checkUceErrAndRepair(bool tf, std::string& str) {
+    throw std::runtime_error(
+        "Dlinfer checkUceErrAndRepair should not be called. "
+        "Please check your environment setup.");
+    return;
+}
+
+void record_mem_hbm_ecc_error() {
+    throw std::runtime_error(
+        "Dlinfer record_mem_hbm_ecc_error should not be called. "
+        "Please check your environment setup.");
+}
+
 }  // namespace c10_npu
