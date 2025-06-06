@@ -155,7 +155,6 @@ aclError AclrtCtxSetSysParamOpt(aclSysParamOpt opt, int64_t value) {
         }                                                                                                                                             \
     } while (0)
 
-
 static bool deterministicaclnn_oldstatus = false;
 void SetDeterministic() {
     auto deterministicAlgorithmsStatus = at::globalContext().deterministicAlgorithms();
