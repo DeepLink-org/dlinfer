@@ -530,8 +530,11 @@ def linear(
         # on 310p, the weight is transposed to nz format in llm part on graph mode,
         # but in vl part, eager mode is used.
         # we need to reshape it back to nd.
-        if len(weight.shape) == 4 and weight.shape[0] == 1 \
-                and weight.shape[1] * weight.shape[3] == x.shape[-1]:
+        if (
+            len(weight.shape) == 4
+            and weight.shape[0] == 1
+            and weight.shape[1] * weight.shape[3] == x.shape[-1]
+        ):
             weight = weight.permute(0,2,1,3)
             weight = weight.reshape(weight.shape[1], -1)
         out = torch.nn.functional.linear(x, weight, bias)
