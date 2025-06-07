@@ -535,7 +535,7 @@ def linear(
             and weight.shape[0] == 1
             and weight.shape[1] * weight.shape[3] == x.shape[-1]
         ):
-            weight = weight.permute(0,2,1,3)
+            weight = weight.permute(0, 2, 1, 3)
             weight = weight.reshape(weight.shape[1], -1)
         out = torch.nn.functional.linear(x, weight, bias)
     return out
