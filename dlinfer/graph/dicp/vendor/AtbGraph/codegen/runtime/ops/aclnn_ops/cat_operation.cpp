@@ -4,6 +4,7 @@
 #include <aclnn/acl_meta.h>
 #include <securec.h>
 #include <syscall.h>
+#include <torch_npu/csrc/core/npu/NPUFormat.h>
 #include <unistd.h>
 
 #include <cstring>
@@ -14,6 +15,7 @@
 #include "acl/acl.h"
 #include "aclnnop/aclnn_cat.h"
 #include "utils/log.h"
+#include "utils/tensor_utils.h"
 
 namespace dicp {
 const int DIM0 = 0;
@@ -61,6 +63,31 @@ uint32_t AclNnCatOperation::GetOutputNum() const { return NUM1; }
 
 int AclNnCatOperation::SetAclNnWorkspaceExecutor(uint64_t& workspaceSize) {
     DICP_LOG(INFO) << opName_ << " aclnnCatGetWorkspaceSize start";
+    auto out_format = aclOutTensors_.at(0).atbTensor.desc.format;
+    for (size_t i = 0; i < aclInTensors_.size(); ++i) {
+        if (aclInTensors_.at(i).atbTensor.desc.format != out_format) {
+            auto temp_tensor = dicp::tensor_utils::CreateAtTensorFromTensorDesc(aclInTensors_.at(i).atbTensor.desc);
+            temp_tensor = at_npu::native::npu_format_cast(temp_tensor, out_format);
+            auto atbTensor = dicp::tensor_utils::AtTensor2Tensor(temp_tensor);
+            aclInTensors_.at(i).atbTensor = atbTensor;
+
+            atb::SVector<int64_t> strides(atbTensor.desc.shape.dimNum, 1);
+
+            for (int64_t j = atbTensor.desc.shape.dimNum - 2; j >= 0; j--) {
+                strides[j] = atbTensor.desc.shape.dims[j + 1] * strides[j + 1];
+            }
+            aclInTensors_.at(i).tensor = aclCreateTensor(atbTensor.desc.shape.dims,
+                                                         atbTensor.desc.shape.dimNum,
+                                                         atbTensor.desc.dtype,
+                                                         strides.data(),
+                                                         0,
+                                                         atbTensor.desc.format,
+                                                         atbTensor.desc.shape.dims,
+                                                         atbTensor.desc.shape.dimNum,
+                                                         atbTensor.deviceData);
+        }
+    }
+
     std::vector<aclTensor*> tmp;
     tmp.resize(this->inputNum);
     for (size_t i = 0; i < aclInTensors_.size(); ++i) {
