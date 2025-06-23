@@ -362,7 +362,7 @@ class Transpose(Operator):
         super().__init__("Transpose")
 
     def infer_result(self, x, perm):
-        return x.t()
+        return torch.permute(x, perm)
 
 
 class Transdata(Operator):
