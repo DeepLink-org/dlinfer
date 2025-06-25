@@ -420,6 +420,7 @@ def linear(
     weight: Tensor,
     bias: Optional[Tensor],
     all_reduce: Optional[bool],
+    group: Optional[str],
 ) -> Tensor:
     if os.getenv("DLINER_LINEAR_USE_NN_LAYOUT", "0") == "1":
         out = torch.matmul(x, weight)
