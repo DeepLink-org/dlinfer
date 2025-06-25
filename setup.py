@@ -11,6 +11,7 @@ vendor_dispatch_key_map = {
     "ascend": "PrivateUse1",
     "maca": "CUDA",
     "camb": "PrivateUse1",
+    "ppu": "CUDA",
 }
 
 
