@@ -25,7 +25,20 @@ ViewOperation::ViewOperation(const std::string& name, std::vector<int64_t> viewS
 
 atb::Status ViewOperation::InferShape(const atb::SVector<atb::TensorDesc>& inTensorDescs, atb::SVector<atb::TensorDesc>& outTensorDescs) const {
     DICP_LOG(INFO) << "ViewOperation: " << opName_ << " infer shape start";
-    outTensorDescs.at(0).format = inTensorDescs.at(0).format;
+    switch (shape_.size()) {
+        case 3:
+            format = ACL_FORMAT_NCL;
+            break;
+        case 4:
+            format = ACL_FORMAT_NCHW;
+            break;
+        case 5:
+            format = ACL_FORMAT_NCDHW;
+            break;
+        default:
+            format = ACL_FORMAT_ND;
+    }
+
     outTensorDescs.at(0).dtype = inTensorDescs.at(0).dtype;
     outTensorDescs.at(0).shape.dimNum = shape_.size();
 
