@@ -142,7 +142,7 @@ if SocVersion.is_Ascend310P():
 
     def _build_model_310P(self):
         """
-        build patched model.
+        Build patched model.
         NOTE: Ascend310P convert Linear weight to NZ format defaultly in graph mode.
         However, vision_model part is not compiled in graph mode, so we skip converting weights of vision_model part.
         """
@@ -154,9 +154,12 @@ if SocVersion.is_Ascend310P():
         if custom_module_map is not None:
             update_custom_module_map(custom_module_map)
         logger.debug(msg_with_rank(rank, "build model."))
-        patched_model = build_patched_model(self.model_config, device=device)
+        patched_model = build_patched_model(
+            self.model_config, device=device, model_format=self.misc_config.model_format
+        )
         logger.debug(msg_with_rank(rank, "loading weights."))
-        load_model_weights_310P(patched_model, model_path, device=device)
+        if not self.misc_config.empty_init:
+            load_model_weights_310P(patched_model, model_path, device=device)
         if adapters is not None:
             logger.debug(msg_with_rank(rank, "loading adapters."))
             add_adapters(
