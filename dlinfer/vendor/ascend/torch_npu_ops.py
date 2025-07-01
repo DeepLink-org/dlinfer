@@ -255,10 +255,15 @@ def fill_kv_cache(
         key = quant_int8(key, k_scales_zeros[0], k_scales_zeros[1])
         value = quant_int8(value, v_scales_zeros[0], v_scales_zeros[1])
 
-    key_cache_reshaped = key_cache.view(block_total, head, dim)
-    value_cache_reshaped = value_cache.view(block_total, head, dim)
-    torch.ops.npu.npu_scatter_nd_update_(key_cache_reshaped, kv_indices, key)
-    torch.ops.npu.npu_scatter_nd_update_(value_cache_reshaped, kv_indices, value)
+    is_mla = key.shape[-1] != value.shape[-1]
+    if is_mla:
+        key_cache_reshaped = key_cache.view(block_total, head, dim)
+        torch.ops.npu.npu_scatter_nd_update_(key_cache_reshaped, kv_indices, key)
+    else:
+        key_cache_reshaped = key_cache.view(block_total, head, dim)
+        value_cache_reshaped = value_cache.view(block_total, head, dim)
+        torch.ops.npu.npu_scatter_nd_update_(key_cache_reshaped, kv_indices, key)
+        torch.ops.npu.npu_scatter_nd_update_(value_cache_reshaped, kv_indices, value)
     return key_cache, value_cache
 """
 
@@ -339,6 +344,7 @@ def paged_decode_attention(
     query = query.contiguous()
     attn_output = attn_output.contiguous()
     scale_value = softmax_scale if softmax_scale else 1.0 / math.sqrt(query.shape[-1])
+    is_mla = key_cache.shape[-1] != value_cache.shape[-1]
     if AscendGraphRunner.capturing:
         graph_params = get_graph_params()
         num_tokens = query.shape[0]
