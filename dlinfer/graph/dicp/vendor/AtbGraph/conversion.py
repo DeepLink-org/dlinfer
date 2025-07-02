@@ -152,6 +152,11 @@ class AtenToAtbTransformer(SingleOpTransformer):
         )
         return rms_norm_w8a8
 
+    @register_conversion("torch.ops.aten.native_layer_norm.default")
+    def npu_layer_norm(self, x, w, t1, t2, eps=1e-6):
+        layer_norm = self.get_proxy(atb_op.LayerNorm, (x, w, t1, t2, eps))
+        return layer_norm
+
     @register_conversion("torch.ops.dlinfer.apply_rotary_pos_emb.default")
     def apply_rotary_pos_emb(self, q, k, cos, sin):
         q_shape = list(q.node.meta["val"].shape)
@@ -400,6 +405,10 @@ class AtenToAtbTransformer(SingleOpTransformer):
             split_dim_shape -= size
         return self.get_proxy(atb_op.SplitWithSize, (x, sizes, dim))
 
+    @register_conversion(torch.ops.aten.gelu.default)
+    def gelu(self, x):
+        return self.get_proxy(atb_op.Gelu, (x,))
+
     @register_conversion("torch.ops.dlinfer.silu_and_mul.default")
     def silu_and_mul(self, gate_up, dim):
         return self.get_proxy(atb_op.Swiglu, (gate_up, dim))
@@ -526,6 +535,21 @@ class AtenToAtbTransformer(SingleOpTransformer):
             ),
         )
         return out
+
+    @register_conversion("torch.ops.dlinfer.incre_flash_attention.default")
+    def npu_incre_flash_attention(
+        self,
+        query,
+        key,
+        value,
+        num_heads,
+        input_layout,
+        scale_value,
+    ):
+        incre_flash_attention = self.get_proxy(
+            atb_op.IncreFlashAttention, (query, key, value, input_layout, scale_value)
+        )
+        return incre_flash_attention
 
     @register_conversion("torch.ops.dlinfer.paged_prefill_attention.default")
     def paged_prefill_attention(
@@ -721,6 +745,11 @@ class AtenToAtbTransformer(SingleOpTransformer):
             ),
         )
         return moe_out
+
+    @register_conversion("torch.ops.aten._softmax.default")
+    def npu_softmax(self, x, dim, keep_dim=False):
+        softmax = self.get_proxy(atb_op.Softmax, (x, dim))
+        return softmax
 
     @register_conversion("torch.ops.dlinfer.moe_gating_topk_softmax.default")
     def dlinfer_moe_gating_topk_softmax(self, router_logits, top_k):
