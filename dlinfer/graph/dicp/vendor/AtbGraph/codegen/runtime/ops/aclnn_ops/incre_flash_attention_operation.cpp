@@ -1,4 +1,3 @@
-
 #include "incre_flash_attention_operation.h"
 
 #include <aclnn/acl_meta.h>
@@ -56,7 +55,7 @@ int AclNnIncreFlashAttentionOperation::SetAclNnWorkspaceExecutor(uint64_t& works
 
     aclTensor* tensorsOfValue[kvTensorNum];
     tensorsOfValue[0] = aclInTensors_.at(2).tensor;
-    ;
+
     auto tensorValueList = aclCreateTensorList(tensorsOfValue, kvTensorNum);
 
     std::vector<int64_t> actualSeqlenVector = {sequenceLengthkv};

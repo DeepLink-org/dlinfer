@@ -154,7 +154,6 @@ class AtenToAtbTransformer(SingleOpTransformer):
 
     @register_conversion("torch.ops.aten.native_layer_norm.default")
     def npu_layer_norm(self, x, w, t1, t2, eps=1e-6):
-        self.graph_op_group = OrderedDict()
         layer_norm = self.get_proxy(atb_op.LayerNorm, (x, w, t1, t2, eps))
         return layer_norm
 
@@ -547,7 +546,6 @@ class AtenToAtbTransformer(SingleOpTransformer):
         input_layout,
         scale_value,
     ):
-        self.graph_op_group = OrderedDict()
         incre_flash_attention = self.get_proxy(
             atb_op.IncreFlashAttention, (query, key, value, input_layout, scale_value)
         )
@@ -750,7 +748,6 @@ class AtenToAtbTransformer(SingleOpTransformer):
 
     @register_conversion("torch.ops.aten._softmax.default")
     def npu_softmax(self, x, dim, keep_dim=False):
-        self.graph_op_group = OrderedDict()
         softmax = self.get_proxy(atb_op.Softmax, (x, dim))
         return softmax
 

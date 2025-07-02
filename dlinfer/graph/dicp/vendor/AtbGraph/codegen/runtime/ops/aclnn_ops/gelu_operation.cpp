@@ -41,18 +41,6 @@ uint32_t AclNnGeluOperation::GetOutputNum() const { return NUM1; }
 int AclNnGeluOperation::SetAclNnWorkspaceExecutor(uint64_t& workspaceSize) {
     DICP_LOG(INFO) << opName_ << " aclnnGeluGetWorkspaceSize start";
 
-    if (true) {
-        for (size_t i = 0; i < aclInTensors_.size(); ++i) {
-            auto tensor = aclInTensors_.at(i).atbTensor;
-            DICP_LOG(INFO) << "in::" << i << tensor_utils::TensorToString(tensor);
-        }
-
-        for (size_t i = 0; i < aclOutTensors_.size(); ++i) {
-            auto tensor = aclOutTensors_.at(i).atbTensor;
-            DICP_LOG(INFO) << "out::" << i << tensor_utils::TensorToString(tensor);
-        }
-    }
-
     int ret = aclnnGeluGetWorkspaceSize(aclInTensors_.at(0).tensor, aclOutTensors_.at(0).tensor, &workspaceSize, &aclExecutor_);
     DICP_LOG(INFO) << opName_ << " aclnnGeluGetWorkspaceSize end, ret:" << ret << ", workspaceSize:" << workspaceSize << ", aclExecutor:" << aclExecutor_;
     return ret;
