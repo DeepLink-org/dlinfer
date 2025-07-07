@@ -825,3 +825,24 @@ class AclNnReduceSum(Operator):
 
     def infer_result(self, x, dim, keep_dim, dtype, ascend_dtype):
         return x.sum(dim, keep_dim=keep_dim, dtype=dtype)
+
+
+class CustomFusedLora(Operator):
+    def __init__(self):
+        super().__init__("CustomFusedLora")
+
+    def infer_result(
+        self, x, lora_a, lora_b, scaling, ranks, seq_lens, adapter_ids, dtype
+    ):
+        M, K = x.shape
+        N = lora_b.size(1)
+        output = torch.empty((M, N), dtype=x.dtype, device=x.device)
+        return output, output
+
+
+class AclNnInplaceAdd(Operator):
+    def __init__(self):
+        super().__init__("AclNnInplaceAdd")
+
+    def infer_result(self, a, b, dtype):
+        return a + b
