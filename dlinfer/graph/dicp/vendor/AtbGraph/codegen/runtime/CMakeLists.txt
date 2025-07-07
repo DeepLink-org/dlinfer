@@ -21,6 +21,11 @@ set(COMPILE_OPTIONS
     -Wno-attributes
 )
 
+# Add CXX11 ABI flag based on ATB_CXX_ABI_VERSION
+if(ATB_CXX_ABI_VERSION STREQUAL "cxx_abi_0")
+    list(APPEND COMPILE_OPTIONS -D_GLIBCXX_USE_CXX11_ABI=0)
+endif()
+
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O2")
 
 add_library(dicp_model SHARED ${SOURCES})
