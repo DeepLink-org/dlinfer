@@ -1,8 +1,9 @@
 #pragma once
 
-#include "ops/aclnn_ops/acl_nn_operation.h"
-#include <vector>
 #include <unordered_map>
+#include <vector>
+
+#include "ops/aclnn_ops/acl_nn_operation.h"
 
 namespace dicp {
 
@@ -26,7 +27,7 @@ private:
     int CreateAclTensors(const atb::VariantPack& variantPack);
     void ClearAclScalrs();
     void ClearInternal();
-    
+
     // Helper functions for weight tensor creation and offset calculation
     atb::Tensor CreateWeightTensor(const atb::Tensor& baseTensor, int64_t rank, int64_t dim, uint64_t offset);
     uint64_t CalculateWeightOffset(const std::vector<int32_t>& ranksVec, size_t adapterId, uint64_t tensorSizePerRank);
@@ -62,7 +63,6 @@ private:
 
     std::vector<uint64_t> aclScalingWorkspace_;
     std::vector<aclOpExecutor*> aclScalingExecutor_;
-
 };
 
 }  // namespace dicp

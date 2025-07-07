@@ -1,19 +1,19 @@
 #include "fused_lora_operation.h"
 
+#include <atb/utils.h>
+
+#include <algorithm>
 #include <cstdint>
 #include <unordered_set>
-#include <algorithm>
 
-#include "aclnnop/aclnn_mul.h"
 #include "aclnnop/aclnn_grouped_matmul_v4.h"
+#include "aclnnop/aclnn_mul.h"
 #include "aclnnop/aclnn_permute.h"
 #include "ops/operation_creator.h"
 #include "third_party/acl/inc/acl/acl_base.h"
 #include "utils/common.h"
 #include "utils/log.h"
 #include "utils/scalar.h"
-
-#include <atb/utils.h>
 
 namespace dicp {
 
@@ -72,10 +72,10 @@ int CustomFusedLoraOperation::CreateAclTensors(const atb::VariantPack& variantPa
 
     const size_t inTensorCount = variantPack.inTensors.size();
     const size_t outTensorCount = variantPack.outTensors.size();
-    
+
     aclInTensors_.resize(inTensorCount);
     aclOutTensors_.resize(outTensorCount);
-    
+
     for (size_t i = 0; i < inTensorCount; ++i) {
         aclInTensors_[i] = CreateTensor(variantPack.inTensors.at(i));
     }
@@ -104,7 +104,7 @@ void CustomFusedLoraOperation::ClearInternal() {
     aclWeightATranspose_.clear();
     weightA_.clear();
     weightB_.clear();
-    weightATranspose_.clear();    
+    weightATranspose_.clear();
 
     aclScalingInput_.clear();
     scalingInput_.clear();
@@ -183,7 +183,7 @@ int CustomFusedLoraOperation::Setup(const atb::VariantPack& variantPack, uint64_
     const int64_t loraBDim = variantPack.inTensors.at(2).desc.shape.dims[1];
 
     ClearInternal();
-    
+
     // Pre-allocate vectors to avoid reallocations
     weightA_.reserve(adapterIdsVec.size());
     weightATranspose_.reserve(adapterIdsVec.size());
@@ -197,7 +197,6 @@ int CustomFusedLoraOperation::Setup(const atb::VariantPack& variantPack, uint64_
     scalingInput_.reserve(adapterIdsVec.size());
     aclScalingWeight_.reserve(adapterIdsVec.size());
     aclScalingInput_.reserve(adapterIdsVec.size());
-
 
     bool singleInfer = adapterIdsVec.size() == 1;
     int32_t totalRanks = 0;
@@ -284,7 +283,7 @@ int CustomFusedLoraOperation::Setup(const atb::VariantPack& variantPack, uint64_
     } else {
         permuteDims = {1, 0};
     }
-    aclIntArray *permuteDimsArray = aclCreateIntArray(permuteDims.data(), permuteDims.size());
+    aclIntArray* permuteDimsArray = aclCreateIntArray(permuteDims.data(), permuteDims.size());
     for (const auto& [adapterId, weightATransposeIndex] : weightATransposeIdMap_) {
         aclWeightAPermuteExecutor_[adapterId] = nullptr;
         aclWeightAPermuteWorkspace_[adapterId] = 0;
@@ -292,18 +291,14 @@ int CustomFusedLoraOperation::Setup(const atb::VariantPack& variantPack, uint64_
         auto& weightA = aclWeightA_[weightATransposeIndex];
         auto& weightATranspose = aclWeightATranspose_[weightATransposeIndex];
 
-
-        int ret = aclnnPermuteGetWorkspaceSize(weightA.tensor,
-                                           permuteDimsArray,
-                                           weightATranspose.tensor,
-                                           &aclWeightAPermuteWorkspace_[adapterId],
-                                           &aclWeightAPermuteExecutor_[adapterId]);
+        int ret = aclnnPermuteGetWorkspaceSize(
+            weightA.tensor, permuteDimsArray, weightATranspose.tensor, &aclWeightAPermuteWorkspace_[adapterId], &aclWeightAPermuteExecutor_[adapterId]);
         DICP_LOG(INFO) << opName_ << " aclnnPermuteGetWorkspaceSize size[" << adapterId << "]: " << aclWeightAPermuteWorkspace_[adapterId] << ", ret: " << ret;
     }
 
     // Setup grouped matrix multiplication
     DICP_LOG(INFO) << opName_ << " Setting up grouped matrix multiplication";
-    
+
     // Create input tensor list
     std::vector<aclTensor*> xTmp;
     if (singleInfer) {
@@ -317,7 +312,7 @@ int CustomFusedLoraOperation::Setup(const atb::VariantPack& variantPack, uint64_
             slicedInput.desc.format = aclInTensors_.at(0).atbTensor.desc.format;
             slicedInput.desc.shape.dimNum = aclInTensors_.at(0).atbTensor.desc.shape.dimNum;
             slicedInput.desc.shape.dims[0] = seqLensVec[i];
-            slicedInput.desc.shape.dims[1] = aclInTensors_.at(0).atbTensor.desc.shape.dims[1];  
+            slicedInput.desc.shape.dims[1] = aclInTensors_.at(0).atbTensor.desc.shape.dims[1];
             slicedInput.dataSize = atb::Utils::GetTensorSize(slicedInput.desc);
 
             auto offset = CalculateWeightOffset(seqLensVec, i, slicedInput.dataSize / seqLensVec[i]);
@@ -338,14 +333,14 @@ int CustomFusedLoraOperation::Setup(const atb::VariantPack& variantPack, uint64_
     std::vector<aclTensor*> weightTmpB;
     weightTmpA.reserve(aclWeightATranspose_.size());
     weightTmpB.reserve(aclWeightB_.size());
-    
+
     for (const auto& weight : aclWeightATranspose_) {
         weightTmpA.push_back(weight.tensor);
     }
     for (const auto& weight : aclWeightB_) {
         weightTmpB.push_back(weight.tensor);
     }
-    
+
     aclTensorList* weightTensorListA = aclCreateTensorList(weightTmpA.data(), weightTmpA.size());
     aclTensorList* weightTensorListB = aclCreateTensorList(weightTmpB.data(), weightTmpB.size());
 
@@ -363,7 +358,7 @@ int CustomFusedLoraOperation::Setup(const atb::VariantPack& variantPack, uint64_
         loraASliceOutput.desc.format = aclOutTensors_.at(1).atbTensor.desc.format;
         loraASliceOutput.desc.shape.dimNum = aclOutTensors_.at(1).atbTensor.desc.shape.dimNum;
         loraASliceOutput.desc.shape.dims[0] = aclOutTensors_.at(1).atbTensor.desc.shape.dims[0];
-        loraASliceOutput.desc.shape.dims[1] = totalRanks / adapterIdsVec.size();  
+        loraASliceOutput.desc.shape.dims[1] = totalRanks / adapterIdsVec.size();
         loraASliceOutput.dataSize = atb::Utils::GetTensorSize(loraASliceOutput.desc);
         loraASliceOutput.deviceData = aclOutTensors_.at(1).atbTensor.deviceData;
         auto aclnnLoraASliceOutput = CreateTensor(loraASliceOutput);
@@ -378,7 +373,7 @@ int CustomFusedLoraOperation::Setup(const atb::VariantPack& variantPack, uint64_
             slicedOutput.desc.format = aclOutTensors_.at(1).atbTensor.desc.format;
             slicedOutput.desc.shape.dimNum = aclOutTensors_.at(1).atbTensor.desc.shape.dimNum;
             slicedOutput.desc.shape.dims[0] = seqLensVec[i];
-            slicedOutput.desc.shape.dims[1] = ranksVec[adapterIdsVec[i]];  
+            slicedOutput.desc.shape.dims[1] = ranksVec[adapterIdsVec[i]];
             slicedOutput.dataSize = atb::Utils::GetTensorSize(slicedOutput.desc);
 
             auto offset = CalculateWeightOffset(seqLensVec, i, slicedOutput.dataSize / seqLensVec[i]);
@@ -398,59 +393,59 @@ int CustomFusedLoraOperation::Setup(const atb::VariantPack& variantPack, uint64_
         DICP_LOG(ERROR) << opName_ << " Failed to create output tensor lists";
         return -1;
     }
-    
+
     // Setup LoRA A grouped matrix multiplication
-    int ret = aclnnGroupedMatmulV4GetWorkspaceSize(xTensorList,                                           // x
-                                                   weightTensorListA,                                     // weight
-                                                   nullptr,                                               // biasOptional
-                                                   nullptr,                                               // scaleOptional
-                                                   nullptr,                                               // offsetOptional
-                                                   nullptr,                                               // antiquantScaleOptional
-                                                   nullptr,                                               // antiquantOffsetOptional
-                                                   nullptr,                                               // perTokenScaleOptional
-                                                   singleInfer ? aclInTensors_.at(5).tensor : nullptr,    // groupListOptional
-                                                   nullptr,                                               // activationInputOptional
-                                                   nullptr,                                               // activationQuantScaleOptional
-                                                   nullptr,                                               // activationQuantOffsetOptional
-                                                   singleInfer ? 2 : 0,                                   // splitItem
-                                                   singleInfer ? 0 : -1,                                  // groupType
-                                                   1,                                                     // groupListType
-                                                   0,                                                     // actType
-                                                   loraAOutTensorList,                                    // out
-                                                   nullptr,                                               // activationFeatureOutOptional
-                                                   nullptr,                                               // dynQuantScaleOutOptional
+    int ret = aclnnGroupedMatmulV4GetWorkspaceSize(xTensorList,                                         // x
+                                                   weightTensorListA,                                   // weight
+                                                   nullptr,                                             // biasOptional
+                                                   nullptr,                                             // scaleOptional
+                                                   nullptr,                                             // offsetOptional
+                                                   nullptr,                                             // antiquantScaleOptional
+                                                   nullptr,                                             // antiquantOffsetOptional
+                                                   nullptr,                                             // perTokenScaleOptional
+                                                   singleInfer ? aclInTensors_.at(5).tensor : nullptr,  // groupListOptional
+                                                   nullptr,                                             // activationInputOptional
+                                                   nullptr,                                             // activationQuantScaleOptional
+                                                   nullptr,                                             // activationQuantOffsetOptional
+                                                   singleInfer ? 2 : 0,                                 // splitItem
+                                                   singleInfer ? 0 : -1,                                // groupType
+                                                   1,                                                   // groupListType
+                                                   0,                                                   // actType
+                                                   loraAOutTensorList,                                  // out
+                                                   nullptr,                                             // activationFeatureOutOptional
+                                                   nullptr,                                             // dynQuantScaleOutOptional
                                                    &loraAGroupedGemmWorkspace_,
                                                    &aclLoraAGroupedGemmExecutor_);
     DICP_LOG(INFO) << opName_ << " LoRA A grouped matmul workspace size: " << loraAGroupedGemmWorkspace_ << ", ret: " << ret;
 
     // Setup LoRA B grouped matrix multiplication
-    ret = aclnnGroupedMatmulV4GetWorkspaceSize(loraAOutTensorList,                                // x
-                                               weightTensorListB,                                 // weight
-                                               nullptr,                                           // biasOptional
-                                               nullptr,                                           // scaleOptional
-                                               nullptr,                                           // offsetOptional
-                                               nullptr,                                           // antiquantScaleOptional
-                                               nullptr,                                           // antiquantOffsetOptional
-                                               nullptr,                                           // perTokenScaleOptional
-                                               aclInTensors_.at(5).tensor,                        // groupListOptional
-                                               nullptr,                                           // activationInputOptional
-                                               nullptr,                                           // activationQuantScaleOptional
-                                               nullptr,                                           // activationQuantOffsetOptional
-                                               2,                                                 // splitItem
-                                               0,                                                 // groupType
-                                               1,                                                 // groupListType
-                                               0,                                                 // actType
-                                               loraBOutTensorList,                                // out
-                                               nullptr,                                           // activationFeatureOutOptional
-                                               nullptr,                                           // dynQuantScaleOutOptional
+    ret = aclnnGroupedMatmulV4GetWorkspaceSize(loraAOutTensorList,          // x
+                                               weightTensorListB,           // weight
+                                               nullptr,                     // biasOptional
+                                               nullptr,                     // scaleOptional
+                                               nullptr,                     // offsetOptional
+                                               nullptr,                     // antiquantScaleOptional
+                                               nullptr,                     // antiquantOffsetOptional
+                                               nullptr,                     // perTokenScaleOptional
+                                               aclInTensors_.at(5).tensor,  // groupListOptional
+                                               nullptr,                     // activationInputOptional
+                                               nullptr,                     // activationQuantScaleOptional
+                                               nullptr,                     // activationQuantOffsetOptional
+                                               2,                           // splitItem
+                                               0,                           // groupType
+                                               1,                           // groupListType
+                                               0,                           // actType
+                                               loraBOutTensorList,          // out
+                                               nullptr,                     // activationFeatureOutOptional
+                                               nullptr,                     // dynQuantScaleOutOptional
                                                &loraBGroupedGemmWorkspace_,
                                                &aclLoraBGroupedGemmExecutor_);
     DICP_LOG(INFO) << opName_ << " LoRA B grouped matmul workspace size: " << loraBGroupedGemmWorkspace_ << ", ret: " << ret;
-    
+
     // Setup scaling operations
     aclScalingWorkspace_.resize(adapterIdsVec.size());
     aclScalingExecutor_.resize(adapterIdsVec.size());
-    
+
     for (size_t i = 0; i < adapterIdsVec.size(); ++i) {
         const int32_t adapterId = adapterIdsVec[i];
         const auto& inputAtbTensor = aclOutTensors_.at(0).atbTensor;
@@ -494,10 +489,8 @@ int CustomFusedLoraOperation::Setup(const atb::VariantPack& variantPack, uint64_
         aclnnScalingWeight.CreateTensor(opName_);
         aclScalingWeight_.push_back(aclnnScalingWeight);
 
-        ret = aclnnInplaceMulGetWorkspaceSize(aclScalingInput_.back().tensor,
-                                               aclScalingWeight_.back().tensor,
-                                               &aclScalingWorkspace_[i],
-                                               &aclScalingExecutor_[i]);
+        ret =
+            aclnnInplaceMulGetWorkspaceSize(aclScalingInput_.back().tensor, aclScalingWeight_.back().tensor, &aclScalingWorkspace_[i], &aclScalingExecutor_[i]);
         DICP_LOG(INFO) << opName_ << " Scaling workspace size[" << i << "]: " << aclScalingWorkspace_[i] << ", ret: " << ret;
     }
 
