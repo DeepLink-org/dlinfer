@@ -729,6 +729,19 @@ class AclNnReduceSumParam:
     dtype: str = "FLOAT"
 
 
+@dataclass
+class CustomFusedLoraParam:
+    name: str = ""
+    dtype: str = "FLOAT"
+
+
+@dataclass
+class AclNnInplaceAddParam:
+    name: str = ""
+    alpha: float = 1.0
+    dtype: str = "FLOAT"
+
+
 def custom_asdict_factory(data):
     def convert_value(obj):
         if isinstance(obj, IntEnum):
