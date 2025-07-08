@@ -10,8 +10,13 @@ from dlinfer.utils.type_annotation import Tensor, Optional, Sequence, Tuple
 # from vllm._C import ops
 # from vllm._C import cache_ops
 from vllm import _custom_ops as custom_ops
+from vllm.model_executor.layers.fused_moe import fused_experts
+from vllm.attention.ops.prefix_prefill import context_attention_fwd
 from vllm.vllm_flash_attn import flash_attn_varlen_func
-
+# from vllm.attention.ops.flashmla import (flash_mla_with_kvcache,
+#                                          get_mla_metadata,
+#                                          is_flashmla_supported)
+from vllm.v1.attention.backends.mla.flashmla import flash_mla_with_kvcache, get_mla_metadata
 # from xformers import ops as xops
 # from xformers.ops.fmha.attn_bias import (BlockDiagonalCausalMask,
 #                                          LowerTriangularMaskWithTensorBias)
@@ -35,6 +40,29 @@ __all__ = [
     "rms_norm_w8a8",
     "add_rms_norm_w8a8",
 ]
+
+
+def scaled_dot_product_attention(
+    query, key, value, attn_mask=None, dropout_p=0.0, is_causal=False, scale=None
+) -> torch.Tensor:
+    L, S = query.size(-2), key.size(-2)
+    scale_factor = 1 / math.sqrt(query.size(-1)) if scale is None else scale
+    attn_bias = torch.zeros(L, S, dtype=query.dtype)
+    if is_causal:
+        assert attn_mask is None
+        temp_mask = torch.ones(L, S, dtype=torch.bool).tril(diagonal=0)
+        attn_bias.masked_fill_(temp_mask.logical_not(), float("-inf"))
+        attn_bias.to(query.dtype)
+    if attn_mask is not None:
+        if attn_mask.dtype == torch.bool:
+            attn_bias.masked_fill_(attn_mask.logical_not(), float("-inf"))
+        else:
+            attn_bias += attn_mask
+    attn_weight = query @ key.transpose(-2, -1) * scale_factor
+    attn_weight += attn_bias.to(query.device)
+    attn_weight = torch.softmax(attn_weight, dim=-1)
+    attn_weight = torch.dropout(attn_weight, dropout_p, train=True)
+    return attn_weight @ value
 
 
 @register_ops(vendor_ops_registry)
@@ -101,6 +129,43 @@ def prefill_attention(
     causal = True
     if softmax_scale is None:
         softmax_scale = float(1 / math.sqrt(key.size(-1)))
+
+    is_mla = key.size(-1) != value.size(-1)
+
+    if is_mla:
+        batch_size = kv_seq_len.size(0)
+        head_dim = query.shape[-1]
+        nope_size = value.shape[-1]
+        groups = num_q_heads // num_q_heads
+        value = torch.nn.functional.pad(value, [0, head_dim - nope_size], value=0)
+
+        input_type = query.dtype
+        query = query.to(torch.float32)
+        key = key.to(torch.float32)
+        value = value.to(torch.float32)
+
+        # (bs, seq_len, num_head, head_dim)
+        query = query.view(batch_size, -1, num_q_heads, head_dim)
+        key = key.view(batch_size, -1, num_kv_heads, head_dim)
+        value = value.view(batch_size, -1, num_kv_heads, head_dim)
+        key = key.repeat(1, 1, groups, 1)
+        value = value.repeat(1, 1, groups, 1)
+
+        # (bs, num_head, seq_len, head_dim)
+        query = query.transpose(1, 2).contiguous()
+        key = key.transpose(1, 2).contiguous()
+        value = value.transpose(1, 2).contiguous()
+
+        # (bs, num_head, seq_len, head_dim)
+        attn_output = scaled_dot_product_attention(
+            query, key, value, is_causal=True, scale=softmax_scale
+        )
+
+        # (seq_len, num_head, head_dim)
+        attn_output = attn_output.transpose(1, 2).flatten(0, 1)
+        attn_output = attn_output[..., :nope_size].to(input_type)
+        return attn_output
+
     flash_attn_varlen_func(
         q=query,
         k=key,
@@ -128,7 +193,7 @@ def fill_kv_cache(
     quant_bits: int,
 ) -> Tuple[Tensor, Tensor]:
     kv_indices = kv_indices.squeeze(-1)
-    kv_scale  = torch.tensor(1., device=key.device)
+    kv_scale  = torch.tensor(1.)
     custom_ops.reshape_and_cache(
         key, value, key_cache, value_cache, kv_indices, "auto", kv_scale, kv_scale
     )
@@ -156,11 +221,11 @@ def paged_decode_attention(
     if alibi_slopes is not None:
         raise RuntimeError("paged_decode_attention does not support alibi_slopes yet")
 
-    dim = query.size(-1)
+    # dim = query.size(-1)
     num_kv_heads = value_cache.size(1)
     block_size = value_cache.size(-1)
     batch_size = block_table.size(0)
-    kv_scale  = torch.tensor(1., device=query.device)
+    kv_scale  = torch.tensor(1.)
 
     if softmax_scale is None:
         softmax_scale = float(1 / math.sqrt(query.size(-1)))
@@ -173,6 +238,48 @@ def paged_decode_attention(
         tp_rank = torch.distributed.get_rank()
     else:
         tp_rank = 0
+
+    is_mla = query.size(-1) == 576
+
+    if is_mla:
+        block_size = value_cache.size(-2)
+
+        # Reshape q from (batch_size, num_heads, head_dim) to
+        # (batch_size, 1, num_heads, head_dim) for decode.
+        q = query.unsqueeze(1)
+
+        # For DeepSeekV2, V head dim is 512.
+        head_dim_v = 512
+
+        # Reshape K cache from 5D to 4D for the kernel.
+        # input format: (num_blocks, num_kv_heads, head_size/x, block_size, x)
+        # Target format: (num_blocks, block_size, num_kv_heads, head_size)
+        d0, d1, d2, d3, d4 = key_cache.shape
+        k_cache_permuted = key_cache.permute(0, 3, 1, 2, 4)
+        k_cache_reshaped = k_cache_permuted.contiguous().view(
+            d0, d3, d1, d2 * d4)
+
+        # For decode, seq_len_q is 1.
+        num_heads_per_head_k = (1 * num_q_heads) // num_kv_heads
+        tile_scheduler_metadata, num_splits = get_mla_metadata(
+            cache_seqlens=kv_seq_len,
+            num_heads_per_head_k=num_heads_per_head_k,
+            num_heads_k=num_kv_heads,
+        )
+
+        attn_output, _ = flash_mla_with_kvcache(
+            q,
+            k_cache_reshaped,
+            block_table,
+            kv_seq_len,  # cache_seqlens
+            head_dim_v,
+            tile_scheduler_metadata,
+            num_splits,
+            softmax_scale,
+            True,  # causal
+        )
+        return attn_output.view(batch_size, num_q_heads, 512)
+
     custom_ops.paged_attention_v1(
         output,
         query,
@@ -195,8 +302,6 @@ def paged_decode_attention(
         0,
     )
     return output
-
-
 
 
 @register_ops(vendor_ops_registry)
@@ -228,7 +333,9 @@ def paged_prefill_attention(
         softmax_scale = float(1 / math.sqrt(query.size(-1)))
 
     output = torch.empty_like(query)
-    context_lens = kv_seq_len - q_seq_len
+
+    k_scale = torch.ones_like(key) if kv_scales is None else kv_scales
+    v_scale = torch.ones_like(value) if kv_scales is None else kv_scales
 
     value_cache = value_cache.permute(0, 1, 3, 2)
     context_attention_fwd(
@@ -242,8 +349,10 @@ def paged_prefill_attention(
         b_loc=block_table,
         b_start_loc=q_start_loc,
         b_seq_len=kv_seq_len,
-        b_ctx_len=context_lens,
+        max_seq_len=max_kv_seq_len,
         max_input_len=max_q_seq_len,
+        k_scale=k_scale,
+        v_scale=v_scale,
         alibi_slopes=alibi_slopes,
     )
     return output
@@ -269,7 +378,31 @@ def rms_norm(
 def moe_gating_topk_softmax(
     router_logits: Tensor, topk: int, renormalize: bool = False
 ) -> Tuple[Tensor, Tensor]:
-    raise NotImplementedError("Not implemented on ppu.")
+
+    N = router_logits.size(0)
+
+    topk_weights = torch.empty(
+        N, topk, dtype=torch.float32, device=router_logits.device
+    )
+    topk_ids = torch.empty(N, topk, dtype=torch.int32, device=router_logits.device)
+
+    token_expert_indicies = torch.empty_like(topk_ids)
+
+    custom_ops.topk_softmax(
+        topk_weights,
+        topk_ids,
+        token_expert_indicies,
+        router_logits.float(),
+    )
+
+    del token_expert_indicies  # Not used. Will be used in the future.
+
+    if renormalize:
+        topk_weights = topk_weights / topk_weights.sum(dim=-1, keepdim=True)
+    topk_weights = topk_weights.view(-1)
+    topk_ids = topk_ids.view(-1)
+
+    return topk_weights, topk_ids
 
 
 @register_ops(vendor_ops_registry)
@@ -292,7 +425,14 @@ def fused_moe(
     top_k: int,
     renormalize: bool,
 ) -> Tensor:
-    raise NotImplementedError("Not implemented on ppu.")
+    N = hidden_states.size(0)
+    topk_weights = topk_weights.reshape(N, top_k)
+    topk_ids = topk_ids.reshape(N, top_k)
+    if renormalize:
+        topk_weights = topk_weights / topk_weights.sum(dim=-1, keepdim=True)
+    return fused_experts(
+        hidden_states, gate_up_weights, down_weights, topk_weights, topk_ids
+    )
 
 
 @register_ops(vendor_ops_registry)
@@ -325,14 +465,21 @@ def weight_quant_matmul(
     all_reduce: Optional[bool] = False,
     group_size: Optional[int] = 0,
 ):
-    raise NotImplementedError("Not implemented on ppu.")
+    offset = None if (offset is None or offset.numel() == 0) else offset
+    output = custom_ops.awq_gemm(x, qweight, scale, offset, group_size)
+    if bias is not None:
+        output += bias
+    return output
 
 
 @register_ops(vendor_ops_registry)
 def dynamic_quant(
     x: Tensor, quant_dtype: torch.dtype, quant_granularity: str = "PER_TOKEN"
 ):
-    raise NotImplementedError("Not implemented on ppu.")
+    assert quant_dtype == torch.int8
+    assert quant_granularity == "PER_TOKEN"
+    x, input_scale, _ = custom_ops.scaled_int8_quant(x, None)
+    return x, input_scale
 
 
 @register_ops(vendor_ops_registry)
@@ -345,7 +492,18 @@ def linear_w8a8(
     quant_dtype: torch.dtype = torch.int8,
     bias: Tensor = None,
 ):
-    raise NotImplementedError("Not implemented on ppu.")
+    assert quant_dtype == torch.int8
+    bs, seq_len, head_size = a.size()
+    out = custom_ops.cutlass_scaled_mm(
+        a.view(-1, head_size),
+        b,
+        scale_a=rms_scale,
+        scale_b=linear_scale,
+        out_dtype=out_dtype,
+        bias=bias,
+    )
+    out = out.view(bs, seq_len, -1)
+    return out
 
 
 @register_ops(vendor_ops_registry)
@@ -355,7 +513,11 @@ def rms_norm_w8a8(
     epsilon: float,
     quant_dtype: torch.dtype = torch.int8,
 ):
-    raise NotImplementedError("Not implemented on ppu.")
+    assert quant_dtype == torch.int8
+    x = torch.empty_like(hidden_states)
+    custom_ops.rms_norm(x, hidden_states, weight, epsilon)
+    x, input_scale, _ = custom_ops.scaled_int8_quant(x, None)
+    return x, input_scale
 
 
 @register_ops(vendor_ops_registry)
@@ -366,4 +528,7 @@ def add_rms_norm_w8a8(
     epsilon: float,
     quant_dtype: torch.dtype = torch.int8,
 ):
-    raise NotImplementedError("Not implemented on ppu.")
+    assert quant_dtype == torch.int8
+    custom_ops.fused_add_rms_norm(hidden_states, residual, weight, epsilon)
+    x, input_scale, _ = custom_ops.scaled_int8_quant(hidden_states, None)
+    return x, input_scale, residual
