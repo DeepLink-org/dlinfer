@@ -102,9 +102,6 @@ void CustomFusedLoraOperation::ClearInternal() {
     aclWeightA_.clear();
     aclWeightB_.clear();
     aclWeightATranspose_.clear();
-    weightA_.clear();
-    weightB_.clear();
-    weightATranspose_.clear();
 
     aclScalingInput_.clear();
     scalingInput_.clear();
@@ -113,19 +110,6 @@ void CustomFusedLoraOperation::ClearInternal() {
 
     aclScalingWorkspace_.clear();
     aclScalingExecutor_.clear();
-}
-
-// Helper function to create weight tensor
-atb::Tensor CustomFusedLoraOperation::CreateWeightTensor(const atb::Tensor& baseTensor, int64_t rank, int64_t dim, uint64_t offset) {
-    atb::Tensor weightTensor;
-    weightTensor.desc.dtype = baseTensor.desc.dtype;
-    weightTensor.desc.format = baseTensor.desc.format;
-    weightTensor.desc.shape.dimNum = baseTensor.desc.shape.dimNum;
-    weightTensor.desc.shape.dims[0] = rank;
-    weightTensor.desc.shape.dims[1] = dim;
-    weightTensor.dataSize = atb::Utils::GetTensorSize(weightTensor.desc);
-    weightTensor.deviceData = static_cast<uint8_t*>(baseTensor.deviceData) + offset;
-    return weightTensor;
 }
 
 // Helper function to calculate offset for weight tensors
@@ -183,12 +167,6 @@ int CustomFusedLoraOperation::Setup(const atb::VariantPack& variantPack, uint64_
     const int64_t loraBDim = variantPack.inTensors.at(2).desc.shape.dims[1];
 
     ClearInternal();
-
-    // Pre-allocate vectors to avoid reallocations
-    weightA_.reserve(adapterIdsVec.size());
-    weightATranspose_.reserve(adapterIdsVec.size());
-    weightB_.reserve(adapterIdsVec.size());
-
     aclWeightA_.reserve(adapterIdsVec.size());
     aclWeightB_.reserve(adapterIdsVec.size());
     aclWeightATranspose_.reserve(adapterIdsVec.size());

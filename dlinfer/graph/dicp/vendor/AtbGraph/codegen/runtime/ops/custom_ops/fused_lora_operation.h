@@ -28,18 +28,12 @@ private:
     void ClearAclScalrs();
     void ClearInternal();
 
-    // Helper functions for weight tensor creation and offset calculation
-    atb::Tensor CreateWeightTensor(const atb::Tensor& baseTensor, int64_t rank, int64_t dim, uint64_t offset);
     uint64_t CalculateWeightOffset(const std::vector<int32_t>& ranksVec, size_t adapterId, uint64_t tensorSizePerRank);
 
 private:
     std::string opName_;
     std::string dtype_;
     std::vector<aclScalar*> aclScalingScalar_;
-
-    std::vector<atb::Tensor> weightA_;
-    std::vector<atb::Tensor> weightB_;
-    std::vector<atb::Tensor> weightATranspose_;
 
     std::vector<AclNnTensor> aclWeightA_;
     std::vector<AclNnTensor> aclWeightB_;

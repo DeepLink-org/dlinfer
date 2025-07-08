@@ -1251,7 +1251,6 @@ class AtbOverrides:
         name, x, lora_a, lora_b, scaling, ranks, seq_lens, adapter_ids, dtype
     ):
         op = Operation(name, "CustomFusedLoraOperation")
-        # TODO: add param
         param = infer_param.CustomFusedLoraParam()
         param.name = name
         param.dtype = get_ascend_dtype(dtype)

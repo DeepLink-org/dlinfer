@@ -835,9 +835,15 @@ class CustomFusedLora(Operator):
         self, x, lora_a, lora_b, scaling, ranks, seq_lens, adapter_ids, dtype
     ):
         M, K = x.shape
+        ranks = lora_a.size(0)
         N = lora_b.size(1)
         output = torch.empty((M, N), dtype=x.dtype, device=x.device)
-        return output, output
+        # assuem totalRank is the max rank
+        internal_output_x_lora_a = torch.empty(
+            (M, ranks * M), dtype=x.dtype, device=x.device
+        )
+        internal_lora_a_transpose = torch.empty_like(lora_a)
+        return output, internal_output_x_lora_a, internal_lora_a_transpose
 
 
 class AclNnInplaceAdd(Operator):
