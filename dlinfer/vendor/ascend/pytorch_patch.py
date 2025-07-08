@@ -26,6 +26,7 @@ if version.parse(torch.__version__) >= version.parse("2.2.0"):
     setattr(target_module, func_str, has_triton)
 
 
+# This may be used in aclgraph in the future
 # def set_atb_ops():
 #     from torch_npu.op_plugin import atb
 #     for api_name in atb._atb_ops.API_LIST:
