@@ -1,6 +1,7 @@
 # Copyright (c) 2024, DeepLink. All rights reserved.
 import math
 import torch
+import torch_npu
 
 from dlinfer.vendor import vendor_ops_registry
 from dlinfer.utils.registry import register_ops
@@ -11,6 +12,7 @@ __all__ = [
     "add_rms_norm",
     "apply_rotary_pos_emb",
     "prefill_attention",
+    "incre_flash_attention",
     "fill_kv_cache",
     "paged_decode_attention",
     "paged_prefill_attention",
@@ -134,6 +136,26 @@ def prefill_attention(
         raise ValueError(
             f"dlinfer doesn't support {SocVersion.device_name()} device currently."
         )
+    return attn_output
+
+
+@register_ops(vendor_ops_registry)
+def incre_flash_attention(
+    query: Tensor,
+    key: Tensor,
+    value: Tensor,
+    num_heads: int,
+    input_layout: str,
+    softmax_scale: Optional[float],
+) -> Tensor:
+    attn_output = torch_npu.npu_incre_flash_attention(
+        query,
+        key,
+        value,
+        num_heads=num_heads,
+        input_layout=input_layout,
+        scale_value=softmax_scale,
+    )
     return attn_output
 
 

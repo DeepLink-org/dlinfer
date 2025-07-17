@@ -188,6 +188,18 @@ def prefill_attention(
 
 
 @register_ops(vendor_ops_registry)
+def incre_flash_attention(
+    query: Tensor,
+    key: Tensor,
+    value: Tensor,
+    num_heads: int,
+    input_layout: str,
+    softmax_scale: Optional[float],
+) -> Tensor:
+    raise NotImplementedError("Not implemented on maca.")
+
+
+@register_ops(vendor_ops_registry)
 def fill_kv_cache(
     key: Tensor,
     value: Tensor,

@@ -45,7 +45,7 @@ class TorchLinear(BackendPatternBase):
 
 
 @register_torch_pattern_1
-class TorchLinearWithBias(BackendPatternBase):
+class TorchLinearWithBiasV1(BackendPatternBase):
     @staticmethod
     def pattern(bias, x_input, weight, viewed_input_shape, viewed_output_shape):
         trans_weight = torch.ops.aten.t.default(weight)
@@ -59,6 +59,40 @@ class TorchLinearWithBias(BackendPatternBase):
     @staticmethod
     def replacement(bias, x_input, weight):
         return torch.ops.atb.linear.default(x_input, weight, bias, False, True)
+
+
+@register_torch_pattern_1
+class TorchLinearWithBiasV2(BackendPatternBase):
+    @staticmethod
+    def pattern(bias, x_input, weight, viewed_input_shape, viewed_output_shape):
+        viewed_input = torch.ops.aten.view.default(x_input, viewed_input_shape)
+        trans_weight = torch.ops.aten.t.default(weight)
+        addmm_result = torch.ops.aten.addmm.default(bias, viewed_input, trans_weight)
+        viewed_mm_result = torch.ops.aten.view.default(
+            addmm_result, viewed_output_shape
+        )
+        return [viewed_mm_result, viewed_input]
+
+    @staticmethod
+    def replacement(bias, x_input, weight, viewed_input_shape):
+        viewed_input = torch.ops.aten.view.default(x_input, viewed_input_shape)
+        return [
+            torch.ops.atb.linear.default(x_input, weight, bias, False, True),
+            viewed_input,
+        ]
+
+
+@register_torch_pattern_1
+class TorchLinearWithBiasV3(BackendPatternBase):
+    @staticmethod
+    def pattern(bias, x_input_transed, weight):
+        trans_weight = torch.ops.aten.t.default(weight)
+        addmm_result = torch.ops.aten.addmm.default(bias, x_input_transed, trans_weight)
+        return addmm_result
+
+    @staticmethod
+    def replacement(bias, x_input_transed, weight):
+        return torch.ops.atb.linear.default(x_input_transed, weight, bias, False, True)
 
 
 @register_torch_pattern_1
