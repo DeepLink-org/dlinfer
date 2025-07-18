@@ -591,7 +591,7 @@ class AtbOverrides:
         op = Operation(name, "AclNnSplitWithSizeOperation")
         param = infer_param.SplitParam()
         param.splitDim = dim
-        param.splitSizes = sizes
+        param.splitSizes = [str(s) for s in sizes]
         op.set_param(param)
         op.set_input([x])
         for idx, _ in enumerate(sizes):
@@ -1274,4 +1274,36 @@ class AtbOverrides:
         op.set_input([x])
         op.set_param(param)
         op.set_output([name])
+        return op
+
+    def CustomFusedLora(
+        name, x, lora_a, lora_b, scaling, ranks, seq_lens, adapter_ids, dtype
+    ):
+        op = Operation(name, "CustomFusedLoraOperation")
+        param = infer_param.CustomFusedLoraParam()
+        param.name = name
+        param.dtype = get_ascend_dtype(dtype)
+        seq_lens_cpu = seq_lens
+        op.set_input(
+            [x, lora_a, lora_b, scaling, ranks, seq_lens, adapter_ids, seq_lens_cpu]
+        )
+        op.set_param(param)
+        op.set_output([f"{name}__0", f"{name}__1", f"{name}__2"])
+
+        op.has_host_inputs = True
+        op.host_inputs.append(ranks)
+        op.host_inputs.append(adapter_ids)
+        op.host_inputs.append(seq_lens_cpu)
+        return op
+
+    def AclNnInplaceAdd(name, a, b, dtype):
+        op = Operation(name, "AclNnInplaceAddOperation")
+        param = infer_param.AclNnInplaceAddParam()
+        param.name = name
+        param.dtype = get_ascend_dtype(dtype)
+        op.set_input([a, b])
+        op.set_param(param)
+        op.set_output([name])
+        op.has_inplace_output = True
+        op.add_inplace_output(0, 0)
         return op

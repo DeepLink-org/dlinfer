@@ -17,10 +17,11 @@ execute_process(
 )
 
 execute_process(
-    COMMAND python -c "import torch;  from packaging import version; \
+    COMMAND python -c "import torch; from packaging import version; \
     torch_version = version.parse(torch.__version__).base_version; \
-    print('1' if version.parse(torch_version) > version.parse('2.3.1') else '0', end='')"
-    OUTPUT_VARIABLE Torch_npu_VERSION_HIGHER_THAN_231
+    print(torch_version, end='')"
+    OUTPUT_VARIABLE TORCH_VERSION
+    OUTPUT_STRIP_TRAILING_WHITESPACE
 )
 
 find_package(Torch REQUIRED)

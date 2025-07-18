@@ -22,6 +22,7 @@ __all__ = [
     "weight_quant_matmul",
     "fused_moe",
     "linear",
+    "fused_lora",
 ]
 
 
@@ -569,3 +570,57 @@ def transdata(
     transdata_type: int,
 ):
     raise NotImplementedError("transdata in eager mode is not implemented yet!")
+
+
+@register_ops(vendor_ops_registry)
+def fused_lora(
+    input: Tensor,
+    lora_a: Tensor,
+    lora_b: Tensor,
+    scaling: Tensor,
+    rank_start: Tensor,
+    ranks: Tensor,
+    seq_start: Tensor,
+    seq_lens: Tensor,
+    adapter_ids: Tensor,
+    max_rank: int,
+    max_seqlen: int,
+    slice_start: int,
+    slice_stop: int,
+    slice_step: Optional[int],
+    output: Optional[Tensor],
+) -> Tensor:
+    total_len = input.size(0)
+    out_dim = lora_b.size(1)
+
+    if output is not None:
+        output = output.contiguous()
+        base_slice = slice(slice_start, slice_stop, slice_step)
+        output = output[..., base_slice]
+        output = output.flatten(0, -2)
+    else:
+        output = torch.zeros(total_len, out_dim, dtype=input.dtype, device=input.device)
+
+    num_seqs = seq_lens.size(0)
+    for i in range(num_seqs):
+        adapter_id = adapter_ids[i].item()
+        rank = ranks[adapter_id].item()
+        offset = rank_start[adapter_id].item()
+        scale = scaling[adapter_id].item()
+
+        start_idx = seq_start[i].item()
+        seq_len = seq_lens[i].item()
+
+        if rank == 0:
+            continue
+
+        seq_input = input[start_idx : start_idx + seq_len]
+        A = lora_a[offset : offset + rank]
+        B = lora_b[offset : offset + rank]
+
+        intermediate = torch.matmul(seq_input, A.t())
+        lora_out = torch.matmul(intermediate, B)
+        lora_out = lora_out * scale
+
+        output[start_idx : start_idx + seq_len] += lora_out
+    return output

@@ -1,6 +1,8 @@
 #pragma once
 
 #include <atb/atb_infer.h>
+#include <atb/operation.h>
+#include <atb/types.h>
 namespace dicp {
 
 #define CREATE_OPERATION(param, operation)                              \
