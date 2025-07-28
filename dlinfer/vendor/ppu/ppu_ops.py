@@ -12,7 +12,8 @@ from dlinfer.utils.type_annotation import Tensor, Optional, Sequence, Tuple
 from vllm import _custom_ops as custom_ops
 from vllm.model_executor.layers.fused_moe import fused_experts
 from vllm.attention.ops.prefix_prefill import context_attention_fwd
-from vllm.vllm_flash_attn import flash_attn_varlen_func
+from vllm.v1.attention.backends.flash_attn import flash_attn_varlen_func
+from vllm.attention.utils.fa_utils import get_flash_attn_version
 # from vllm.attention.ops.flashmla import (flash_mla_with_kvcache,
 #                                          get_mla_metadata,
 #                                          is_flashmla_supported)
@@ -194,7 +195,20 @@ def fill_kv_cache(
 ) -> Tuple[Tensor, Tensor]:
     kv_indices = kv_indices.squeeze(-1)
     kv_scale  = torch.tensor(1.)
-    custom_ops.reshape_and_cache(
+
+    # is_mla = key.size(-1) == 576
+    # if is_mla:
+    #     custom_ops.concat_and_cache_mla(
+    #         key,
+    #         value,
+    #         key_cache,
+    #         kv_indices,
+    #         "auto",
+    #         kv_scale,
+    #     )
+    #     return key_cache, value_cache
+
+    custom_ops.reshape_and_cache_flash(
         key, value, key_cache, value_cache, kv_indices, "auto", kv_scale, kv_scale
     )
     return key_cache, value_cache
@@ -222,8 +236,8 @@ def paged_decode_attention(
         raise RuntimeError("paged_decode_attention does not support alibi_slopes yet")
 
     # dim = query.size(-1)
-    num_kv_heads = value_cache.size(1)
-    block_size = value_cache.size(-1)
+    num_kv_heads = value_cache.size(-2)
+    block_size = value_cache.size(1)
     batch_size = block_table.size(0)
     kv_scale  = torch.tensor(1.)
 
@@ -239,67 +253,56 @@ def paged_decode_attention(
     else:
         tp_rank = 0
 
-    is_mla = query.size(-1) == 576
+    # is_mla = query.size(-1) == 576
+    # if is_mla:
+    #     head_dim_v = 128
+    #     groups = num_q_heads // num_kv_heads
+    #     q = query.unsqueeze(1)
+    #     tile_scheduler_metadata, num_splits = get_mla_metadata(
+    #         cache_seqlens=kv_seq_len,
+    #         num_heads_per_head_k=groups,
+    #         num_heads_k=num_kv_heads,
+    #     )
+    #     attn_output, _ = flash_mla_with_kvcache(
+    #         q,
+    #         key_cache,
+    #         block_table,
+    #         kv_seq_len,
+    #         head_dim_v,
+    #         tile_scheduler_metadata,
+    #         num_splits,
+    #         softmax_scale,
+    #         True,
+    #     )
+    #     return attn_output.view(batch_size, num_q_heads, head_dim_v)
 
-    if is_mla:
-        block_size = value_cache.size(-2)
-
-        # Reshape q from (batch_size, num_heads, head_dim) to
-        # (batch_size, 1, num_heads, head_dim) for decode.
-        q = query.unsqueeze(1)
-
-        # For DeepSeekV2, V head dim is 512.
-        head_dim_v = 512
-
-        # Reshape K cache from 5D to 4D for the kernel.
-        # input format: (num_blocks, num_kv_heads, head_size/x, block_size, x)
-        # Target format: (num_blocks, block_size, num_kv_heads, head_size)
-        d0, d1, d2, d3, d4 = key_cache.shape
-        k_cache_permuted = key_cache.permute(0, 3, 1, 2, 4)
-        k_cache_reshaped = k_cache_permuted.contiguous().view(
-            d0, d3, d1, d2 * d4)
-
-        # For decode, seq_len_q is 1.
-        num_heads_per_head_k = (1 * num_q_heads) // num_kv_heads
-        tile_scheduler_metadata, num_splits = get_mla_metadata(
-            cache_seqlens=kv_seq_len,
-            num_heads_per_head_k=num_heads_per_head_k,
-            num_heads_k=num_kv_heads,
-        )
-
-        attn_output, _ = flash_mla_with_kvcache(
-            q,
-            k_cache_reshaped,
-            block_table,
-            kv_seq_len,  # cache_seqlens
-            head_dim_v,
-            tile_scheduler_metadata,
-            num_splits,
-            softmax_scale,
-            True,  # causal
-        )
-        return attn_output.view(batch_size, num_q_heads, 512)
-
-    custom_ops.paged_attention_v1(
-        output,
-        query,
-        key_cache,
-        value_cache,
-        num_kv_heads,
-        softmax_scale,
-        block_table,
-        kv_seq_len,
-        block_size,
-        max_kv_seq_len,
-        None,
-        "auto",
-        kv_scale,
-        kv_scale,
-        tp_rank,
-        0,
-        0,
-        64,
-        0,
+    cu_seqlens_q = torch.arange(
+        0, batch_size + 1, device=query.device, dtype=torch.int32
+    )
+    vllm_flash_attn_version = get_flash_attn_version()
+    flash_attn_varlen_func(
+        q=query,
+        k=key_cache,
+        v=value_cache,
+        out=output,
+        cu_seqlens_q=cu_seqlens_q,
+        max_seqlen_q=1,
+        seqused_k=kv_seq_len,
+        max_seqlen_k=max_kv_seq_len,
+        softmax_scale=softmax_scale,
+        causal=True,
+        alibi_slopes=None,
+        window_size=list((-1, -1)),
+        block_table=block_table,
+        softcap=0.0,
+        scheduler_metadata=None,
+        fa_version=vllm_flash_attn_version,
+        q_descale=None,
+        k_descale=None,
+        v_descale=None,
+        num_prefill=-1,
+        max_seqlen_k_decode=0,
+        max_seqlen_k_prefill=0,
     )
     return output
 
@@ -337,24 +340,52 @@ def paged_prefill_attention(
     k_scale = torch.ones_like(key) if kv_scales is None else kv_scales
     v_scale = torch.ones_like(value) if kv_scales is None else kv_scales
 
-    value_cache = value_cache.permute(0, 1, 3, 2)
-    context_attention_fwd(
-        query,
-        key,
-        value,
-        output,
-        "auto",
-        key_cache,
-        value_cache,
-        b_loc=block_table,
-        b_start_loc=q_start_loc,
-        b_seq_len=kv_seq_len,
-        max_seq_len=max_kv_seq_len,
-        max_input_len=max_q_seq_len,
-        k_scale=k_scale,
-        v_scale=v_scale,
+    # originally use context_attentoin_fwd and shape is different
+    # From (num_blocks, num_heads, head_size, block_size)
+    # To (num_blocks, num_heads, block_size, head_size)
+    # value_cache = value_cache.permute(0, 1, 3, 2)
+
+    # From (num_blocks, block_size, num_heads, head_size)
+    # To (num_blocks, num_heads, block_size, head_size)
+    # value_cache = value_cache.permute(0, 2, 1, 3)
+    # context_attention_fwd(
+    #     query,
+    #     key,
+    #     value,
+    #     output,
+    #     "auto",
+    #     key_cache,
+    #     value_cache,
+    #     b_loc=block_table,
+    #     b_start_loc=q_start_loc,
+    #     b_seq_len=kv_seq_len,
+    #     max_seq_len=max_kv_seq_len,
+    #     max_input_len=max_q_seq_len,
+    #     k_scale=k_scale,
+    #     v_scale=v_scale,
+    #     alibi_slopes=alibi_slopes,
+    # )
+
+    vllm_flash_attn_version = get_flash_attn_version()
+    flash_attn_varlen_func(
+        q=query,
+        k=key_cache,
+        v=value_cache,
+        out=output,
+        cu_seqlens_q=q_start_loc,
+        max_seqlen_q=max_q_seq_len,
+        # In paged attention, `seqused_k` provides the logical sequence lengths
+        # of keys in the cache.
+        seqused_k=kv_seq_len,
+        max_seqlen_k=max_kv_seq_len,
+        softmax_scale=softmax_scale,
+        causal=True,
         alibi_slopes=alibi_slopes,
+        block_table=block_table,
+        fa_version=vllm_flash_attn_version,
     )
+
+
     return output
 
 
