@@ -86,6 +86,7 @@ pip install dlinfer-ascend
 
 ## LMDeploy
 
+<!-- inclusion-start -->
 | | |华为Atlas 800T A2 | |华为Atlas 300I Duo|沐曦C500|寒武纪云端智能加速卡|
 |---|---|---|---|---|---|---|
 | |bf16(eager)|w4a16(eager)|bf16(graph)|fp16(graph)| | |
@@ -104,6 +105,7 @@ pip install dlinfer-ascend
 | glm-4v-9b          | √ | - | - | - | - | - |
 
 ‘√’代表测试通过，‘X’代表不支持，‘-’代表未测试
+<!-- inclusion-end -->
 
 ### 使用LMDeploy
 
