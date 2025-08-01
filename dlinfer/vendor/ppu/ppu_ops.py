@@ -171,8 +171,8 @@ def prefill_attention(
         q=query,
         k=key,
         v=value,
-        cu_seqlens_q=q_start_loc,
-        cu_seqlens_k=q_start_loc,
+        cu_seqlens_q=q_start_loc.int(),
+        cu_seqlens_k=q_start_loc.int(),
         max_seqlen_q=max_q_seq_len,
         max_seqlen_k=max_kv_seq_len,
         softmax_scale=softmax_scale,
@@ -372,16 +372,16 @@ def paged_prefill_attention(
         k=key_cache,
         v=value_cache,
         out=output,
-        cu_seqlens_q=q_start_loc,
+        cu_seqlens_q=q_start_loc.int(),
         max_seqlen_q=max_q_seq_len,
         # In paged attention, `seqused_k` provides the logical sequence lengths
         # of keys in the cache.
-        seqused_k=kv_seq_len,
+        seqused_k=kv_seq_len.int(),
         max_seqlen_k=max_kv_seq_len,
         softmax_scale=softmax_scale,
         causal=True,
         alibi_slopes=alibi_slopes,
-        block_table=block_table,
+        block_table=block_table.int(),
         fa_version=vllm_flash_attn_version,
     )
 

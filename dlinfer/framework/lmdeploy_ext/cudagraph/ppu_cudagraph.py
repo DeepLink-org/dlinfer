@@ -96,6 +96,8 @@ def PPUCudaGraphMixin_fill_buffers_cudagraph(
     attn_metadata.q_seqlens = input_buffers["q_seqlens"][:new_batch_size]
     attn_metadata.kv_seqlens = input_buffers["kv_seqlens"][:new_batch_size]
     attn_metadata.kv_start_indices = input_buffers["kv_start_indices"][:new_batch_size]
+    attn_metadata.max_q_seq_len = int(attn_metadata.q_seqlens.max().item())
+    attn_metadata.max_kv_seq_len = int(attn_metadata.kv_seqlens.max().item())
 
     new_inputs = dict(
         past_key_values=past_key_values,
