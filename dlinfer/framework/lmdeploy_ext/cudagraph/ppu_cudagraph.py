@@ -1,4 +1,4 @@
-# Copyright (c) 2024, OpenMMLab and DeepLink. All rights reserved.
+# Copyright (c) 2025, OpenMMLab and DeepLink. All rights reserved.
 import torch
 from torch import Tensor
 
@@ -88,6 +88,7 @@ def PPUCudaGraphMixin_fill_buffers_cudagraph(
                 1, max_num_tokens, emb_size
             )
         input_buffers["inputs_embeds"][:, :num_tokens] = inputs_embeds
+
     # create inputs
     new_batch_size = next_power_of_2(batch_size)
 

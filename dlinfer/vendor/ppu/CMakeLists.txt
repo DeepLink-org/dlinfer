@@ -1,2 +1,2 @@
-# Empty install target for ix device
+# Empty install target for ppu device
 install(TARGETS)

@@ -7,20 +7,10 @@ from dlinfer.vendor import vendor_ops_registry
 from dlinfer.utils.registry import register_ops
 from dlinfer.utils.type_annotation import Tensor, Optional, Sequence, Tuple
 
-# from vllm._C import ops
-# from vllm._C import cache_ops
 from vllm import _custom_ops as custom_ops
 from vllm.model_executor.layers.fused_moe import fused_experts
-from vllm.attention.ops.prefix_prefill import context_attention_fwd
 from vllm.v1.attention.backends.flash_attn import flash_attn_varlen_func
 from vllm.attention.utils.fa_utils import get_flash_attn_version
-# from vllm.attention.ops.flashmla import (flash_mla_with_kvcache,
-#                                          get_mla_metadata,
-#                                          is_flashmla_supported)
-from vllm.v1.attention.backends.mla.flashmla import flash_mla_with_kvcache, get_mla_metadata
-# from xformers import ops as xops
-# from xformers.ops.fmha.attn_bias import (BlockDiagonalCausalMask,
-#                                          LowerTriangularMaskWithTensorBias)
 
 
 __all__ = [
@@ -41,29 +31,6 @@ __all__ = [
     "rms_norm_w8a8",
     "add_rms_norm_w8a8",
 ]
-
-
-def scaled_dot_product_attention(
-    query, key, value, attn_mask=None, dropout_p=0.0, is_causal=False, scale=None
-) -> torch.Tensor:
-    L, S = query.size(-2), key.size(-2)
-    scale_factor = 1 / math.sqrt(query.size(-1)) if scale is None else scale
-    attn_bias = torch.zeros(L, S, dtype=query.dtype)
-    if is_causal:
-        assert attn_mask is None
-        temp_mask = torch.ones(L, S, dtype=torch.bool).tril(diagonal=0)
-        attn_bias.masked_fill_(temp_mask.logical_not(), float("-inf"))
-        attn_bias.to(query.dtype)
-    if attn_mask is not None:
-        if attn_mask.dtype == torch.bool:
-            attn_bias.masked_fill_(attn_mask.logical_not(), float("-inf"))
-        else:
-            attn_bias += attn_mask
-    attn_weight = query @ key.transpose(-2, -1) * scale_factor
-    attn_weight += attn_bias.to(query.device)
-    attn_weight = torch.softmax(attn_weight, dim=-1)
-    attn_weight = torch.dropout(attn_weight, dropout_p, train=True)
-    return attn_weight @ value
 
 
 @register_ops(vendor_ops_registry)
@@ -131,42 +98,6 @@ def prefill_attention(
     if softmax_scale is None:
         softmax_scale = float(1 / math.sqrt(key.size(-1)))
 
-    is_mla = key.size(-1) != value.size(-1)
-
-    if is_mla:
-        batch_size = kv_seq_len.size(0)
-        head_dim = query.shape[-1]
-        nope_size = value.shape[-1]
-        groups = num_q_heads // num_q_heads
-        value = torch.nn.functional.pad(value, [0, head_dim - nope_size], value=0)
-
-        input_type = query.dtype
-        query = query.to(torch.float32)
-        key = key.to(torch.float32)
-        value = value.to(torch.float32)
-
-        # (bs, seq_len, num_head, head_dim)
-        query = query.view(batch_size, -1, num_q_heads, head_dim)
-        key = key.view(batch_size, -1, num_kv_heads, head_dim)
-        value = value.view(batch_size, -1, num_kv_heads, head_dim)
-        key = key.repeat(1, 1, groups, 1)
-        value = value.repeat(1, 1, groups, 1)
-
-        # (bs, num_head, seq_len, head_dim)
-        query = query.transpose(1, 2).contiguous()
-        key = key.transpose(1, 2).contiguous()
-        value = value.transpose(1, 2).contiguous()
-
-        # (bs, num_head, seq_len, head_dim)
-        attn_output = scaled_dot_product_attention(
-            query, key, value, is_causal=True, scale=softmax_scale
-        )
-
-        # (seq_len, num_head, head_dim)
-        attn_output = attn_output.transpose(1, 2).flatten(0, 1)
-        attn_output = attn_output[..., :nope_size].to(input_type)
-        return attn_output
-
     flash_attn_varlen_func(
         q=query,
         k=key,
@@ -195,19 +126,6 @@ def fill_kv_cache(
 ) -> Tuple[Tensor, Tensor]:
     kv_indices = kv_indices.squeeze(-1)
     kv_scale  = torch.tensor(1.)
-
-    # is_mla = key.size(-1) == 576
-    # if is_mla:
-    #     custom_ops.concat_and_cache_mla(
-    #         key,
-    #         value,
-    #         key_cache,
-    #         kv_indices,
-    #         "auto",
-    #         kv_scale,
-    #     )
-    #     return key_cache, value_cache
-
     custom_ops.reshape_and_cache_flash(
         key, value, key_cache, value_cache, kv_indices, "auto", kv_scale, kv_scale
     )
@@ -235,7 +153,6 @@ def paged_decode_attention(
     if alibi_slopes is not None:
         raise RuntimeError("paged_decode_attention does not support alibi_slopes yet")
 
-    # dim = query.size(-1)
     num_kv_heads = value_cache.size(-2)
     block_size = value_cache.size(1)
     batch_size = block_table.size(0)
@@ -246,35 +163,12 @@ def paged_decode_attention(
 
     block_table = block_table.to(torch.int32)
     kv_seq_len = kv_seq_len.to(torch.int32)
-
     output = torch.empty_like(query)
+
     if torch.distributed.is_initialized():
         tp_rank = torch.distributed.get_rank()
     else:
         tp_rank = 0
-
-    # is_mla = query.size(-1) == 576
-    # if is_mla:
-    #     head_dim_v = 128
-    #     groups = num_q_heads // num_kv_heads
-    #     q = query.unsqueeze(1)
-    #     tile_scheduler_metadata, num_splits = get_mla_metadata(
-    #         cache_seqlens=kv_seq_len,
-    #         num_heads_per_head_k=groups,
-    #         num_heads_k=num_kv_heads,
-    #     )
-    #     attn_output, _ = flash_mla_with_kvcache(
-    #         q,
-    #         key_cache,
-    #         block_table,
-    #         kv_seq_len,
-    #         head_dim_v,
-    #         tile_scheduler_metadata,
-    #         num_splits,
-    #         softmax_scale,
-    #         True,
-    #     )
-    #     return attn_output.view(batch_size, num_q_heads, head_dim_v)
 
     cu_seqlens_q = torch.arange(
         0, batch_size + 1, device=query.device, dtype=torch.int32
@@ -340,32 +234,6 @@ def paged_prefill_attention(
     k_scale = torch.ones_like(key) if kv_scales is None else kv_scales
     v_scale = torch.ones_like(value) if kv_scales is None else kv_scales
 
-    # originally use context_attentoin_fwd and shape is different
-    # From (num_blocks, num_heads, head_size, block_size)
-    # To (num_blocks, num_heads, block_size, head_size)
-    # value_cache = value_cache.permute(0, 1, 3, 2)
-
-    # From (num_blocks, block_size, num_heads, head_size)
-    # To (num_blocks, num_heads, block_size, head_size)
-    # value_cache = value_cache.permute(0, 2, 1, 3)
-    # context_attention_fwd(
-    #     query,
-    #     key,
-    #     value,
-    #     output,
-    #     "auto",
-    #     key_cache,
-    #     value_cache,
-    #     b_loc=block_table,
-    #     b_start_loc=q_start_loc,
-    #     b_seq_len=kv_seq_len,
-    #     max_seq_len=max_kv_seq_len,
-    #     max_input_len=max_q_seq_len,
-    #     k_scale=k_scale,
-    #     v_scale=v_scale,
-    #     alibi_slopes=alibi_slopes,
-    # )
-
     vllm_flash_attn_version = get_flash_attn_version()
     flash_attn_varlen_func(
         q=query,
@@ -374,8 +242,6 @@ def paged_prefill_attention(
         out=output,
         cu_seqlens_q=q_start_loc.int(),
         max_seqlen_q=max_q_seq_len,
-        # In paged attention, `seqused_k` provides the logical sequence lengths
-        # of keys in the cache.
         seqused_k=kv_seq_len.int(),
         max_seqlen_k=max_kv_seq_len,
         softmax_scale=softmax_scale,
@@ -384,7 +250,6 @@ def paged_prefill_attention(
         block_table=block_table.int(),
         fa_version=vllm_flash_attn_version,
     )
-
 
     return output
 
