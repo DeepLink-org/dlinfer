@@ -12,14 +12,29 @@
 
 #include "acl/acl.h"
 #include "aclnnop/aclnn_split_with_size.h"
+#include "utils/common.h"
+#include "utils/global_dict.h"
 #include "utils/log.h"
 
 namespace dicp {
 
 const int NUM1 = 1;
 
-AclNnSplitWithSizeOperation::AclNnSplitWithSizeOperation(const std::string& name, int64_t splitDim, std::vector<int64_t> splitSizes)
-    : AclNnOperation(name), splitDim_(splitDim), splitSizes_(std::move(splitSizes)) {}
+AclNnSplitWithSizeOperation::AclNnSplitWithSizeOperation(const std::string& name, int64_t splitDim, std::vector<std::string> splitSizes)
+    : AclNnOperation(name), splitDim_(splitDim) {
+    splitSizes_.resize(splitSizes.size());
+    for (size_t i = 0; i < splitSizes_.size(); ++i) {
+        bool isDynamic = !std::isdigit(splitSizes[i][0]);
+        if (isDynamic) {
+            dynamicSplitSizesMap_[i] = splitSizes[i];
+        } else {
+            splitSizes_[i] = std::stol(splitSizes[i]);
+        }
+    }
+    if (dynamicSplitSizesMap_.size() == 0) {
+        aclSplitSizes_ = aclCreateIntArray(splitSizes_.data(), splitSizes_.size());
+    }
+}
 
 AclNnSplitWithSizeOperation::~AclNnSplitWithSizeOperation() {}
 
@@ -32,8 +47,9 @@ atb::Status AclNnSplitWithSizeOperation::InferShape(const atb::SVector<atb::Tens
     const auto inputDtype = inputTensorDesc.dtype;
 
     const auto& inputDims = inputTensorDesc.shape.dims;
-
     int64_t splitDim = splitDim_ >= 0 ? splitDim_ : inputDimNum + splitDim_;
+
+    auto& globalDict = GetGlobalDictData();
     for (size_t i = 0; i < splitSizes_.size(); ++i) {
         auto& outputTensorDesc = outTensorDescs.at(i);
         outputTensorDesc.format = inputFormat;
@@ -41,8 +57,21 @@ atb::Status AclNnSplitWithSizeOperation::InferShape(const atb::SVector<atb::Tens
         outputTensorDesc.dtype = inputDtype;
         auto& outputDims = outputTensorDesc.shape.dims;
 
+        int64_t targetDimValue = -1;
+        auto dynamicSize = dynamicSplitSizesMap_.find(i);
+        if (dynamicSize != dynamicSplitSizesMap_.end()) {
+            auto it = globalDict.find(dynamicSize->second);
+            if (it != globalDict.end()) {
+                targetDimValue = static_cast<int64_t>(it->second);
+            } else {
+                DICP_LOG(ERROR) << "Cannot find key " << dynamicSize->second << "  in global_dict";
+            }
+        } else {
+            targetDimValue = splitSizes_[i];
+        }
+
         for (size_t j = 0; j < inputDimNum; ++j) {
-            outputDims[j] = (j != splitDim) ? inputDims[j] : splitSizes_[i];
+            outputDims[j] = (j != splitDim) ? inputDims[j] : targetDimValue;
         }
     }
 
@@ -62,8 +91,24 @@ int AclNnSplitWithSizeOperation::SetAclNnWorkspaceExecutor(uint64_t& workspaceSi
         tmp[i] = aclOutTensors_.at(i).tensor;
     }
     aclTensorList* tensorList = aclCreateTensorList(tmp.data(), tmp.size());
-    aclIntArray* sizes = aclCreateIntArray(splitSizes_.data(), splitSizes_.size());
-    int ret = aclnnSplitWithSizeGetWorkspaceSize(aclInTensors_.at(0).tensor, sizes, splitDim_, tensorList, &workspaceSize, &aclExecutor_);
+
+    if (dynamicSplitSizesMap_.size() > 0) {
+        auto& globalDict = GetGlobalDictData();
+        for (auto& [key, value] : dynamicSplitSizesMap_) {
+            auto it = globalDict.find(value);
+            if (it != globalDict.end()) {
+                splitSizes_[key] = static_cast<int64_t>(it->second);
+            } else {
+                DICP_LOG(ERROR) << "Cannot find key " << value << " in global dict";
+            }
+        }
+        if (aclSplitSizes_ != nullptr) {
+            aclDestroyIntArray(aclSplitSizes_);
+            aclSplitSizes_ = nullptr;
+        }
+        aclSplitSizes_ = aclCreateIntArray(splitSizes_.data(), splitSizes_.size());
+    }
+    int ret = aclnnSplitWithSizeGetWorkspaceSize(aclInTensors_.at(0).tensor, aclSplitSizes_, splitDim_, tensorList, &workspaceSize, &aclExecutor_);
     DICP_LOG(INFO) << opName_ << " aclnnSplitWithSizeGetWorkspaceSize end, ret:" << ret << ", workspaceSize:" << workspaceSize
                    << ", aclExecutor:" << aclExecutor_;
 
@@ -80,7 +125,7 @@ int AclNnSplitWithSizeOperation::CallAclExecute(uint8_t* workspace, uint64_t wor
 atb::Operation* AclNnSplitWithSizeOperationCreate(const nlohmann::json& paramJson) {
     std::string opName;
     int64_t splitDim;
-    std::vector<int64_t> splitSizes;
+    std::vector<std::string> splitSizes;
     if (paramJson.contains("name")) {
         opName = paramJson["name"].get<std::string>();
     }
@@ -88,7 +133,7 @@ atb::Operation* AclNnSplitWithSizeOperationCreate(const nlohmann::json& paramJso
         splitDim = paramJson["splitDim"].get<int64_t>();
     }
     if (paramJson.contains("splitSizes")) {
-        splitSizes = paramJson["splitSizes"].get<std::vector<int64_t>>();
+        splitSizes = paramJson["splitSizes"].get<std::vector<std::string>>();
     }
     DICP_LOG(INFO) << "AclNnSplitWithSizeOperation: name: " << opName;
     atb::Operation* op = new AclNnSplitWithSizeOperation(opName, splitDim, splitSizes);

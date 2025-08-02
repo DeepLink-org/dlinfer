@@ -39,7 +39,7 @@ atb::Status AclNnCatOperation::InferShape(const atb::SVector<atb::TensorDesc>& i
     outTensorDescs.at(0).dtype = inTensorDescs.at(0).dtype;
 
     int64_t concatDimSize = 0;
-    int64_t dim = this->concatDim > 0 ? this->concatDim : inTensorDescs.at(0).shape.dimNum + this->concatDim;
+    int64_t dim = this->concatDim >= 0 ? this->concatDim : inTensorDescs.at(0).shape.dimNum + this->concatDim;
     for (size_t i = 0; i < inTensorDescs.size(); ++i) {
         concatDimSize += inTensorDescs.at(i).shape.dims[dim];
     }

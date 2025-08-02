@@ -1,22 +1,22 @@
 #pragma once
-#include <vector>
 
 #include "acl_nn_operation.h"
+#include "utils/scalar.h"
 
 namespace dicp {
-class AclNnSplitWithSizeOperation : public AclNnOperation {
+class AclNnInplaceAddOperation : public AclNnOperation {
 public:
-    explicit AclNnSplitWithSizeOperation(const std::string& name, int64_t splitDim, std::vector<std::string> splitSizes);
-    ~AclNnSplitWithSizeOperation() override;
+    explicit AclNnInplaceAddOperation(const std::string& name, float aplpha, const std::string& dtype);
+    ~AclNnInplaceAddOperation() override;
     atb::Status InferShape(const atb::SVector<atb::TensorDesc>& inTensorDescs, atb::SVector<atb::TensorDesc>& outTensorDescs) const override;
     uint32_t GetInputNum() const override;
     uint32_t GetOutputNum() const override;
 
 private:
-    int64_t splitDim_;
-    std::vector<int64_t> splitSizes_;
-    std::unordered_map<int64_t, std::string> dynamicSplitSizesMap_;
-    aclIntArray* aclSplitSizes_ = nullptr;
+    DICPScalar alpha_;
+    aclScalar* aclAlpha_ = nullptr;
+
+    std::string dtype_;
     int SetAclNnWorkspaceExecutor(uint64_t& workspaceSize) override;
     int CallAclExecute(uint8_t* workspace, uint64_t workspaceSize, aclOpExecutor* aclExecutor, aclrtStream stream) override;
 };
