@@ -82,26 +82,37 @@ pip install dlinfer-ascend
    DEVICE=camb python3 setup.py develop
    ```
 
+### 阿里平头哥加速卡
+
+1. 平头哥软件栈请自行联系平头哥相关人员。
+
+2. 平头哥版本的dlinfer安装命令如下：
+
+   ```shell
+   cd /path_to_dlinfer
+   DEVICE=ppu python3 setup.py develop
+   ```
+
 # 支持模型框架列表
 
 ## LMDeploy
 
-| | |华为Atlas 800T A2 | |华为Atlas 300I Duo|沐曦C500|寒武纪云端智能加速卡|
-|---|---|---|---|---|---|---|
-| |bf16(eager)|w4a16(eager)|bf16(graph)|fp16(graph)| | |
-| InternLM3-8B       | √ | √ | √ | √ | √ | √ |
-| InternLM2.5-7B/20B | √ | √ | √ | √ | √ | √ |
-| InternLM2-7B/20B   | √ | √ | √ | √ | √ | √ |
-| InternVL2-2B       | √ | √ | √ | √ | √ | √ |
-| InternVL1-5        | √ | √ | - | - | √ | - |
-| Llama3(.1)-8B      | √ | √ | √ | √ | √ | √ |
-| Mixtral8x7B        | √ | X | √ | - | √ | √ |
-| Qwen2(.5)-7B       | √ | √ | √ | √ | √ | √ |
-| Qwen2-57B-A14B     | √ | √ | - | - | √ | - |
-| Qwen2(.5)VL-7B     | √ | √ | √ | √ | √ | √ |
-| CogVLM             | √ | X | - | - | √ | - |
-| CogVLM2            | √ | X | - | - | √ | - |
-| glm-4v-9b          | √ | - | - | - | - | - |
+| | |华为Atlas 800T A2 | |华为Atlas 300I Duo|沐曦C500|寒武纪云端智能加速卡|阿里平头哥加速卡|
+|---|---|---|---|---|---|---|---|
+| |bf16(eager)|w4a16(eager)|bf16(graph)|fp16(graph)| | | |
+| InternLM3-8B       | √ | √ | √ | √ | √ | √ | √ |
+| InternLM2.5-7B/20B | √ | √ | √ | √ | √ | √ | √ |
+| InternLM2-7B/20B   | √ | √ | √ | √ | √ | √ | √ |
+| InternVL2-2B       | √ | √ | √ | √ | √ | √ | √ |
+| InternVL1-5        | √ | √ | - | - | √ | - | - |
+| Llama3(.1)-8B      | √ | √ | √ | √ | √ | √ | √ |
+| Mixtral8x7B        | √ | X | √ | - | √ | √ | √ |
+| Qwen2(.5)-7B       | √ | √ | √ | √ | √ | √ | √ |
+| Qwen2-57B-A14B     | √ | √ | - | - | √ | - | - |
+| Qwen2(.5)VL-7B     | √ | √ | √ | √ | √ | √ | X |
+| CogVLM             | √ | X | - | - | √ | - | - |
+| CogVLM2            | √ | X | - | - | √ | - | - |
+| glm-4v-9b          | √ | - | - | - | - | - | - |
 
 ‘√’代表测试通过，‘X’代表不支持，‘-’代表未测试
 
@@ -117,6 +128,8 @@ LMDEPLOY_TARGET_DEVICE=ascend pip3 install -e .
 LMDEPLOY_TARGET_DEVICE=maca   pip3 install -e .
 # 寒武纪
 LMDEPLOY_TARGET_DEVICE=camb   pip3 install -e .
+# 平头哥
+LMDEPLOY_TARGET_DEVICE=ppu    pip3 install -e .
 ```
 
 只需要指定pytorch engine后端为ascend/maca/camb，不需要其他任何修改即可。详细可参考lmdeploy文档。
