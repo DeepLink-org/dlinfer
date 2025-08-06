@@ -280,6 +280,16 @@ class AddRmsNorm(Operator):
         return (x, x)
 
 
+class LayerNorm(Operator):
+    def __init__(
+        self,
+    ):
+        super().__init__("LayerNorm")
+
+    def infer_result(self, x, w, t1, t2, eps):
+        return (x, x.new_empty(x.shape[:-1]))
+
+
 class Rope(Operator):
     def __init__(
         self,
@@ -318,6 +328,14 @@ class SelfAttentionPAEncoder(Operator):
         head_size_v,
     ):
         return query.new_empty((query.shape[0], q_head_num, head_size_v))
+
+
+class IncreFlashAttention(Operator):
+    def __init__(self):
+        super().__init__("IncreFlashAttention")
+
+    def infer_result(self, query, key, value, input_layout, scale_value):
+        return query
 
 
 class ReshapeAndCache(Operator):
@@ -362,7 +380,7 @@ class Transpose(Operator):
         super().__init__("Transpose")
 
     def infer_result(self, x, perm):
-        return x.t()
+        return torch.permute(x, perm)
 
 
 class Transdata(Operator):
@@ -426,6 +444,14 @@ class SplitWithSize(Operator):
 
     def infer_result(self, x, sizes, dim):
         return x.split_with_sizes(sizes, dim=dim)
+
+
+class Gelu(Operator):
+    def __init__(self):
+        super().__init__("Gelu")
+
+    def infer_result(self, x):
+        return x
 
 
 class Swish(Operator):

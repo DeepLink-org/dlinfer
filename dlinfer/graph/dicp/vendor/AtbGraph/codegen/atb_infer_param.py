@@ -100,6 +100,13 @@ class RmsNormType(IntEnum):
     RMS_NORM_POSTNORM = 3
 
 
+class LayerNormType(IntEnum):
+    Layer_NORM_UNDEFINED = 0
+    Layer_NORM_NORM = 1
+    Layer_NORM_PRENORM = 2
+    Layer_NORM_POSTNORM = 3
+
+
 class PrecisionMode(IntEnum):
     HIGH_PRECISION_MODE = 0
     HIGH_PERFORMANCE_MODE = 1
@@ -159,6 +166,13 @@ class RmsNormParam:
 
 
 @dataclass
+class LayerNormParam:
+    name: str = ""
+    epsilon: float = 1e-5
+    normDim: list[int] = field(default_factory=list)
+
+
+@dataclass
 class RopeParam:
     rotaryCoeff: int = 4
     cosFormat: int = 0
@@ -206,6 +220,13 @@ class SelfAttentionParam:
     clampMin: float = 0.0
     clampMax: float = 0.0
     maskType: SelfAttentionMaskType = SelfAttentionMaskType.MASK_TYPE_UNDEFINED
+
+
+@dataclass
+class IncreFlashAttentionParam:
+    name: str = ""
+    input_layout: str = "BNSD"
+    scaleValue: float = 1.0
 
 
 class ReshapeAndCacheCompressType(IntEnum):

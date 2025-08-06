@@ -10,6 +10,7 @@ __all__ = [
     "add_rms_norm",
     "apply_rotary_pos_emb",
     "prefill_attention",
+    "incre_flash_attention",
     "fill_kv_cache",
     "paged_decode_attention",
     "paged_prefill_attention",
@@ -149,6 +150,45 @@ def prefill_attention(
         softmax_scale,
         alibi_slopes,
         attn_output,
+    )
+
+
+@register_custom_op(
+    "dlinfer::incre_flash_attention",
+    ["query"],
+    default_value={
+        "softmax_scale": None,
+    },
+)
+def incre_flash_attention(
+    query: Tensor,
+    key: Tensor,
+    value: Tensor,
+    num_heads: int,
+    input_layout: str,
+    softmax_scale: Optional[float],
+) -> Tensor:
+    """
+    Computes the multi-head attention over the query, key, and value tensors.
+    This interface is used for prefilling stage in LLM inference without paged kv-cache.
+
+    Args:
+        query (Tensor): The query tensor.
+        key (Tensor): The key tensor.
+        value (Tensor): The value tensor.
+        num_heads (int): The number of query heads.
+        softmax_scale (Optional[float]): The scale factor to apply to the attention logits before the softmax.
+
+    Returns:
+        Tensor: The computed attention output tensor.
+    """
+    return vendor_ops_registry["incre_flash_attention"](
+        query,
+        key,
+        value,
+        num_heads,
+        input_layout,
+        softmax_scale,
     )
 
 

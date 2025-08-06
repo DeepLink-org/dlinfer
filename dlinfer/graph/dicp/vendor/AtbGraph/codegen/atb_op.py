@@ -389,6 +389,16 @@ class AtbOverrides:
         op.set_output([f"{name}__0", f"{name}__1"])
         return op
 
+    def LayerNorm(name, x, w, t1, t2, eps):
+        op = Operation(name, "AclNnLayerNormOperation")
+        param = infer_param.LayerNormParam()
+        param.name = name
+        param.normDim = w
+        op.set_input([x, t1, t2])
+        op.set_param(param)
+        op.set_output([f"{name}__0", f"{name}__1", f"{name}__2"])
+        return op
+
     def Rope(name, query, key, cos, sin, seqlen):
         op = Operation(name, "RopeOperation")
         param = infer_param.RopeParam()
@@ -447,6 +457,17 @@ class AtbOverrides:
         op.set_output([name])
         op.has_host_inputs = True
         op.host_inputs.append(seqlen)
+        return op
+
+    def IncreFlashAttention(name, query, key, value, input_layout, scale_value):
+        op = Operation(name, "AclNnIncreFlashAttentionOperation")
+        param = infer_param.IncreFlashAttentionParam()
+        param.name = name
+        param.input_layout = input_layout
+        param.scaleValue = scale_value
+        op.set_input([query, key, value])
+        op.set_param(param)
+        op.set_output([name])
         return op
 
     def ReshapeAndCache(name, key, value, key_cache, value_cache, kv_indices):
@@ -575,6 +596,14 @@ class AtbOverrides:
         op.set_input([x])
         for idx, _ in enumerate(sizes):
             op.add_output(f"{name}__{idx}")
+        return op
+
+    def Gelu(name, x):
+        op = Operation(name, "AclNnGeluOperation")
+        param = infer_param.OnlyNameParam()
+        param.name = name
+        op.set_input([x])
+        op.set_output([name])
         return op
 
     def Swish(name, x, scale=1.0, dim=-1):
