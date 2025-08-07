@@ -104,7 +104,7 @@ pip install dlinfer-ascend
 | InternLM2.5-7B/20B | √ | √ | √ | √ | √ | √ | √ |
 | InternLM2-7B/20B   | √ | √ | √ | √ | √ | √ | √ |
 | InternVL2-2B       | √ | √ | √ | √ | √ | √ | √ |
-| InternVL1-5        | √ | √ | - | - | √ | - | - |
+| InternVL1-5        | √ | √ | - | - | √ | - | √ |
 | Llama3(.1)-8B      | √ | √ | √ | √ | √ | √ | √ |
 | Mixtral8x7B        | √ | X | √ | - | √ | √ | √ |
 | Qwen2(.5)-7B       | √ | √ | √ | √ | √ | √ | √ |
