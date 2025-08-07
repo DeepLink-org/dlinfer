@@ -132,7 +132,7 @@ LMDEPLOY_TARGET_DEVICE=camb   pip3 install -e .
 LMDEPLOY_TARGET_DEVICE=ppu    pip3 install -e .
 ```
 
-只需要指定pytorch engine后端为ascend/maca/camb，不需要其他任何修改即可。详细可参考lmdeploy文档。
+只需要指定pytorch engine后端为ascend/maca/camb/ppu，不需要其他任何修改即可。详细可参考lmdeploy文档。
 
 > [!CAUTION]
 > 寒武纪环境下必须把`PytorchEnginConfig`中的`block_size`设为`16`。
