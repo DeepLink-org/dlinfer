@@ -40,12 +40,7 @@ def add_rms_norm(
     weight: Tensor,
     epsilon: float,
 ) -> Tuple[Tensor, Tensor]:
-    custom_ops.fused_add_rms_norm(
-        hidden_states,
-        residual,
-        weight,
-        epsilon
-    )
+    custom_ops.fused_add_rms_norm(hidden_states, residual, weight, epsilon)
     return hidden_states, residual
 
 
@@ -125,7 +120,7 @@ def fill_kv_cache(
     quant_bits: int,
 ) -> Tuple[Tensor, Tensor]:
     kv_indices = kv_indices.squeeze(-1)
-    kv_scale  = torch.tensor(1.)
+    kv_scale = torch.tensor(1.0)
     custom_ops.reshape_and_cache_flash(
         key, value, key_cache, value_cache, kv_indices, "auto", kv_scale, kv_scale
     )
@@ -156,7 +151,7 @@ def paged_decode_attention(
     num_kv_heads = value_cache.size(-2)
     block_size = value_cache.size(1)
     batch_size = block_table.size(0)
-    kv_scale  = torch.tensor(1.)
+    kv_scale = torch.tensor(1.0)
 
     if softmax_scale is None:
         softmax_scale = float(1 / math.sqrt(query.size(-1)))
