@@ -5,9 +5,9 @@ from torch import nn
 from typing import Optional, Type, TypeVar, Any, List
 from lmdeploy.lite.quantization.modules.linear import WeightOnlyQLinear
 from lmdeploy.lite.utils.cal_qparams import QParams
-from lmdeploy.pytorch.distributed import get_world_rank
+from lmdeploy.pytorch.nn.utils import chunk_aligned
+from lmdeploy.pytorch.nn.linear.utils import _get_tp_world_rank
 from lmdeploy.pytorch.nn.linear import (
-    _chunk_align,
     MergedAwqLinear,
     AwqLinear,
     QKVAwqLinear,
@@ -180,7 +180,7 @@ def AscendMergedAwqLinear_weight_loader(
     self, param: torch.nn.Parameter, loaded_weight: torch.Tensor, shard_id: Any
 ):
     """weight loader."""
-    world_size, rank = get_world_rank()
+    world_size, rank = _get_tp_world_rank(self.is_tp)
     shard_idx = self.out_names_map[shard_id]
 
     if loaded_weight.dim() == 1:
@@ -188,7 +188,7 @@ def AscendMergedAwqLinear_weight_loader(
         align = max(self.elem_per_int, self.group_size)
         param_w = param.data.split(self.all_out_features, 0)[shard_idx]
         if not self.replicate[shard_idx]:
-            weight = _chunk_align(loaded_weight, world_size, 0, align)[rank]
+            weight = chunk_aligned(loaded_weight, world_size, 0, align)[rank]
         param_w.copy_(weight)
 
     if param._weight_type in ["scales", "bias"]:
