@@ -4,7 +4,7 @@ from functools import lru_cache
 from dlinfer.vendor import vendor_name
 
 
-graph_vendor = ["maca", "camb"]
+graph_vendor = ["maca", "camb", "ppu"]
 
 
 @lru_cache(1)
