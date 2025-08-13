@@ -27,6 +27,13 @@ target_compile_definitions(
     GLIBCXX_USE_CXX11_ABI=${_GLIBCXX_USE_CXX11_ABI}
 )
 
+if(TORCH_VERSION MATCHES "^2.6.0")
+    target_compile_definitions(
+        ${PROJECT_NAME} PUBLIC
+        TORCH_VERSION_2_6_0
+    )
+endif()
+
 if(TORCH_VERSION STREQUAL "2.7.1")
     target_compile_definitions(
         ${PROJECT_NAME} PUBLIC

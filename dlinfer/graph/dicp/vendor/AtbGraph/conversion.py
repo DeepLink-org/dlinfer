@@ -193,7 +193,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
         v_scales_zeros,
         quant_bits,
     ):
-        if SocVersion.is_Ascend910B():
+        if SocVersion.is_Ascend910():
             key_shape = key.node.meta["val"].shape
             value_shape = value.node.meta["val"].shape
             is_mla = key_shape[-1] != value_shape[-1]

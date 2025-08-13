@@ -27,6 +27,22 @@ void record_mem_hbm_ecc_error() {
         "Please check your environment setup.");
 }
 
+#if defined(TORCH_VERSION_2_6_0)
+std::string handleDeviceError(int errorCode) {
+    throw std::runtime_error(
+        "Dlinfer handleDeviceError should not be called. "
+        "Please check your environment setup.");
+    return "";
+}
+namespace option {
+bool OptionsManager::IsCompactErrorOutput() {
+    throw std::runtime_error(
+        "Dlinfer IsCompactErrorOutput should not be called. "
+        "Please check your environment setup.");
+}
+}  // namespace option
+#endif
+
 #if !defined(TORCH_VERSION_2_7_1)
 bool checkUceErrAndRepair(bool check_error, std::string& err_msg) {
     throw std::runtime_error(
