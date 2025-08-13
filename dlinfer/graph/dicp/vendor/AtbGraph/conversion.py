@@ -841,11 +841,11 @@ class AtenToAtbTransformer(SingleOpTransformer):
     def aten_slice_scatter(self, x, data, dim=0, start=None, end=None, step=1):
         return self.get_proxy(atb_op.SliceScatter, (x, data, dim, start, end, step))
 
-    @register_conversion(torch.ops.dlinfer.dynamic_quant.default)
+    @register_conversion("torch.ops.dlinfer.dynamic_quant.default")
     def dlinfer_dynamic_quant(self, x, quant_dtype, quant_granularity):
         return self.get_proxy(atb_op.AclNnDynamicQuant, (x, quant_dtype))
 
-    @register_conversion(torch.ops.dlinfer.linear_w8a8.default)
+    @register_conversion("torch.ops.dlinfer.linear_w8a8.default")
     def dlinfer_linear_w8a8(
         self, x, y, rms_scale, linear_scale, out_type, quant_dtype, bias
     ):
@@ -890,9 +890,90 @@ class AtenToAtbTransformer(SingleOpTransformer):
         assert largest == True
         return self.get_proxy(atb_op.Sort, (x, k))
 
-    @register_conversion(torch.ops.dlinfer.transdata.default)
+    @register_conversion("torch.ops.dlinfer.transdata.default")
     def dlinfer_transdata(self, x, transdata_type):
         return self.get_proxy(atb_op.Transdata, (x, transdata_type))
+
+    @register_conversion("torch.ops.dlinfer.fused_lora.default")
+    def dlinfer_fused_lora(
+        self,
+        x,
+        lora_a,
+        lora_b,
+        scaling,
+        rank_start,
+        ranks,
+        seq_start,
+        seq_lens,
+        adapter_ids,
+        max_rank,
+        max_seqlen,
+        slice_start,
+        slice_stop,
+        slice_step,
+        output,
+    ):
+        assert slice_step is None, "slice_step is not supported yet"
+        total_len = x.node.meta["val"].shape[0]
+        out_dim = lora_b.node.meta["val"].shape[1]
+
+        output_need_view = False
+        if output is not None:
+            assert (
+                output.node.meta["val"].shape[-1] == out_dim
+            ), "lora output slice is not supported yet."
+            if len(output.node.meta["val"].shape) == 3:
+                output = self.get_proxy(
+                    atb_op.View, (output, list(map(str, [total_len, out_dim])))
+                )
+                output_need_view = True
+
+        # concat 0 rank
+        lora_a_dim = lora_a.node.meta["val"].shape[1]
+        rank0_zero_a = self.get_proxy(
+            atb_op.Zeros,
+            (
+                list(map(str, [1, lora_a_dim])),
+                lora_b.node.meta["val"].dtype,
+                [1, lora_a_dim],
+            ),
+        )
+        rank0_zero_b = self.get_proxy(
+            atb_op.Zeros,
+            (
+                list(map(str, [1, out_dim])),
+                lora_b.node.meta["val"].dtype,
+                [1, out_dim],
+            ),
+        )
+        concated_lora_a = self.get_proxy(atb_op.Concat, ([rank0_zero_a, lora_a], 0))
+        concated_lora_b = self.get_proxy(atb_op.Concat, ([rank0_zero_b, lora_b], 0))
+
+        casted_scaling = self.get_proxy(
+            atb_op.Cast, (scaling, lora_b.node.meta["val"].dtype)
+        )
+
+        fused_lora = self.get_proxy(
+            atb_op.CustomFusedLora,
+            (
+                x,
+                concated_lora_a,
+                concated_lora_b,
+                casted_scaling,
+                ranks,
+                seq_lens,
+                adapter_ids,
+                lora_b.node.meta["val"].dtype,
+            ),
+        )
+        out = self.get_proxy(atb_op.GetItem, (fused_lora, 0))
+        if output is not None:
+            out = self.get_proxy(atb_op.Add, (output, out))
+        if output_need_view:
+            out = self.get_proxy(
+                atb_op.View, (out, list(map(str, [1, total_len, out_dim])))
+            )
+        return out
 
 
 class ViewSymIntTransformer(torch.fx.Transformer):

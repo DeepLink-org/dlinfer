@@ -8,6 +8,10 @@ else()
         CACHE STRING "atb toolkit default home")
 endif()
 
+# Extract cxx_abi version from ATB_HOME_PATH (last path component)
+get_filename_component(ATB_CXX_ABI_VERSION ${ATB_HOME_PATH} NAME)
+message(STATUS "ATB_CXX_ABI_VERSION: ${ATB_CXX_ABI_VERSION}")
+
 # Include directories.
 find_path(ATB_INCLUDE_DIRS
     NAMES atb/atb_infer.h

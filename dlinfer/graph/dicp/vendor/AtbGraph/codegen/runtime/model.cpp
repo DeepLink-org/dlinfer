@@ -313,6 +313,7 @@ atb::Status Model::ExecuteNode(int nodeId) {
     if (st != 0) {
         DICP_LOG(ERROR) << "execute node[" << nodeId << "] fail, error code: " << st;
     }
+    DICP_LOG(INFO) << modelId_ << "execute node[" << nodeId << "] end";
     return st;
 }
 
@@ -423,6 +424,10 @@ void Model::CreateGraphOperation(const nlohmann::json& paramJson, Node& node) {
     graph_param.outTensorNum = outputNames.size();
     graph_param.internalTensorNum = internalNames.size();
     graph_param.nodes.resize(nodeSize);
+
+    if (paramJson.contains("name")) {
+        graph_param.name = paramJson["name"].get<std::string>();
+    }
 
     // graph local tensor ids
     std::unordered_map<std::string, int> graph_tensor_ids;
