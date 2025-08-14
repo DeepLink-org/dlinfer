@@ -24,6 +24,13 @@ execute_process(
     OUTPUT_STRIP_TRAILING_WHITESPACE
 )
 
+execute_process(
+    COMMAND python -c "import torch_npu; from packaging import version; \
+    torch_npu_version = version.parse(torch_npu.__version__); \
+    print('TRUE' if torch_npu_version > version.Version('2.3.1') else 'FALSE', end='')"
+    OUTPUT_VARIABLE Torch_npu_VERSION_HIGHER_THAN_231
+)
+
 find_package(Torch REQUIRED)
 find_package(Torch_npu REQUIRED)
 find_package(CANNToolkit REQUIRED)
