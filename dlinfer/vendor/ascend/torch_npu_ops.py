@@ -90,7 +90,7 @@ def prefill_attention(
     key = key.contiguous()
     value = value.contiguous()
     scale_value = softmax_scale if softmax_scale else 1.0 / math.sqrt(query.shape[-1])
-    if SocVersion.is_Ascend910B():
+    if SocVersion.is_Ascend910():
         seq_qlen_list = (
             [max_q_seq_len * (i + 1) for i in range(query.shape[0])]
             if q_seq_len is None
@@ -344,7 +344,7 @@ def rms_norm(hidden_states: Tensor, weight: Tensor, epsilon: float) -> Tensor:
 
 @register_ops(vendor_ops_registry)
 def silu_and_mul(input_tensor: Tensor, dim: int) -> Tensor:
-    if SocVersion.is_Ascend910B():
+    if SocVersion.is_Ascend910():
         return torch.ops.npu.npu_swiglu(input_tensor, dim)
     elif SocVersion.is_Ascend310P():
         gate_cache, up_cache = input_tensor.chunk(2, dim)
@@ -489,15 +489,17 @@ def fused_moe(
     )
 
     # up sample
-    counts = torch.bincount(expanded_expert_idx, minlength=num_experts)
-    cumulative_counts = torch.cumsum(counts, dim=0)
-    group_list = cumulative_counts.tolist()
+    group_list = torch.ops.npu.npu_moe_compute_expert_tokens(
+        expanded_expert_idx, num_experts
+    ).to(torch.int64)
     up_proj = torch.ops.npu.npu_grouped_matmul(
         [expanded_hidden_states],
-        [weight for weight in gate_up_weights],
+        [gate_up_weights],
         bias=None,
         group_list=group_list,
         split_item=2,
+        group_type=0,
+        group_list_type=0,
     )[0]
 
     # activation
@@ -506,24 +508,23 @@ def fused_moe(
     # down sample
     down_proj = torch.ops.npu.npu_grouped_matmul(
         [gate_cache],
-        [weight for weight in down_weights],
+        [down_weights],
         bias=None,
         group_list=group_list,
         split_item=2,
+        group_type=0,
+        group_list_type=0,
     )[0]
 
     # moe finalize routing
-    skip = torch.zeros_like(hidden_states)
-    bias = torch.zeros_like(down_proj)
-    export_for_source_row = torch.zeros_like(topk_ids)
     moe_output = torch.ops.npu.npu_moe_finalize_routing(
         down_proj,
-        skip1=skip,
-        skip2=skip,
-        bias=bias,
+        skip1=None,
+        skip2=None,
+        bias=None,
         scales=topk_weights,
         expanded_src_to_dst_row=expanded_row_idx,
-        export_for_source_row=export_for_source_row,
+        export_for_source_row=topk_ids,
     )
 
     return moe_output

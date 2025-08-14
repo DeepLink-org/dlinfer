@@ -27,6 +27,14 @@ target_compile_definitions(
     GLIBCXX_USE_CXX11_ABI=${_GLIBCXX_USE_CXX11_ABI}
 )
 
+# torch-npu 2.6.0 dev version
+if(TORCH_VERSION MATCHES "^2.6.0")
+    target_compile_definitions(
+        ${PROJECT_NAME} PUBLIC
+        TORCH_VERSION_2_6_0_DEV
+    )
+endif()
+
 if(TORCH_VERSION STREQUAL "2.7.1")
     target_compile_definitions(
         ${PROJECT_NAME} PUBLIC

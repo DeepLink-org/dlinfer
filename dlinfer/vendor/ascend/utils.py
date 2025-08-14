@@ -4,7 +4,7 @@ import torch
 
 class SocVersion:
     Ascend310P: str = "Ascend310P"
-    Ascend910B: str = "Ascend910B"
+    Ascend910: str = "Ascend910"
 
     @classmethod
     @lru_cache(maxsize=1)
@@ -16,5 +16,5 @@ class SocVersion:
         return cls.device_name().startswith(cls.Ascend310P)
 
     @classmethod
-    def is_Ascend910B(cls) -> bool:
-        return cls.device_name().startswith(cls.Ascend910B)
+    def is_Ascend910(cls) -> bool:
+        return cls.device_name().startswith(cls.Ascend910)
