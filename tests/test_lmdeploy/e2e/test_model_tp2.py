@@ -1,4 +1,5 @@
 # Copyright (c) 2024, DeepLink. All rights reserved.
+# import threading
 import pytest
 import argparse
 
@@ -20,6 +21,7 @@ from test_lmdeploy.utils.pipeline_chat import (
     reason="There is unresolvable issue with the pytest multi process spawning"
 )
 @pytest.mark.lmdeploy
+@pytest.mark.timeout(360, method="thread")
 def test_pipeline_chat_pytorch_tp2(
     model_case, env_config, case_config, device_type, eager_mode=True
 ):
@@ -43,6 +45,7 @@ def test_pipeline_chat_pytorch_tp2(
     reason="There is unresolvable issue with the pytest multi process spawning"
 )
 @pytest.mark.lmdeploy
+@pytest.mark.timeout(360, method="thread")
 def test_pipeline_vl_pytorch_tp2(model_case, env_config, device_type, eager_mode=True):
     print("######## dlinfer testting vl_model case: ", model_case)
     run_pipeline_vl_chat_test(
@@ -60,7 +63,17 @@ def test_pipeline_vl_pytorch_tp2(model_case, env_config, device_type, eager_mode
         print(f"dlinfer test {model_case} with tp2 on {device_type} passed")
 
 
+# def patch_threading():
+#     _original_wait_for_tstate_lock = threading.Thread._wait_for_tstate_lock
+
+#     def _new_wait_for_tstate_lock(self, block=True, timeout=10):
+#         return _original_wait_for_tstate_lock(self, block=block, timeout=timeout)
+
+#     threading.Thread._wait_for_tstate_lock = _new_wait_for_tstate_lock
+
+
 if __name__ == "__main__":
+    # patch_threading()
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_case", required=True)
     parser.add_argument("--model_type", choices=["chat", "vl"], required=True)
