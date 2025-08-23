@@ -11,6 +11,10 @@ int AclNnTensor::CreateTensor(const std::string& opName) {
         strides[i] = atbTensor.desc.shape.dims[i + 1] * strides[i + 1];
     }
 
+    if (tensor != nullptr) {
+        aclDestroyTensor(tensor);
+    }
+
     tensor = aclCreateTensor(atbTensor.desc.shape.dims,
                              atbTensor.desc.shape.dimNum,
                              atbTensor.desc.dtype,

@@ -56,10 +56,16 @@ int AclNnIncreFlashAttentionOperation::SetAclNnWorkspaceExecutor(uint64_t& works
     aclTensor* tensorsOfValue[kvTensorNum];
     tensorsOfValue[0] = aclInTensors_.at(2).tensor;
 
-    auto tensorValueList = aclCreateTensorList(tensorsOfValue, kvTensorNum);
+    if (tensorValueList_ != nullptr) {
+        aclDestroyTensorList(tensorValueList_);
+    }
+    tensorValueList_ = aclCreateTensorList(tensorsOfValue, kvTensorNum);
 
+    if (actualSeqLengths_ != nullptr) {
+        aclDestroyIntArray(actualSeqLengths_);
+    }
     std::vector<int64_t> actualSeqlenVector = {sequenceLengthkv};
-    auto actualSeqLengths = aclCreateIntArray(actualSeqlenVector.data(), actualSeqlenVector.size());
+    actualSeqLengths_ = aclCreateIntArray(actualSeqlenVector.data(), actualSeqlenVector.size());
 
     char layerOut[this->inputLayout.length()];
     strcpy(layerOut, this->inputLayout.c_str());
@@ -69,10 +75,10 @@ int AclNnIncreFlashAttentionOperation::SetAclNnWorkspaceExecutor(uint64_t& works
 
     int ret = aclnnIncreFlashAttentionV4GetWorkspaceSize(aclInTensors_.at(0).tensor,
                                                          tensorKeyList,
-                                                         tensorValueList,
+                                                         tensorValueList_,
                                                          nullptr,
                                                          nullptr,
-                                                         actualSeqLengths,
+                                                         actualSeqLengths_,
                                                          nullptr,
                                                          nullptr,
                                                          nullptr,

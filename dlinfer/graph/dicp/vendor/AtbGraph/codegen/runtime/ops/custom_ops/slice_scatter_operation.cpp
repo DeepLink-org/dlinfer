@@ -51,6 +51,18 @@ atb::Status SliceScatterOperation::InferShape(const atb::SVector<atb::TensorDesc
     }
     DICP_LOG(INFO) << "SliceScatterOperationCreate: name: " << opName_ << ", begin:" << vectorToString(beginVec_) << ", end:" << vectorToString(endVec_)
                    << ", strides:" << vectorToString(stridesVec_) << ", axes:" << vectorToString(axesVec_);
+    if (beginArray_ != nullptr) {
+        aclDestroyIntArray(beginArray_);
+    }
+    if (endArray_ != nullptr) {
+        aclDestroyIntArray(endArray_);
+    }
+    if (stridesArray_ != nullptr) {
+        aclDestroyIntArray(stridesArray_);
+    }
+    if (axesArray_ != nullptr) {
+        aclDestroyIntArray(axesArray_);
+    }
     beginArray_ = aclCreateIntArray(beginVec_.data(), beginVec_.size());
     endArray_ = aclCreateIntArray(endVec_.data(), endVec_.size());
     stridesArray_ = aclCreateIntArray(stridesVec_.data(), stridesVec_.size());

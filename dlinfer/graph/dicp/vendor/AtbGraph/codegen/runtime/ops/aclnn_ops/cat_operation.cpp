@@ -30,7 +30,11 @@ AclNnCatOperation::AclNnCatOperation(const std::string& name, int32_t inputNum, 
     this->inputNum = inputNum;
 }
 
-AclNnCatOperation::~AclNnCatOperation() {}
+AclNnCatOperation::~AclNnCatOperation() {
+    if (tensorList_ != nullptr) {
+        aclDestroyTensorList(tensorList_);
+    }
+}
 
 atb::Status AclNnCatOperation::InferShape(const atb::SVector<atb::TensorDesc>& inTensorDescs, atb::SVector<atb::TensorDesc>& outTensorDescs) const {
     DICP_LOG(INFO) << opName_ << " infer shape start";
@@ -66,8 +70,11 @@ int AclNnCatOperation::SetAclNnWorkspaceExecutor(uint64_t& workspaceSize) {
     for (size_t i = 0; i < aclInTensors_.size(); ++i) {
         tmp[i] = aclInTensors_.at(i).tensor;
     }
-    aclTensorList* tensorList = aclCreateTensorList(tmp.data(), tmp.size());
-    int ret = aclnnCatGetWorkspaceSize(tensorList, this->concatDim, aclOutTensors_.at(0).tensor, &workspaceSize, &aclExecutor_);
+    if (tensorList_ != nullptr) {
+        aclDestroyTensorList(tensorList_);
+    }
+    tensorList_ = aclCreateTensorList(tmp.data(), tmp.size());
+    int ret = aclnnCatGetWorkspaceSize(tensorList_, this->concatDim, aclOutTensors_.at(0).tensor, &workspaceSize, &aclExecutor_);
     DICP_LOG(INFO) << opName_ << " aclnnCatGetWorkspaceSize end, ret:" << ret << ", workspaceSize:" << workspaceSize << ", aclExecutor:" << aclExecutor_;
 
     return ret;
