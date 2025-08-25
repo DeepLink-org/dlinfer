@@ -26,6 +26,8 @@ protected:
     uint64_t reduceSumWorkspaceSize_ = 0;
     uint64_t divWorkspaceSize_ = 0;
 
+    aclIntArray* reduceDims_ = nullptr;
+
 private:
     atb::SVector<AclNnTensor> aclInTensors_;
     atb::SVector<AclNnTensor> aclOutTensors_;

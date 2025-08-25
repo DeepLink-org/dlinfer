@@ -17,6 +17,9 @@ public:
 
 private:
     int64_t splitItem = 2;
+    aclTensorList* xTensorList_ = nullptr;
+    aclTensorList* weightTensorList_ = nullptr;
+    aclTensorList* outTensorList_ = nullptr;
     int SetAclNnWorkspaceExecutor(uint64_t& workspaceSize) override;
     int CallAclExecute(uint8_t* workspace, uint64_t workspaceSize, aclOpExecutor* aclExecutor, aclrtStream stream) override;
 };

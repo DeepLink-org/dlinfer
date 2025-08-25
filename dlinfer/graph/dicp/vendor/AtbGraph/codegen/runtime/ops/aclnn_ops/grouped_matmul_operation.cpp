@@ -11,7 +11,11 @@ const int NUM3 = 3;
 
 AclNnGroupedMatmulOperation::AclNnGroupedMatmulOperation(const std::string& name, int64_t splitItem) : AclNnOperation(name) { this->splitItem = splitItem; }
 
-AclNnGroupedMatmulOperation::~AclNnGroupedMatmulOperation() {}
+AclNnGroupedMatmulOperation::~AclNnGroupedMatmulOperation() {
+    if (xTensorList_ != nullptr) aclDestroyTensorList(xTensorList_);
+    if (weightTensorList_ != nullptr) aclDestroyTensorList(weightTensorList_);
+    if (outTensorList_ != nullptr) aclDestroyTensorList(outTensorList_);
+}
 
 atb::Status AclNnGroupedMatmulOperation::InferShape(const atb::SVector<atb::TensorDesc>& inTensorDescs, atb::SVector<atb::TensorDesc>& outTensorDescs) const {
     DICP_LOG(INFO) << opName_ << " infer shape start";
@@ -32,15 +36,20 @@ uint32_t AclNnGroupedMatmulOperation::GetOutputNum() const { return NUM1; }
 
 int AclNnGroupedMatmulOperation::SetAclNnWorkspaceExecutor(uint64_t& workspaceSize) {
     DICP_LOG(INFO) << opName_ << " aclnnGroupedMatmulGetWorkspaceSize start";
-    std::vector<aclTensor*> xTmp{aclInTensors_.at(0).tensor};
-    aclTensorList* xTensorList = aclCreateTensorList(xTmp.data(), xTmp.size());
-    std::vector<aclTensor*> weightTmp{aclInTensors_.at(1).tensor};
-    aclTensorList* weightTensorList = aclCreateTensorList(weightTmp.data(), weightTmp.size());
-    std::vector<aclTensor*> outTmp{aclOutTensors_.at(0).tensor};
-    aclTensorList* outTensorList = aclCreateTensorList(outTmp.data(), outTmp.size());
 
-    int ret = aclnnGroupedMatmulV3GetWorkspaceSize(xTensorList,
-                                                   weightTensorList,
+    if (xTensorList_ != nullptr) aclDestroyTensorList(xTensorList_);
+    if (weightTensorList_ != nullptr) aclDestroyTensorList(weightTensorList_);
+    if (outTensorList_ != nullptr) aclDestroyTensorList(outTensorList_);
+
+    std::vector<aclTensor*> xTmp{aclInTensors_.at(0).tensor};
+    xTensorList_ = aclCreateTensorList(xTmp.data(), xTmp.size());
+    std::vector<aclTensor*> weightTmp{aclInTensors_.at(1).tensor};
+    weightTensorList_ = aclCreateTensorList(weightTmp.data(), weightTmp.size());
+    std::vector<aclTensor*> outTmp{aclOutTensors_.at(0).tensor};
+    outTensorList_ = aclCreateTensorList(outTmp.data(), outTmp.size());
+
+    int ret = aclnnGroupedMatmulV3GetWorkspaceSize(xTensorList_,
+                                                   weightTensorList_,
                                                    nullptr,
                                                    nullptr,
                                                    nullptr,
@@ -49,7 +58,7 @@ int AclNnGroupedMatmulOperation::SetAclNnWorkspaceExecutor(uint64_t& workspaceSi
                                                    aclInTensors_.at(2).tensor,
                                                    this->splitItem,
                                                    0,
-                                                   outTensorList,
+                                                   outTensorList_,
                                                    &workspaceSize,
                                                    &aclExecutor_);
 

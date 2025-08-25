@@ -22,6 +22,9 @@ RenormalizeOperation::~RenormalizeOperation() {
         aclDestroyTensor(aclOutTensors_[i].tensor);
     }
     aclOutTensors_.clear();
+    if (reduceDims_ != nullptr) {
+        aclDestroyIntArray(reduceDims_);
+    }
 }
 
 std::string RenormalizeOperation::GetName() const { return opName_; }
@@ -94,12 +97,15 @@ int RenormalizeOperation::Setup(const atb::VariantPack& variantPack, uint64_t& w
     }
 
     // reduceSum
+    if (reduceDims_ != nullptr) {
+        aclDestroyIntArray(reduceDims_);
+    }
     std::vector<int64_t> dims_{-1};
-    aclIntArray* reduceDims = aclCreateIntArray(dims_.data(), dims_.size());
+    reduceDims_ = aclCreateIntArray(dims_.data(), dims_.size());
     aclDataType reduceSumDtype = aclInTensors_.at(0).atbTensor.desc.dtype;
     DICP_LOG(INFO) << opName_ << " aclnnReduceSumGetWorkspaceSize start";
     int ret = aclnnReduceSumGetWorkspaceSize(
-        aclInTensors_.at(0).tensor, reduceDims, true, reduceSumDtype, aclOutTensors_.at(0).tensor, &reduceSumWorkspaceSize_, &aclReduceSumExecutor_);
+        aclInTensors_.at(0).tensor, reduceDims_, true, reduceSumDtype, aclOutTensors_.at(0).tensor, &reduceSumWorkspaceSize_, &aclReduceSumExecutor_);
     DICP_LOG(INFO) << opName_ << " aclnnReduceSumGetWorkspaceSize end, ret:" << ret << ", workspaceSize:" << reduceSumWorkspaceSize_
                    << ", aclExecutor:" << aclReduceSumExecutor_;
 
