@@ -3,11 +3,18 @@ import importlib
 import torch
 from functools import lru_cache
 from dlinfer.vendor import vendor_name
-from lmdeploy.pytorch.models import internvl, internvl3_hf
 from lmdeploy.pytorch import models
 
 
 vendor = ["camb", "ascend"]
+
+
+def fake_torch_compile(dynamic=False):                                         
+    def decorator(func):              
+        def wrapper(*args, **kwargs):
+            return func(*args, **kwargs)
+        return wrapper
+    return decorator
 
 
 def pre_rms_norm(q: torch.Tensor, k: torch.Tensor) -> torch.Tensor:
@@ -43,10 +50,15 @@ def post_rms_norm(
 
 
 def patch_compiled_func():
+    import torch
+    real_torch_compile = torch.compile
+    torch.compile = fake_torch_compile
+    from lmdeploy.pytorch.models import internvl, internvl3_hf
     internvl.pre_rms_norm = pre_rms_norm
     internvl.post_rms_norm = post_rms_norm
     internvl3_hf.pre_rms_norm = pre_rms_norm
     internvl3_hf.post_rms_norm = post_rms_norm
+    torch.compile = real_torch_compile
 
 
 @lru_cache(1)
