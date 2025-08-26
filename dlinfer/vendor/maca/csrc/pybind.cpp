@@ -68,4 +68,23 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
             &topk_softmax,
             "topk_softmax(Tensor! topk_weights, Tensor! topk_indices, Tensor! "
             "token_expert_indices, Tensor gating_output) -> ()");
+
+    // Activation ops
+    // Activation function used in SwiGLU.
+    ops.def("silu_and_mul", &silu_and_mul, "silu_and_mul(Tensor! out, Tensor input) -> ()");
+
+    // Layernorm
+    // Apply Root Mean Square (RMS) Normalization to the input tensor.
+    ops.def("rms_norm",
+            &rms_norm,
+            "rms_norm(Tensor! out, Tensor input, Tensor weight, float epsilon) -> "
+            "()");
+
+    // In-place fused Add and RMS Normalization.
+    ops.def("fused_add_rms_norm",
+            &fused_add_rms_norm,
+            "fused_add_rms_norm(Tensor! input, Tensor! residual, Tensor weight, "
+            "float epsilon) -> ()");
+
+
 }

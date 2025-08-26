@@ -20,6 +20,8 @@ set(DLINFER_VLLM_SRC
   "cache_kernels.cu"
   "attention/attention_kernels.cu"
   "pos_encoding_kernels.cu"
+  "activation_kernels.cu"
+  "layernorm_kernels.cu"
   "moe_align_block_size_kernels.cu"
   "moe/topk_softmax_kernels.cu"
 )
