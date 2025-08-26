@@ -55,10 +55,6 @@ int AclNnIncreFlashAttentionOperation::SetAclNnWorkspaceExecutor(uint64_t& works
 
     aclTensor* tensorsOfValue[kvTensorNum];
     tensorsOfValue[0] = aclInTensors_.at(2).tensor;
-
-    if (tensorValueList_ != nullptr) {
-        aclDestroyTensorList(tensorValueList_);
-    }
     tensorValueList_ = aclCreateTensorList(tensorsOfValue, kvTensorNum);
 
     if (actualSeqLengths_ != nullptr) {

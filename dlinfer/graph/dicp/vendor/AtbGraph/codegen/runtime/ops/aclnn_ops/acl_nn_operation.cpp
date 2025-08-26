@@ -71,6 +71,7 @@ atb::Status AclNnOperation::Setup(const atb::VariantPack& variantPack, uint64_t&
         return atb::ERROR_INVALID_PARAM;
     }
 
+    ClearAclTensors();
     DICP_CHECK_RET(CreateAclTensors(variantPack));
 
     for (size_t i = 0; i < aclInTensors_.size(); ++i) {
@@ -106,6 +107,19 @@ int AclNnOperation::CreateAclTensors(const atb::VariantPack& variantPack) {
     DICP_LOG(INFO) << opName_ << " Create aclOutTensor end";
     DICP_LOG(INFO) << opName_ << " CreateAclTensor end";
     return 0;
+}
+
+void AclNnOperation::ClearAclTensors() {
+    for (size_t i = 0; i < aclInTensors_.size(); ++i) {
+        if (aclInTensors_[i].tensor != nullptr) {
+            aclDestroyTensor(aclInTensors_[i].tensor);
+        }
+    }
+    for (size_t i = 0; i < aclOutTensors_.size(); ++i) {
+        if (aclOutTensors_[i].tensor != nullptr) {
+            aclDestroyTensor(aclOutTensors_[i].tensor);
+        }
+    }
 }
 
 atb::Status AclNnOperation::Execute(const atb::VariantPack& variantPack, uint8_t* workspace, uint64_t workspaceSize, atb::Context* context) {
