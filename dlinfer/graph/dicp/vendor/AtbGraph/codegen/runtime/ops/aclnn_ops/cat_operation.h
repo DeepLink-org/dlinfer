@@ -13,7 +13,6 @@ public:
 private:
     int32_t concatDim = -1;
     int32_t inputNum = -1;
-    aclTensorList* tensorList_ = nullptr;
     int SetAclNnWorkspaceExecutor(uint64_t& workspaceSize) override;
     int CallAclExecute(uint8_t* workspace, uint64_t workspaceSize, aclOpExecutor* aclExecutor, aclrtStream stream) override;
 };

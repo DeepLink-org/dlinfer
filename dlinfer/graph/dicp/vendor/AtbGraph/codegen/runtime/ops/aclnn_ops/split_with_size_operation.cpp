@@ -67,8 +67,8 @@ int AclNnSplitWithSizeOperation::SetAclNnWorkspaceExecutor(uint64_t& workspaceSi
     for (size_t i = 0; i < aclOutTensors_.size(); ++i) {
         tmp[i] = aclOutTensors_.at(i).tensor;
     }
-    tensorList_ = aclCreateTensorList(tmp.data(), tmp.size());
-    int ret = aclnnSplitWithSizeGetWorkspaceSize(aclInTensors_.at(0).tensor, sizes_, splitDim_, tensorList_, &workspaceSize, &aclExecutor_);
+    aclTensorList* tensorList = aclCreateTensorList(tmp.data(), tmp.size());
+    int ret = aclnnSplitWithSizeGetWorkspaceSize(aclInTensors_.at(0).tensor, sizes_, splitDim_, tensorList, &workspaceSize, &aclExecutor_);
     DICP_LOG(INFO) << opName_ << " aclnnSplitWithSizeGetWorkspaceSize end, ret:" << ret << ", workspaceSize:" << workspaceSize
                    << ", aclExecutor:" << aclExecutor_;
     return ret;

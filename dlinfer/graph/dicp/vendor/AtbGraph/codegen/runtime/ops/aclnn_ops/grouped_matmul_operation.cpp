@@ -33,14 +33,14 @@ uint32_t AclNnGroupedMatmulOperation::GetOutputNum() const { return NUM1; }
 int AclNnGroupedMatmulOperation::SetAclNnWorkspaceExecutor(uint64_t& workspaceSize) {
     DICP_LOG(INFO) << opName_ << " aclnnGroupedMatmulGetWorkspaceSize start";
     std::vector<aclTensor*> xTmp{aclInTensors_.at(0).tensor};
-    xTensorList_ = aclCreateTensorList(xTmp.data(), xTmp.size());
+    aclTensorList* xTensorList = aclCreateTensorList(xTmp.data(), xTmp.size());
     std::vector<aclTensor*> weightTmp{aclInTensors_.at(1).tensor};
-    weightTensorList_ = aclCreateTensorList(weightTmp.data(), weightTmp.size());
+    aclTensorList* weightTensorList = aclCreateTensorList(weightTmp.data(), weightTmp.size());
     std::vector<aclTensor*> outTmp{aclOutTensors_.at(0).tensor};
-    outTensorList_ = aclCreateTensorList(outTmp.data(), outTmp.size());
+    aclTensorList* outTensorList = aclCreateTensorList(outTmp.data(), outTmp.size());
 
-    int ret = aclnnGroupedMatmulV3GetWorkspaceSize(xTensorList_,
-                                                   weightTensorList_,
+    int ret = aclnnGroupedMatmulV3GetWorkspaceSize(xTensorList,
+                                                   weightTensorList,
                                                    nullptr,
                                                    nullptr,
                                                    nullptr,
@@ -49,7 +49,7 @@ int AclNnGroupedMatmulOperation::SetAclNnWorkspaceExecutor(uint64_t& workspaceSi
                                                    aclInTensors_.at(2).tensor,
                                                    this->splitItem,
                                                    0,
-                                                   outTensorList_,
+                                                   outTensorList,
                                                    &workspaceSize,
                                                    &aclExecutor_);
 
