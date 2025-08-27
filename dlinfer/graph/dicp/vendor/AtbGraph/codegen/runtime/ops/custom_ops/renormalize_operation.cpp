@@ -78,6 +78,21 @@ int RenormalizeOperation::CreateAclTensors(const atb::VariantPack& variantPack) 
     return 0;
 }
 
+void RenormalizeOperation::ClearAclTensors() {
+    for (size_t i = 0; i < aclInTensors_.size(); ++i) {
+        if (aclInTensors_[i].tensor != nullptr) {
+            aclDestroyTensor(aclInTensors_[i].tensor);
+            aclInTensors_[i].tensor = nullptr;
+        }
+    }
+    for (size_t i = 0; i < aclOutTensors_.size(); ++i) {
+        if (aclOutTensors_[i].tensor != nullptr) {
+            aclDestroyTensor(aclOutTensors_[i].tensor);
+            aclOutTensors_[i].tensor = nullptr;
+        }
+    }
+}
+
 int RenormalizeOperation::Setup(const atb::VariantPack& variantPack, uint64_t& workspaceSize, atb::Context* context) {
     DICP_LOG(INFO) << opName_ << " RenormalizeOperationGetWorkspaceSize start";
 
@@ -86,6 +101,7 @@ int RenormalizeOperation::Setup(const atb::VariantPack& variantPack, uint64_t& w
         return atb::ERROR_INVALID_PARAM;
     }
 
+    ClearAclTensors();
     DICP_CHECK_RET(CreateAclTensors(variantPack));
 
     for (size_t i = 0; i < aclInTensors_.size(); ++i) {
