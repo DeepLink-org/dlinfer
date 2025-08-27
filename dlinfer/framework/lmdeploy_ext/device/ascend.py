@@ -174,3 +174,29 @@ if SocVersion.is_Ascend310P():
     # We convert Linear weight to NZ format on Ascend310P device defaultly in graph mode.
     # However, vision_model part is not compiled in graph mode, so we skip converting weights of vision_model part.
     BaseModelAgent._build_model = _build_model_310P
+
+class SimpleSocVersion: 
+    Ascend310P: str = 'Ascend310P'
+    Ascend910: str = 'Ascend910'                                                                                                                                                                                 
+    @classmethod
+    @lru_cache(maxsize=1)
+    def device_name(cls) -> str:
+        try:
+            import torch_npu
+            return torch_npu.npu.get_device_name()
+        except ImportError:
+            logger.warning('Failed to import torch_npu. Please make sure torch_npu is installed correctly. ')
+        except Exception as e:
+            logger.warning(f'Error during Ascend get device name: {str(e)}. '
+                           'Please check your Ascend environment configuration.')
+
+    @classmethod
+    def is_Ascend310P(cls) -> bool:
+        return False
+
+    @classmethod
+    def is_Ascend910(cls) -> bool:
+        return True
+
+from lmdeploy.pytorch.backends.dlinfer.ascend.op_backend import SocVersion
+SocVersion = SimpleSocVersion
