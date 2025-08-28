@@ -35,7 +35,7 @@ def MacaCudaGraphMixin_make_buffers_cudagraph(
         max_batches, dtype=torch.int32, device=device
     )
 
-    input_buffers["kv_seqlens"] = torch.empty(
+    input_buffers["kv_seqlens"] = torch.zeros(
         max_batches, dtype=torch.int32, device=device
     )
 

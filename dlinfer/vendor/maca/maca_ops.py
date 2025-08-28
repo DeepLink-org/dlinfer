@@ -10,6 +10,7 @@ from dlinfer.vendor import vendor_ops_registry
 from dlinfer.utils.registry import register_ops
 from dlinfer.utils.type_annotation import Tensor, Optional, Sequence, Tuple
 
+from .fused_moe import fused_experts
 from .maca_extension import ops as maca_ext_ops
 
 __all__ = [
@@ -326,7 +327,6 @@ def paged_prefill_attention(
         key,
         value,
         output,
-        "auto",
         key_cache,
         value_cache,
         b_loc=block_table,
@@ -394,6 +394,39 @@ def silu_and_mul(x: Tensor, dim: int = -1) -> Tensor:
     return out
 
 
+# @register_ops(vendor_ops_registry)
+# def fused_moe(
+#     hidden_states: Tensor,
+#     gate_up_weights: Tensor,
+#     down_weights: Tensor,
+#     topk_weights: Tensor,
+#     topk_ids: Tensor,
+#     top_k: int,
+#     renormalize: bool,
+# ) -> Tensor:    
+#     N, D = hidden_states.shape
+#     hidden_states = hidden_states.view(N, -1, D).repeat(1, top_k, 1).reshape(-1, D)
+#     out = torch.zeros(
+#         N * top_k,
+#         down_weights.shape[1],
+#         dtype=hidden_states.dtype,
+#         device=hidden_states.device,
+#     )
+
+#     if renormalize:
+#         topk_weights = topk_weights / topk_weights.sum(dim=-1, keepdim=True)
+#     for i in range(gate_up_weights.shape[0]):
+#         mask = topk_ids == i
+#         if mask.sum():
+#             out[mask] = silu_and_mul(
+#                 hidden_states[mask] @ gate_up_weights[i].transpose(0, 1)
+#             ) @ down_weights[i].transpose(0, 1)
+#     return (
+#         out.view(N, -1, down_weights.shape[1])
+#         * topk_weights.view(N, -1, 1).to(out.dtype)
+#     ).sum(dim=1)
+
+
 @register_ops(vendor_ops_registry)
 def fused_moe(
     hidden_states: Tensor,
@@ -404,28 +437,15 @@ def fused_moe(
     top_k: int,
     renormalize: bool,
 ) -> Tensor:
-    N, D = hidden_states.shape
-    hidden_states = hidden_states.view(N, -1, D).repeat(1, top_k, 1).reshape(-1, D)
-    out = torch.zeros(
-        N * top_k,
-        down_weights.shape[1],
-        dtype=hidden_states.dtype,
-        device=hidden_states.device,
-    )
-
+    N = hidden_states.size(0)
+    topk_weights = topk_weights.reshape(N, top_k)
+    topk_ids = topk_ids.reshape(N, top_k)
     if renormalize:
         topk_weights = topk_weights / topk_weights.sum(dim=-1, keepdim=True)
-    for i in range(gate_up_weights.shape[0]):
-        mask = topk_ids == i
-        if mask.sum():
-            out[mask] = silu_and_mul(
-                hidden_states[mask] @ gate_up_weights[i].transpose(0, 1)
-            ) @ down_weights[i].transpose(0, 1)
-    return (
-        out.view(N, -1, down_weights.shape[1])
-        * topk_weights.view(N, -1, 1).to(out.dtype)
-    ).sum(dim=1)
 
+    return fused_experts(
+        hidden_states, gate_up_weights, down_weights, topk_weights, topk_ids
+    )
 
 @register_ops(vendor_ops_registry)
 def linear(
