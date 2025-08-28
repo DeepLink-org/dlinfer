@@ -1,23 +1,17 @@
 import os
 import math
-import vllm
 import torch
-import lmdeploy.pytorch.distributed as dist
+import torch.distributed as dist
 
-from vllm import _custom_ops as custom_ops
 from flash_attn import flash_attn_varlen_func
-from vllm.model_executor.layers.fused_moe import fused_experts
-from vllm.attention.ops.prefix_prefill import context_attention_fwd
+from .context_flashattention import context_attention_fwd
 
 from dlinfer.vendor import vendor_ops_registry
 from dlinfer.utils.registry import register_ops
 from dlinfer.utils.type_annotation import Tensor, Optional, Sequence, Tuple
 
+from .fused_moe import fused_experts
 from .maca_extension import ops as maca_ext_ops
-from .context_flashattention import (
-    context_attention_fwd as context_attention_fwd_mla,
-)
-
 
 __all__ = [
     "add_rms_norm",
@@ -31,11 +25,6 @@ __all__ = [
     "silu_and_mul",
     "moe_gating_topk_softmax",
     "linear",
-    "weight_quant_matmul",
-    "dynamic_quant",
-    "linear_w8a8",
-    "rms_norm_w8a8",
-    "add_rms_norm_w8a8",
 ]
 
 
@@ -69,7 +58,7 @@ def add_rms_norm(
     weight: Tensor,
     epsilon: float,
 ) -> Tuple[Tensor, Tensor]:
-    custom_ops.fused_add_rms_norm(hidden_states, residual, weight, epsilon)
+    maca_ext_ops.fused_add_rms_norm(hidden_states, residual, weight, epsilon)
     return hidden_states, residual
 
 
@@ -316,7 +305,7 @@ def paged_prefill_attention(
             num_blocks, num_kv_heads, -1, block_size
         )
         value_cache = key_cache
-        context_attention_fwd_mla(
+        context_attention_fwd(
             query,
             key,
             value,
@@ -338,7 +327,6 @@ def paged_prefill_attention(
         key,
         value,
         output,
-        "auto",
         key_cache,
         value_cache,
         b_loc=block_table,
@@ -361,7 +349,7 @@ def rms_norm(
     hidden_states = hidden_states.to(torch.float32)
     weight = weight.to(torch.float32)
     output = torch.empty_like(hidden_states)
-    custom_ops.rms_norm(output, hidden_states, weight, epsilon)
+    maca_ext_ops.rms_norm(output, hidden_states, weight, epsilon)
 
     return output.to(input_dtype)
 
@@ -380,7 +368,7 @@ def moe_gating_topk_softmax(
 
     token_expert_indicies = torch.empty_like(topk_ids)
 
-    custom_ops.topk_softmax(
+    maca_ext_ops.topk_softmax(
         topk_weights,
         topk_ids,
         token_expert_indicies,
@@ -402,7 +390,7 @@ def silu_and_mul(x: Tensor, dim: int = -1) -> Tensor:
     d = x.shape[-1] // 2
     output_shape = x.shape[:-1] + (d,)
     out = torch.empty(output_shape, dtype=x.dtype, device=x.device)
-    torch.ops._C.silu_and_mul(out, x)
+    maca_ext_ops.silu_and_mul(out, x)
     return out
 
 
@@ -421,10 +409,10 @@ def fused_moe(
     topk_ids = topk_ids.reshape(N, top_k)
     if renormalize:
         topk_weights = topk_weights / topk_weights.sum(dim=-1, keepdim=True)
+
     return fused_experts(
         hidden_states, gate_up_weights, down_weights, topk_weights, topk_ids
     )
-
 
 @register_ops(vendor_ops_registry)
 def linear(
@@ -445,81 +433,3 @@ def linear(
     return out
 
 
-# Quantification of W4A16 is currently supported and tested.
-@register_ops(vendor_ops_registry)
-def weight_quant_matmul(
-    x: Tensor,
-    qweight: Tensor,
-    scale: Tensor,
-    offset: Optional[Tensor] = None,
-    bias: Optional[Tensor] = None,
-    all_reduce: Optional[bool] = False,
-    group_size: Optional[int] = 0,
-):
-    offset = None if (offset is None or offset.numel() == 0) else offset
-    output = custom_ops.awq_gemm(x, qweight, scale, offset, group_size)
-    if bias is not None:
-        output += bias
-    return output
-
-
-@register_ops(vendor_ops_registry)
-def dynamic_quant(
-    x: Tensor, quant_dtype: torch.dtype, quant_granularity: str = "PER_TOKEN"
-):
-    assert quant_dtype == torch.int8
-    assert quant_granularity == "PER_TOKEN"
-    x, input_scale, _ = vllm._custom_ops.scaled_int8_quant(x, None)
-    return x, input_scale
-
-
-@register_ops(vendor_ops_registry)
-def linear_w8a8(
-    a: Tensor,
-    b: Tensor,
-    rms_scale: float,
-    linear_scale: float,
-    out_dtype: torch.dtype,
-    quant_dtype: torch.dtype = torch.int8,
-    bias: Tensor = None,
-):
-    assert quant_dtype == torch.int8
-    bs, seq_len, head_size = a.size()
-    out = vllm._custom_ops.cutlass_scaled_mm(
-        a.view(-1, head_size),
-        b,
-        scale_a=rms_scale,
-        scale_b=linear_scale,
-        out_dtype=out_dtype,
-        bias=bias,
-    )
-    out = out.view(bs, seq_len, -1)
-    return out
-
-
-@register_ops(vendor_ops_registry)
-def rms_norm_w8a8(
-    hidden_states: Tensor,
-    weight: Tensor,
-    epsilon: float,
-    quant_dtype: torch.dtype = torch.int8,
-):
-    assert quant_dtype == torch.int8
-    x = torch.empty_like(hidden_states)
-    vllm._custom_ops.rms_norm(x, hidden_states, weight, epsilon)
-    x, input_scale, _ = vllm._custom_ops.scaled_int8_quant(x, None)
-    return x, input_scale
-
-
-@register_ops(vendor_ops_registry)
-def add_rms_norm_w8a8(
-    hidden_states: Tensor,
-    residual: Tensor,
-    weight: Tensor,
-    epsilon: float,
-    quant_dtype: torch.dtype = torch.int8,
-):
-    assert quant_dtype == torch.int8
-    vllm._custom_ops.fused_add_rms_norm(hidden_states, residual, weight, epsilon)
-    x, input_scale, _ = vllm._custom_ops.scaled_int8_quant(hidden_states, None)
-    return x, input_scale, residual
