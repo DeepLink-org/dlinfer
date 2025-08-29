@@ -273,6 +273,8 @@ atb::Status Model::Execute(atb::Context* context, std::vector<atb::Tensor>& inTe
         DICP_LOG_IF(st != atb::NO_ERROR, FATAL) << modelId_ << " execute node[" << nodeId << "] failed, error code: " << st;
     }
 
+    nodeHostTensorMap_.clear();
+
     DICP_LOG(INFO) << modelId_ << " execute finshed!";
     return atb::NO_ERROR;
 }

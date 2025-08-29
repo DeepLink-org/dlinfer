@@ -14,6 +14,7 @@ public:
 
 private:
     std::vector<int64_t> dims_;
+    aclIntArray* aclDims_ = nullptr;
     int SetAclNnWorkspaceExecutor(uint64_t& workspaceSize) override;
     int CallAclExecute(uint8_t* workspace, uint64_t workspaceSize, aclOpExecutor* aclExecutor, aclrtStream stream) override;
 };

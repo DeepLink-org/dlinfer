@@ -33,6 +33,7 @@ protected:
     atb::Status UpdateAclTensorDataPtr(const atb::VariantPack& variantPack);
     AclNnTensor CreateTensor(atb::Tensor atbTensor);
     int CreateAclTensors(const atb::VariantPack& variantPack);
+    void ClearAclTensors();
     std::string opName_;
     atb::SVector<AclNnTensor> aclInTensors_;
     atb::SVector<AclNnTensor> aclOutTensors_;

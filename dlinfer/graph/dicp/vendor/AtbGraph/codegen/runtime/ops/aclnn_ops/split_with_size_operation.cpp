@@ -19,9 +19,15 @@ namespace dicp {
 const int NUM1 = 1;
 
 AclNnSplitWithSizeOperation::AclNnSplitWithSizeOperation(const std::string& name, int64_t splitDim, std::vector<int64_t> splitSizes)
-    : AclNnOperation(name), splitDim_(splitDim), splitSizes_(std::move(splitSizes)) {}
+    : AclNnOperation(name), splitDim_(splitDim), splitSizes_(std::move(splitSizes)) {
+    sizes_ = aclCreateIntArray(splitSizes_.data(), splitSizes_.size());
+}
 
-AclNnSplitWithSizeOperation::~AclNnSplitWithSizeOperation() {}
+AclNnSplitWithSizeOperation::~AclNnSplitWithSizeOperation() {
+    if (sizes_ != nullptr) {
+        aclDestroyIntArray(sizes_);
+    }
+}
 
 atb::Status AclNnSplitWithSizeOperation::InferShape(const atb::SVector<atb::TensorDesc>& inTensorDescs, atb::SVector<atb::TensorDesc>& outTensorDescs) const {
     DICP_LOG(INFO) << opName_ << " infer shape start";
@@ -62,11 +68,9 @@ int AclNnSplitWithSizeOperation::SetAclNnWorkspaceExecutor(uint64_t& workspaceSi
         tmp[i] = aclOutTensors_.at(i).tensor;
     }
     aclTensorList* tensorList = aclCreateTensorList(tmp.data(), tmp.size());
-    aclIntArray* sizes = aclCreateIntArray(splitSizes_.data(), splitSizes_.size());
-    int ret = aclnnSplitWithSizeGetWorkspaceSize(aclInTensors_.at(0).tensor, sizes, splitDim_, tensorList, &workspaceSize, &aclExecutor_);
+    int ret = aclnnSplitWithSizeGetWorkspaceSize(aclInTensors_.at(0).tensor, sizes_, splitDim_, tensorList, &workspaceSize, &aclExecutor_);
     DICP_LOG(INFO) << opName_ << " aclnnSplitWithSizeGetWorkspaceSize end, ret:" << ret << ", workspaceSize:" << workspaceSize
                    << ", aclExecutor:" << aclExecutor_;
-
     return ret;
 }
 
