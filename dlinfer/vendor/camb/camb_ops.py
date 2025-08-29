@@ -244,8 +244,8 @@ def paged_decode_attention(
         v_cache_quant_scale,
         alibi_slopes,
         max_kv_seq_len,
-        0,
-        0,
+        -1,
+        -1,
         softmax_scale,
     )
 
@@ -317,6 +317,7 @@ def fused_moe(
     top_k: int,
     renormalize: bool,
 ) -> Tensor:
+    seq_len = hidden_states.shape[0]
     num_experts = gate_up_weights.shape[0]
     if renormalize:
         topk_weights = topk_weights / topk_weights.sum(dim=-1, keepdim=True)
@@ -342,6 +343,7 @@ def fused_moe(
         c=None,
         alpha=None,
         beta=None,
+        max_in_group_list=seq_len,
     )
     gate_cache = tmo.moe_active(
         up_proj,
@@ -361,6 +363,7 @@ def fused_moe(
         c=None,
         alpha=None,
         beta=None,
+        max_in_group_list=seq_len,
     )
     out = tmo.moe_combine_result(
         down_proj,
@@ -399,6 +402,7 @@ def linear(
     weight: Tensor,
     bias: Optional[Tensor],
     all_reduce: Optional[bool],
+    group: Optional[str],
 ) -> Tensor:
     x, _, original_shape = _process_input_dim(x, None)
     if all_reduce:
