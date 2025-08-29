@@ -24,6 +24,7 @@ private:
     aclTensor* CreateAclTensor(const AclNnTensor& aclNnTensor);
     AclNnTensor CreateTensor(atb::Tensor atbTensor);
     int CreateAclTensors(const atb::VariantPack& variantPack);
+    void ClearAclTensors();
 
 private:
     std::string opName_;

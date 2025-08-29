@@ -22,9 +22,15 @@ const int NUM2 = 2;
 const int NUM3 = 3;
 const int NUM4 = 4;
 
-AclNnPermuteOperation::AclNnPermuteOperation(const std::string& name, std::vector<int64_t> dims) : AclNnOperation(name), dims_(std::move(dims)) {}
+AclNnPermuteOperation::AclNnPermuteOperation(const std::string& name, std::vector<int64_t> dims) : AclNnOperation(name), dims_(std::move(dims)) {
+    aclDims_ = aclCreateIntArray(dims_.data(), dims_.size());
+}
 
-AclNnPermuteOperation::~AclNnPermuteOperation() {}
+AclNnPermuteOperation::~AclNnPermuteOperation() {
+    if (aclDims_ != nullptr) {
+        aclDestroyIntArray(aclDims_);
+    }
+}
 
 atb::Status AclNnPermuteOperation::InferShape(const atb::SVector<atb::TensorDesc>& inTensorDescs, atb::SVector<atb::TensorDesc>& outTensorDescs) const {
     DICP_LOG(INFO) << opName_ << " infer shape start";
@@ -45,8 +51,7 @@ uint32_t AclNnPermuteOperation::GetOutputNum() const { return NUM1; }
 
 int AclNnPermuteOperation::SetAclNnWorkspaceExecutor(uint64_t& workspaceSize) {
     DICP_LOG(INFO) << opName_ << " aclnnPermuteGetWorkspaceSize start";
-    aclIntArray* dims = aclCreateIntArray(dims_.data(), dims_.size());
-    int ret = aclnnPermuteGetWorkspaceSize(aclInTensors_.at(0).tensor, dims, aclOutTensors_.at(0).tensor, &workspaceSize, &aclExecutor_);
+    int ret = aclnnPermuteGetWorkspaceSize(aclInTensors_.at(0).tensor, aclDims_, aclOutTensors_.at(0).tensor, &workspaceSize, &aclExecutor_);
     DICP_LOG(INFO) << opName_ << " aclnnPermuteGetWorkspaceSize end, ret:" << ret << ", workspaceSize:" << workspaceSize << ", aclExecutor:" << aclExecutor_;
 
     return ret;

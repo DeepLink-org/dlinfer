@@ -13,6 +13,7 @@ public:
 private:
     std::string inputLayout;
     float scaleValue;
+    aclIntArray* actualSeqLengths_ = nullptr;
     int SetAclNnWorkspaceExecutor(uint64_t& workspaceSize) override;
     int CallAclExecute(uint8_t* workspace, uint64_t workspaceSize, aclOpExecutor* aclExecutor, aclrtStream stream) override;
 };

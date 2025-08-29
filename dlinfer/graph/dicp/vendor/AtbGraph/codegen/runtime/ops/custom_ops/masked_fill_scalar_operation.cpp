@@ -57,6 +57,7 @@ atb::Status MaskedFillScalarOperation::Setup(const atb::VariantPack& variantPack
         return atb::ERROR_INVALID_PARAM;
     }
 
+    ClearAclTensors();
     DICP_CHECK_RET(CreateAclTensors(variantPack));
 
     DICP_CHECK_RET(aclInTensors_.at(0).CreateTensor(opName_));
@@ -129,6 +130,21 @@ int MaskedFillScalarOperation::CreateAclTensors(const atb::VariantPack& variantP
     DICP_LOG(INFO) << opName_ << " Create aclOutTensor end";
     DICP_LOG(INFO) << opName_ << " CreateAclTensor end";
     return 0;
+}
+
+void MaskedFillScalarOperation::ClearAclTensors() {
+    for (size_t i = 0; i < aclInTensors_.size(); ++i) {
+        if (aclInTensors_[i].tensor != nullptr) {
+            aclDestroyTensor(aclInTensors_[i].tensor);
+            aclInTensors_[i].tensor = nullptr;
+        }
+    }
+    for (size_t i = 0; i < aclOutTensors_.size(); ++i) {
+        if (aclOutTensors_[i].tensor != nullptr) {
+            aclDestroyTensor(aclOutTensors_[i].tensor);
+            aclOutTensors_[i].tensor = nullptr;
+        }
+    }
 }
 
 AclNnTensor MaskedFillScalarOperation::CreateTensor(atb::Tensor atbTensor) {

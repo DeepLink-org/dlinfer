@@ -22,6 +22,9 @@ RenormalizeOperation::~RenormalizeOperation() {
         aclDestroyTensor(aclOutTensors_[i].tensor);
     }
     aclOutTensors_.clear();
+    if (reduceDims_ != nullptr) {
+        aclDestroyIntArray(reduceDims_);
+    }
 }
 
 std::string RenormalizeOperation::GetName() const { return opName_; }
@@ -75,6 +78,21 @@ int RenormalizeOperation::CreateAclTensors(const atb::VariantPack& variantPack) 
     return 0;
 }
 
+void RenormalizeOperation::ClearAclTensors() {
+    for (size_t i = 0; i < aclInTensors_.size(); ++i) {
+        if (aclInTensors_[i].tensor != nullptr) {
+            aclDestroyTensor(aclInTensors_[i].tensor);
+            aclInTensors_[i].tensor = nullptr;
+        }
+    }
+    for (size_t i = 0; i < aclOutTensors_.size(); ++i) {
+        if (aclOutTensors_[i].tensor != nullptr) {
+            aclDestroyTensor(aclOutTensors_[i].tensor);
+            aclOutTensors_[i].tensor = nullptr;
+        }
+    }
+}
+
 int RenormalizeOperation::Setup(const atb::VariantPack& variantPack, uint64_t& workspaceSize, atb::Context* context) {
     DICP_LOG(INFO) << opName_ << " RenormalizeOperationGetWorkspaceSize start";
 
@@ -83,6 +101,7 @@ int RenormalizeOperation::Setup(const atb::VariantPack& variantPack, uint64_t& w
         return atb::ERROR_INVALID_PARAM;
     }
 
+    ClearAclTensors();
     DICP_CHECK_RET(CreateAclTensors(variantPack));
 
     for (size_t i = 0; i < aclInTensors_.size(); ++i) {
@@ -94,12 +113,15 @@ int RenormalizeOperation::Setup(const atb::VariantPack& variantPack, uint64_t& w
     }
 
     // reduceSum
+    if (reduceDims_ != nullptr) {
+        aclDestroyIntArray(reduceDims_);
+    }
     std::vector<int64_t> dims_{-1};
-    aclIntArray* reduceDims = aclCreateIntArray(dims_.data(), dims_.size());
+    reduceDims_ = aclCreateIntArray(dims_.data(), dims_.size());
     aclDataType reduceSumDtype = aclInTensors_.at(0).atbTensor.desc.dtype;
     DICP_LOG(INFO) << opName_ << " aclnnReduceSumGetWorkspaceSize start";
     int ret = aclnnReduceSumGetWorkspaceSize(
-        aclInTensors_.at(0).tensor, reduceDims, true, reduceSumDtype, aclOutTensors_.at(0).tensor, &reduceSumWorkspaceSize_, &aclReduceSumExecutor_);
+        aclInTensors_.at(0).tensor, reduceDims_, true, reduceSumDtype, aclOutTensors_.at(0).tensor, &reduceSumWorkspaceSize_, &aclReduceSumExecutor_);
     DICP_LOG(INFO) << opName_ << " aclnnReduceSumGetWorkspaceSize end, ret:" << ret << ", workspaceSize:" << reduceSumWorkspaceSize_
                    << ", aclExecutor:" << aclReduceSumExecutor_;
 
