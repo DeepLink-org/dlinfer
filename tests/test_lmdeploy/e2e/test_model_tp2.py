@@ -65,7 +65,7 @@ if __name__ == "__main__":
     parser.add_argument("--model_case", required=True)
     parser.add_argument("--model_type", choices=["chat", "vl"], required=True)
     parser.add_argument("--device_type", choices=["ascend"], required=True)
-    parser.add_argument("--eager", action="store", default=True)
+    parser.add_argument("--eager", action="store", default=False)
     args = parser.parse_args()
     eager_mode = args.eager
     env_config = get_config()
