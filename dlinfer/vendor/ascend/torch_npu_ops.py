@@ -1,4 +1,5 @@
 # Copyright (c) 2024, DeepLink. All rights reserved.
+import os
 import math
 import torch
 import torch_npu
@@ -476,6 +477,10 @@ def fused_moe(
         topk_weights = topk_weights / topk_weights.sum(dim=-1, keepdim=True)
     if not topk_weights.is_contiguous():
         topk_weights = topk_weights.contiguous()
+
+    if os.getenv("DLINFER_RESET_MOE_UPDATE_WEIGHTS", "0") == "1":
+        gate_up_weights = gate_up_weights.transpose(1, 2)
+        down_weights = down_weights.transpose(1, 2)
 
     # moe init routing
     row_idx = (

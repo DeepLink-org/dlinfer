@@ -414,6 +414,7 @@ def fused_moe(
         hidden_states, gate_up_weights, down_weights, topk_weights, topk_ids
     )
 
+
 @register_ops(vendor_ops_registry)
 def linear(
     x: Tensor,
@@ -431,5 +432,3 @@ def linear(
     if all_reduce:
         dist.all_reduce(out)
     return out
-
-
