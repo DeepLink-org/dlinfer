@@ -478,7 +478,7 @@ def fused_moe(
     if not topk_weights.is_contiguous():
         topk_weights = topk_weights.contiguous()
 
-    if os.getenv("RESET_MOE_UPDATE_WEIGHTS", "0") == "1":
+    if os.getenv("DLINFER_RESET_MOE_UPDATE_WEIGHTS", "0") == "1":
         gate_up_weights = gate_up_weights.transpose(1, 2)
         down_weights = down_weights.transpose(1, 2)
 

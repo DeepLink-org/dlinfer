@@ -13,7 +13,7 @@ def rl_update_weights(self, gate_up_weights: torch.Tensor, down_weights: torch.T
     return gate_up_weights, down_weights
 
 
-if os.getenv("RESET_MOE_UPDATE_WEIGHTS", "0") == "1":
+if os.getenv("DLINFER_RESET_MOE_UPDATE_WEIGHTS", "0") == "1":
     DlinferFusedMoEImpl.update_weights = rl_update_weights
 
 
