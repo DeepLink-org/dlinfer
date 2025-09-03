@@ -62,10 +62,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
             "                     Tensor! experts_ids,"
             "                     Tensor! num_tokens_post_pad) -> ()");
 
-
-    ops.def("moe_sum",
-            &moe_sum,
-            "moe_sum(Tensor! input, Tensor output) -> ()");
+    ops.def("moe_sum", &moe_sum, "moe_sum(Tensor! input, Tensor output) -> ()");
 
     // moe
     // Apply topk softmax to the gating outputs.
@@ -90,6 +87,4 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
             &fused_add_rms_norm,
             "fused_add_rms_norm(Tensor! input, Tensor! residual, Tensor weight, "
             "float epsilon) -> ()");
-
-
 }
