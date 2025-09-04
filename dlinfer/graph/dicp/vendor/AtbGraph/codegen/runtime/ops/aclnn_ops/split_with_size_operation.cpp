@@ -67,8 +67,9 @@ int AclNnSplitWithSizeOperation::SetAclNnWorkspaceExecutor(uint64_t& workspaceSi
     for (size_t i = 0; i < aclOutTensors_.size(); ++i) {
         tmp[i] = aclOutTensors_.at(i).tensor;
     }
-    aclTensorList* tensorList = aclCreateTensorList(tmp.data(), tmp.size());
-    int ret = aclnnSplitWithSizeGetWorkspaceSize(aclInTensors_.at(0).tensor, sizes_, splitDim_, tensorList, &workspaceSize, &aclExecutor_);
+    tensorList_ = aclCreateTensorList(tmp.data(), tmp.size());
+
+    int ret = aclnnSplitWithSizeGetWorkspaceSize(aclInTensors_.at(0).tensor, sizes_, splitDim_, tensorList_, &workspaceSize, &aclExecutor_);
     DICP_LOG(INFO) << opName_ << " aclnnSplitWithSizeGetWorkspaceSize end, ret:" << ret << ", workspaceSize:" << workspaceSize
                    << ", aclExecutor:" << aclExecutor_;
     return ret;
@@ -78,6 +79,11 @@ int AclNnSplitWithSizeOperation::CallAclExecute(uint8_t* workspace, uint64_t wor
     DICP_LOG(INFO) << opName_ << " aclnnSplitWithSize start";
     int ret = aclnnSplitWithSize(workspace, workspaceSize, aclExecutor, stream);
     DICP_LOG(INFO) << opName_ << " aclnnSplitWithSize end, ret:" << ret;
+    if (tensorList_ != nullptr) {
+        aclDestroyTensorList(tensorList_);
+        tensorList_ = nullptr;
+    }
+    aclOutTensors_.clear();
     return ret;
 }
 
