@@ -16,6 +16,7 @@ private:
     int64_t splitDim_;
     std::vector<int64_t> splitSizes_;
     aclIntArray* sizes_ = nullptr;
+    aclTensorList* tensorList_ = nullptr;
     int SetAclNnWorkspaceExecutor(uint64_t& workspaceSize) override;
     int CallAclExecute(uint8_t* workspace, uint64_t workspaceSize, aclOpExecutor* aclExecutor, aclrtStream stream) override;
 };

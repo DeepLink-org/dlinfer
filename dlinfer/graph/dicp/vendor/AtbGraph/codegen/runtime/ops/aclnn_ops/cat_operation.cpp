@@ -66,8 +66,8 @@ int AclNnCatOperation::SetAclNnWorkspaceExecutor(uint64_t& workspaceSize) {
     for (size_t i = 0; i < aclInTensors_.size(); ++i) {
         tmp[i] = aclInTensors_.at(i).tensor;
     }
-    aclTensorList* tensorList = aclCreateTensorList(tmp.data(), tmp.size());
-    int ret = aclnnCatGetWorkspaceSize(tensorList, this->concatDim, aclOutTensors_.at(0).tensor, &workspaceSize, &aclExecutor_);
+    tensorList_ = aclCreateTensorList(tmp.data(), tmp.size());
+    int ret = aclnnCatGetWorkspaceSize(tensorList_, this->concatDim, aclOutTensors_.at(0).tensor, &workspaceSize, &aclExecutor_);
     DICP_LOG(INFO) << opName_ << " aclnnCatGetWorkspaceSize end, ret:" << ret << ", workspaceSize:" << workspaceSize << ", aclExecutor:" << aclExecutor_;
 
     return ret;
@@ -77,6 +77,12 @@ int AclNnCatOperation::CallAclExecute(uint8_t* workspace, uint64_t workspaceSize
     DICP_LOG(INFO) << opName_ << " aclnnCat start";
     int ret = aclnnCat(workspace, workspaceSize, aclExecutor, stream);
     DICP_LOG(INFO) << opName_ << " aclnnCat end, ret:" << ret;
+
+    if (tensorList_ != nullptr) {
+        aclDestroyTensorList(tensorList_);
+        tensorList_ = nullptr;
+    }
+    aclInTensors_.clear();
     return ret;
 }
 
