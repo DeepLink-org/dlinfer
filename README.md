@@ -105,6 +105,7 @@ pip install dlinfer-ascend
 
 ## LMDeploy
 
+<!-- markdownlint-disable MD013 -->
 |                |           |      |  Atlas 800T A2   |  Atlas 800T A2   | Atlas 800T A2 | Atlas 800T A2 | Atlas 300I Duo |  Atlas 800T A3   | Maca C500 | Cambricon |
 | :------------: | :-------: | :--: | :--------------: | :--------------: | :-----------: | :-----------: | :------------: | :--------------: | :-------: | :-------: |
 |     Model      |   Size    | Type | FP16/BF16(eager) | FP16/BF16(graph) |  W8A8(graph)  | W4A16(eager)  |  FP16(graph)   | FP16/BF16(eager) |  BF/FP16  |  BF/FP16  |
@@ -128,7 +129,7 @@ pip install dlinfer-ascend
 |   InternVL3    |  1B-78B   | MLLM |       Yes        |       Yes        |      Yes      |      Yes      |      Yes       |        -         |    Yes    |    Yes    |
 |  CogVLM2-chat  |    19B    | MLLM |       Yes        |        No        |       -       |       -       |       -        |        -         |    Yes    |     -     |
 |     GLM4V      |    9B     | MLLM |       Yes        |        No        |       -       |       -       |       -        |        -         |     -     |     -     |
-
+<!-- markdownlint-enable MD013 -->
 
 ‘Yes’代表测试通过，‘No’代表不支持，‘-’代表未测试
 
