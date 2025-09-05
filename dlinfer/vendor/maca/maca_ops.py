@@ -9,7 +9,7 @@ from .context_flashattention import context_attention_fwd
 from dlinfer.vendor import vendor_ops_registry
 from dlinfer.utils.registry import register_ops
 from dlinfer.utils.type_annotation import Tensor, Optional, Sequence, Tuple
-
+from .fused_moe import fused_experts
 from .maca_extension import ops as maca_ext_ops
 from mcoplib import mcoplib_ops
 from mcoplib import op as op_origin
@@ -456,5 +456,3 @@ def linear(
     if all_reduce:
         dist.all_reduce(out)
     return out
-
-
