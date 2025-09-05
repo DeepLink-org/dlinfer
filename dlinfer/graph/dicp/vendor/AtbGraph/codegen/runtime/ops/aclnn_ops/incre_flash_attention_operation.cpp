@@ -49,17 +49,13 @@ int AclNnIncreFlashAttentionOperation::SetAclNnWorkspaceExecutor(uint64_t& works
 
     int kvTensorNum = 1;
     DICP_LOG(INFO) << opName_ << " aclnnIncreFlashAttentionGetWorkspaceSize start";
-    aclTensor* tensorsOfKey[kvTensorNum];
-    tensorsOfKey[0] = aclInTensors_.at(1).tensor;
-    auto tensorKeyList = aclCreateTensorList(tensorsOfKey, kvTensorNum);
 
-    aclTensor* tensorsOfValue[kvTensorNum];
-    tensorsOfValue[0] = aclInTensors_.at(2).tensor;
-    auto tensorValueList = aclCreateTensorList(tensorsOfValue, kvTensorNum);
+    std::vector<aclTensor*> tensorsOfKey{aclInTensors_.at(1).tensor};
+    tensorKeyList_ = aclCreateTensorList(tensorsOfKey.data(), tensorsOfKey.size());
 
-    if (actualSeqLengths_ != nullptr) {
-        aclDestroyIntArray(actualSeqLengths_);
-    }
+    std::vector<aclTensor*> tensorsOfValue{aclInTensors_.at(2).tensor};
+    tensorValueList_ = aclCreateTensorList(tensorsOfValue.data(), tensorsOfValue.size());
+
     std::vector<int64_t> actualSeqlenVector = {sequenceLengthkv};
     actualSeqLengths_ = aclCreateIntArray(actualSeqlenVector.data(), actualSeqlenVector.size());
 
@@ -70,8 +66,8 @@ int AclNnIncreFlashAttentionOperation::SetAclNnWorkspaceExecutor(uint64_t& works
     int64_t innerPrecise = 1;
 
     int ret = aclnnIncreFlashAttentionV4GetWorkspaceSize(aclInTensors_.at(0).tensor,
-                                                         tensorKeyList,
-                                                         tensorValueList,
+                                                         tensorKeyList_,
+                                                         tensorValueList_,
                                                          nullptr,
                                                          nullptr,
                                                          actualSeqLengths_,
@@ -104,6 +100,22 @@ int AclNnIncreFlashAttentionOperation::CallAclExecute(uint8_t* workspace, uint64
     DICP_LOG(INFO) << opName_ << " aclnnIncreFlashAttention start";
     int ret = aclnnIncreFlashAttentionV4(workspace, workspaceSize, aclExecutor, stream);
     DICP_LOG(INFO) << opName_ << " aclnnIncreFlashAttention end, ret:" << ret;
+
+    if (actualSeqLengths_ != nullptr) {
+        aclDestroyIntArray(actualSeqLengths_);
+        actualSeqLengths_ = nullptr;
+    }
+    if (tensorKeyList_ != nullptr) {
+        aclDestroyTensorList(tensorKeyList_);
+        tensorKeyList_ = nullptr;
+    }
+    if (tensorValueList_ != nullptr) {
+        aclDestroyTensorList(tensorValueList_);
+        tensorValueList_ = nullptr;
+    }
+    aclInTensors_.at(1).tensor = nullptr;
+    aclInTensors_.at(2).tensor = nullptr;
+
     return ret;
 }
 

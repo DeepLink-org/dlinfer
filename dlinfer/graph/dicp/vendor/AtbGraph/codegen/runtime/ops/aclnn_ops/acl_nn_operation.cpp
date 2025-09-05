@@ -11,6 +11,11 @@ int AclNnTensor::CreateTensor(const std::string& opName) {
         strides[i] = atbTensor.desc.shape.dims[i + 1] * strides[i + 1];
     }
 
+    if (tensor != nullptr) {
+        aclDestroyTensor(tensor);
+        tensor = nullptr;
+    }
+
     tensor = aclCreateTensor(atbTensor.desc.shape.dims,
                              atbTensor.desc.shape.dimNum,
                              atbTensor.desc.dtype,
@@ -44,12 +49,18 @@ AclNnOperation::AclNnOperation(const std::string& opName) : opName_(opName) {}
 
 AclNnOperation::~AclNnOperation() {
     for (size_t i = 0; i < aclInTensors_.size(); ++i) {
-        aclDestroyTensor(aclInTensors_[i].tensor);
+        if (aclInTensors_[i].tensor != nullptr) {
+            aclDestroyTensor(aclInTensors_[i].tensor);
+            aclInTensors_[i].tensor = nullptr;
+        }
     }
     aclInTensors_.clear();
 
     for (size_t i = 0; i < aclOutTensors_.size(); ++i) {
-        aclDestroyTensor(aclOutTensors_[i].tensor);
+        if (aclOutTensors_[i].tensor != nullptr) {
+            aclDestroyTensor(aclOutTensors_[i].tensor);
+            aclOutTensors_[i].tensor = nullptr;
+        }
     }
     aclOutTensors_.clear();
 }
