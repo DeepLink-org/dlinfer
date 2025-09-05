@@ -35,17 +35,36 @@ dlinfer提供了一套将国产硬件接入大模型推理框架的解决方案�
 
 # 安装方法
 
+## 各平台镜像地址
+
+- Atlas 800T A3:
+  `docker pull crpi-4crprmm5baj1v8iv.cn-hangzhou.personal.cr.aliyuncs.com/lmdeploy_dlinfer/ascend:a3-latest`
+  （Atlas 800T A3目前只支持Qwen系列的算子模式下运行）
+
+- Atlas 800T A2:
+  `docker pull crpi-4crprmm5baj1v8iv.cn-hangzhou.personal.cr.aliyuncs.com/lmdeploy_dlinfer/ascend:a2-latest`
+
+- Atlas 300I Duo:
+  `docker pull crpi-4crprmm5baj1v8iv.cn-hangzhou.personal.cr.aliyuncs.com/lmdeploy_dlinfer/ascend:300i-duo-latest`
+  （Atlas 300I Duo目前只支持非eager模式）
+
+- 沐曦C500
+  `docker pull crpi-4crprmm5baj1v8iv.cn-hangzhou.personal.cr.aliyuncs.com/lmdeploy_dlinfer/maca:latest`
+
+- 寒武纪云端加速卡
+  `docker pull crpi-4crprmm5baj1v8iv.cn-hangzhou.personal.cr.aliyuncs.com/lmdeploy_dlinfer/camb:latest`
+
 ## pip安装
 
 ```shell
 pip install dlinfer-ascend
 ```
 
-目前只有华为支持pip安装。沐曦请使用源码安装。
+目前只有华为的Atlas 800T A2与300I Duo支持pip安装。其他硬件请使用源码安装。
 
 ## 源码安装
 
-### 华为Atlas 800T A2
+### 华为Atlas 800T A2/A3/300I Duo
 
 1. 在Atlas 800T A2上依赖torch和torch_npu，运行以下命令安装torch、torch_npu及其依赖。
 
@@ -86,24 +105,32 @@ pip install dlinfer-ascend
 
 ## LMDeploy
 
-| | |华为Atlas 800T A2 | |华为Atlas 300I Duo|沐曦C500|寒武纪云端智能加速卡|阿里平头哥加速卡|
-|---|---|---|---|---|---|---|---|
-| |bf16(eager)|w4a16(eager)|bf16(graph)|fp16(graph)| | | |
-| InternLM3-8B       | √ | √ | √ | √ | √ | √ | √ |
-| InternLM2.5-7B/20B | √ | √ | √ | √ | √ | √ | √ |
-| InternLM2-7B/20B   | √ | √ | √ | √ | √ | √ | √ |
-| InternVL2-2B       | √ | √ | √ | √ | √ | √ | √ |
-| InternVL1-5        | √ | √ | - | - | √ | - | √ |
-| Llama3(.1)-8B      | √ | √ | √ | √ | √ | √ | √ |
-| Mixtral8x7B        | √ | X | √ | - | √ | √ | √ |
-| Qwen2(.5)-7B       | √ | √ | √ | √ | √ | √ | √ |
-| Qwen2-57B-A14B     | √ | √ | - | - | √ | - | - |
-| Qwen2(.5)VL-7B     | √ | √ | √ | √ | √ | √ | X |
-| CogVLM             | √ | X | - | - | √ | - | - |
-| CogVLM2            | √ | X | - | - | √ | - | - |
-| glm-4v-9b          | √ | - | - | - | - | - | - |
+|                |           |      |  Atlas 800T A2   |  Atlas 800T A2   | Atlas 800T A2 | Atlas 800T A2 | Atlas 300I Duo |  Atlas 800T A3   | Maca C500 | Cambricon |
+| :------------: | :-------: | :--: | :--------------: | :--------------: | :-----------: | :-----------: | :------------: | :--------------: | :-------: | :-------: |
+|     Model      |   Size    | Type | FP16/BF16(eager) | FP16/BF16(graph) |  W8A8(graph)  | W4A16(eager)  |  FP16(graph)   | FP16/BF16(eager) |  BF/FP16  |  BF/FP16  |
+|     Llama2     | 7B - 70B  | LLM  |       Yes        |       Yes        |      Yes      |      Yes      |       -        |       Yes        |    Yes    |    Yes    |
+|     Llama3     |    8B     | LLM  |       Yes        |       Yes        |      Yes      |      Yes      |      Yes       |       Yes        |    Yes    |    Yes    |
+|    Llama3.1    |    8B     | LLM  |       Yes        |       Yes        |      Yes      |      Yes      |      Yes       |       Yes        |    Yes    |    Yes    |
+|   InternLM2    | 7B - 20B  | LLM  |       Yes        |       Yes        |      Yes      |      Yes      |      Yes       |       Yes        |    Yes    |    Yes    |
+|  InternLM2.5   | 7B - 20B  | LLM  |       Yes        |       Yes        |      Yes      |      Yes      |      Yes       |       Yes        |    Yes    |    Yes    |
+|   InternLM3    |    8B     | LLM  |       Yes        |       Yes        |      Yes      |      Yes      |      Yes       |       Yes        |    Yes    |    Yes    |
+|    Mixtral     |   8x7B    | LLM  |       Yes        |       Yes        |      No       |      No       |      Yes       |        -         |    Yes    |    Yes    |
+|  QWen1.5-MoE   |   A2.7B   | LLM  |       Yes        |        -         |      No       |      No       |       -        |        -         |    Yes    |     -     |
+|   QWen2(.5)    |    7B     | LLM  |       Yes        |       Yes        |      Yes      |      Yes      |      Yes       |        -         |    Yes    |    Yes    |
+|    QWen2-VL    |  2B, 7B   | MLLM |       Yes        |       Yes        |       -       |       -       |       -        |        -         |    Yes    |    No     |
+|   QWen2.5-VL   | 3B - 72B  | MLLM |       Yes        |       Yes        |       -       |       -       |      Yes       |        -         |    Yes    |    No     |
+|   QWen2-MoE    |  A14.57B  | LLM  |       Yes        |        -         |      No       |      No       |       -        |        -         |    Yes    |     -     |
+|     QWen3      | 0.6B-235B | LLM  |       Yes        |       Yes        |      No       |      No       |      Yes       |       Yes        |    Yes    |    Yes    |
+|  DeepSeek-V2   |    16B    | LLM  |        No        |       Yes        |      No       |      No       |       -        |        -         |     -     |     -     |
+| InternVL(v1.5) |  2B-26B   | MLLM |       Yes        |        -         |      Yes      |      Yes      |       -        |        -         |    Yes    |     -     |
+|   InternVL2    |  1B-40B   | MLLM |       Yes        |       Yes        |      Yes      |      Yes      |      Yes       |        -         |    Yes    |    Yes    |
+|  InternVL2.5   |  1B-78B   | MLLM |       Yes        |       Yes        |      Yes      |      Yes      |      Yes       |        -         |    Yes    |    Yes    |
+|   InternVL3    |  1B-78B   | MLLM |       Yes        |       Yes        |      Yes      |      Yes      |      Yes       |        -         |    Yes    |    Yes    |
+|  CogVLM2-chat  |    19B    | MLLM |       Yes        |        No        |       -       |       -       |       -        |        -         |    Yes    |     -     |
+|     GLM4V      |    9B     | MLLM |       Yes        |        No        |       -       |       -       |       -        |        -         |     -     |     -     |
 
-‘√’代表测试通过，‘X’代表不支持，‘-’代表未测试
+
+‘Yes’代表测试通过，‘No’代表不支持，‘-’代表未测试
 
 ### 使用LMDeploy
 
@@ -129,20 +156,18 @@ LMDEPLOY_TARGET_DEVICE=camb   pip3 install -e .
 ```python
 import lmdeploy
 from lmdeploy import PytorchEngineConfig
-if __name__ == "__main__":
-    pipe = lmdeploy.pipeline("/path_to_model",
-                            backend_config = PytorchEngineConfig(tp=1,
-                            cache_max_entry_count=0.4, device_type="ascend", eager_mode=True))
-    question = ["Shanghai is", "Please introduce China", "How are you?"]
-    response = pipe(question, request_output_len=256, do_preprocess=False)
-    for idx, r in enumerate(response):
-        print(f"Q: {question[idx]}")
-        print(f"A: {r.text}")
-        print()
+pipe = lmdeploy.pipeline("/path_to_model",
+               backend_config = PytorchEngineConfig(tp=1,
+               cache_max_entry_count=0.4, device_type="ascend", eager_mode=True))
+question = ["Shanghai is", "Please introduce China", "How are you?"]
+response = pipe(question, request_output_len=256, do_preprocess=False)
+for idx, r in enumerate(response):
+    print(f"Q: {question[idx]}")
+    print(f"A: {r.text}")
+    print()
 ```
 
 > [!TIP]
-> 图模式已经支持了Atlas 800T A2。
+> 图模式已经支持除了昇腾A3之外的所有硬件。
 > 用户可以在离线模式下设定`PytorchEngineConfig`中的`eager_mode=False`来开启图模式，或者设定`eager_mode=True`来关闭图模式。
 > 在线模式下默认开启图模式，请添加`--eager-mode`来关闭图模式。
-> (启动图模式需要事先`source /usr/local/Ascend/nnal/atb/set_env.sh`)  
