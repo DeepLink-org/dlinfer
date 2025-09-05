@@ -82,17 +82,6 @@ pip install dlinfer-ascend
    DEVICE=camb python3 setup.py develop
    ```
 
-### 阿里平头哥加速卡
-
-1. 平头哥软件栈请自行联系平头哥相关人员。
-
-2. 平头哥版本的dlinfer安装命令如下：
-
-   ```shell
-   cd /path_to_dlinfer
-   DEVICE=ppu python3 setup.py develop
-   ```
-
 # 支持模型框架列表
 
 ## LMDeploy
@@ -128,11 +117,9 @@ LMDEPLOY_TARGET_DEVICE=ascend pip3 install -e .
 LMDEPLOY_TARGET_DEVICE=maca   pip3 install -e .
 # 寒武纪
 LMDEPLOY_TARGET_DEVICE=camb   pip3 install -e .
-# 平头哥
-LMDEPLOY_TARGET_DEVICE=ppu    pip3 install -e .
 ```
 
-只需要指定pytorch engine后端为ascend/maca/camb/ppu，不需要其他任何修改即可。详细可参考lmdeploy文档。
+只需要指定pytorch engine后端为ascend/maca/camb，不需要其他任何修改即可。详细可参考lmdeploy文档。
 
 > [!CAUTION]
 > 寒武纪环境下必须把`PytorchEnginConfig`中的`block_size`设为`16`。
