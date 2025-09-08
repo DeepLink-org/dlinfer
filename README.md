@@ -173,9 +173,10 @@ for idx, r in enumerate(response):
 > 用户可以在离线模式下设定`PytorchEngineConfig`中的`eager_mode=False`来开启图模式，或者设定`eager_mode=True`来关闭图模式。
 > 在线模式下默认开启图模式，请添加`--eager-mode`来关闭图模式。
 
+
 > \[!IMPORTANT\]
 > 目前寒武纪加速卡上启动多卡推理需要手动启动ray。下面是一个2卡的例子：
-> 
+>
 > ```shell
 >  export MLU_VISIBLE_DEVICES=0,1
 >  ray start --head --resources='{"MLU": 2}'
