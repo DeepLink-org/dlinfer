@@ -53,6 +53,16 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
             "                  float kv_scale,"
             "                  float v_scale) -> ()");
 
+    // Reshape the key and value tensors and cache them.
+    ops.def("reshape_and_cache_flash",
+            &reshape_and_cache_flash,
+            "reshape_and_cache_flash(Tensor key, Tensor value,"
+            "                        Tensor! key_cache,"
+            "                        Tensor! value_cache,"
+            "                        Tensor slot_mapping,"
+            "                        str kv_cache_dtype,"
+            "                        Tensor k_scale, Tensor v_scale) -> ()");            
+
     // Aligning the number of tokens to be processed by each expert such
     // that it is divisible by the block size.
     ops.def("moe_align_block_size",

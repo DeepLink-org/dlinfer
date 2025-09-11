@@ -3,7 +3,7 @@ import math
 import torch
 import torch.distributed as dist
 
-from flash_attn import flash_attn_varlen_func
+from flash_attn import flash_attn_varlen_func, flash_attn_with_kvcache
 from .context_flashattention import context_attention_fwd
 
 from dlinfer.vendor import vendor_ops_registry
@@ -200,8 +200,8 @@ def fill_kv_cache(
     quant_bits: int,
 ) -> Tuple[Tensor, Tensor]:
     kv_indices = kv_indices.squeeze(-1)
-    maca_ext_ops.reshape_and_cache_new(
-        key, value, key_cache, value_cache, kv_indices, "auto", 1.0, 1.0
+    maca_ext_ops.reshape_and_cache_flash(
+        key, value, key_cache, value_cache, kv_indices, "auto", torch.tensor(1.0), torch.tensor(1.0)
     )
     return key_cache, value_cache
 
@@ -239,27 +239,18 @@ def paged_decode_attention(
         value_cache = key_cache.transpose(2, 3).reshape(
             -1, num_kv_heads, 576, block_size
         )
-    maca_ext_ops.paged_attention_v1(
-        output,
-        query,
-        key_cache,
-        value_cache,
-        num_kv_heads,
-        softmax_scale,
-        block_table,
-        kv_seq_len,
-        block_size,
-        max_kv_seq_len,
-        None,  # alibi_slopes
-        "auto",  # kv_cache_dtype
-        1.0,  # k_scale
-        1.0,  # v_scale
-        torch.cuda.current_device(),  # tp_rank
-        0,  # blocksparse_local_blocks
-        1,  # blocksparse_vert_stride
-        1,  # blocksparse_block_size
-        1,  # blocksparse_head_sliding_step
-    )
+
+    output = flash_attn_with_kvcache(
+        q=query.unsqueeze(1), 
+        k_cache=key_cache,      # [num_blocks, block_size, num_heads, head_size]
+        v_cache=value_cache,    # [num_blocks, block_size, num_heads, head_size]
+        block_table=block_table,
+        cache_seqlens=kv_seq_len,
+        softmax_scale=softmax_scale,
+        causal=True, 
+        softcap=0,            
+    ).squeeze(1)
+
     if is_mla:
         return output[..., :512]
     else:
