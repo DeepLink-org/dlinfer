@@ -201,7 +201,14 @@ def fill_kv_cache(
 ) -> Tuple[Tensor, Tensor]:
     kv_indices = kv_indices.squeeze(-1)
     maca_ext_ops.reshape_and_cache_flash(
-        key, value, key_cache, value_cache, kv_indices, "auto", torch.tensor(1.0), torch.tensor(1.0)
+        key,
+        value,
+        key_cache,
+        value_cache,
+        kv_indices,
+        "auto",
+        torch.tensor(1.0),
+        torch.tensor(1.0),
     )
     return key_cache, value_cache
 
@@ -241,14 +248,14 @@ def paged_decode_attention(
         )
 
     output = flash_attn_with_kvcache(
-        q=query.unsqueeze(1), 
-        k_cache=key_cache,      # [num_blocks, block_size, num_heads, head_size]
-        v_cache=value_cache,    # [num_blocks, block_size, num_heads, head_size]
+        q=query.unsqueeze(1),
+        k_cache=key_cache,  # [num_blocks, block_size, num_heads, head_size]
+        v_cache=value_cache,  # [num_blocks, block_size, num_heads, head_size]
         block_table=block_table,
         cache_seqlens=kv_seq_len,
         softmax_scale=softmax_scale,
-        causal=True, 
-        softcap=0,            
+        causal=True,
+        softcap=0,
     ).squeeze(1)
 
     if is_mla:

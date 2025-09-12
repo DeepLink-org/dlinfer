@@ -61,7 +61,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
             "                        Tensor! value_cache,"
             "                        Tensor slot_mapping,"
             "                        str kv_cache_dtype,"
-            "                        Tensor k_scale, Tensor v_scale) -> ()");            
+            "                        Tensor k_scale, Tensor v_scale) -> ()");
 
     // Aligning the number of tokens to be processed by each expert such
     // that it is divisible by the block size.
