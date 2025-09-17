@@ -574,11 +574,13 @@ class AtbOverrides:
         op.set_output([name])
         return op
 
-    def SplitSharing(name, x, size, dim):
+    def Split(name, x, size, dim, different_sizes=False):
         op = Operation(name, "SplitOperation")
         param = infer_param.SplitParam()
         param.splitDim = dim
         param.splitNum = len(size)
+        if different_sizes:
+            param.splitSizes = size
         op.set_param(param)
         op.set_input([x])
         if len(size) == 2:
@@ -587,7 +589,7 @@ class AtbOverrides:
             op.set_output([f"{name}__0", f"{name}__1", f"{name}__2"])
         return op
 
-    def SplitWithSize(name, x, sizes, dim):
+    def AclNnSplitWithSize(name, x, sizes, dim):
         op = Operation(name, "AclNnSplitWithSizeOperation")
         param = infer_param.SplitParam()
         param.splitDim = dim
