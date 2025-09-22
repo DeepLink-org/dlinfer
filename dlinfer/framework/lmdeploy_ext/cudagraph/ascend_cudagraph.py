@@ -1,8 +1,11 @@
 # Copyright (c) 2024, OpenMMLab and DeepLink. All rights reserved.
 import torch
+import torch_npu
 from torch import Tensor
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Union, Tuple
+from contextlib import ExitStack
+from unittest.mock import patch
 
 from lmdeploy.pytorch.models.utils.cudagraph import CudaGraphMeta
 from lmdeploy.pytorch.models.utils.cudagraph import CudaGraphMixin, next_power_of_2
@@ -17,6 +20,34 @@ this file implements the cudagraph for ascend backend.
 Ascend CudaGraphMixin methods
 for cudagraph buffer management.
 '''
+
+def weak_ref_tensor(tensor: Any) -> Any:
+    """
+    Create a weak reference to a tensor.
+    The new tensor will share the same data as the original tensor,
+    but will not keep the original tensor alive.
+    """
+    if isinstance(tensor, torch.Tensor):
+        return torch.ops._C.weak_ref_tensor(tensor)
+    else:
+        return tensor
+
+
+def weak_ref_tensors(
+    tensors: Union[torch.Tensor, list[torch.Tensor], tuple[torch.Tensor]]
+) -> Union[torch.Tensor, list[Any], tuple[Any], Any]:
+    """
+    Convenience function to create weak references to tensors,
+    for single tensor, list of tensors or tuple of tensors.
+    """
+    if isinstance(tensors, torch.Tensor):
+        return weak_ref_tensor(tensors)
+    if isinstance(tensors, list):
+        return [weak_ref_tensor(t) for t in tensors]
+    if isinstance(tensors, tuple):
+        return tuple(weak_ref_tensor(t) for t in tensors)
+    raise ValueError("Invalid type for tensors")
+
 
 def AscendCudaGraphMixin_make_buffers_cudagraph(
     self, graph_meta: CudaGraphMeta, *args, **kwargs
@@ -43,16 +74,17 @@ def AscendCudaGraphMixin_make_buffers_cudagraph(
         max_batches, dtype=torch.int32, device=device
     )
 
-    input_buffers["kv_seqlens"] = torch.zeros(
-        max_batches, dtype=torch.int32, device=device
-    )
+    # input_buffers["kv_seqlens"] = torch.zeros(
+    #     max_batches, dtype=torch.int32, device=device
+    # )
+    input_buffers["kv_seqlens"] = [0] * max_batches
 
     input_buffers["q_start_loc"] = torch.arange(
         max_batches + 1, dtype=torch.int32, device=device
     )
 
     input_buffers["kv_start_indices"] = -torch.ones(
-        (max_batches, 1), dtype=torch.int64, device=device
+        (max_batches), dtype=torch.int64, device=device
     )
     return input_buffers
 
@@ -69,8 +101,8 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
 ) -> Dict[str, Tensor]:
     """fill cudagraph buffers from forward inputs."""
     block_offsets: Tensor = attn_metadata.block_offsets
-    q_start_loc: Tensor = attn_metadata.q_start_loc
-    q_seqlens: Tensor = attn_metadata.q_seqlens
+    # q_start_loc: Tensor = attn_metadata.q_start_loc
+    # q_seqlens: Tensor = attn_metadata.q_seqlens
     kv_seqlens: Tensor = attn_metadata.kv_seqlens
     kv_start_indices: Tensor = attn_metadata.kv_start_indices
 
@@ -83,8 +115,10 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
     input_buffers["input_ids"][:, :num_tokens] = input_ids
     input_buffers["position_ids"][:, :num_tokens] = position_ids
     input_buffers["block_offsets"][:batch_size, :num_blocks] = block_offsets
-    input_buffers["q_start_loc"][: batch_size + 1] = q_start_loc
-    input_buffers["q_seqlens"][:batch_size] = q_seqlens
+    # input_buffers["q_start_loc"][: batch_size + 1] = q_start_loc
+    # input_buffers["q_seqlens"][:batch_size] = q_seqlens
+    if not isinstance(kv_seqlens, list):
+        kv_seqlens = kv_seqlens.to("cpu").tolist()
     input_buffers["kv_seqlens"][:batch_size] = kv_seqlens
     input_buffers["kv_start_indices"][:batch_size] = kv_start_indices
 
@@ -100,8 +134,8 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
     new_batch_size = next_power_of_2(batch_size)
 
     attn_metadata.block_offsets = input_buffers["block_offsets"][:new_batch_size]
-    attn_metadata.q_start_loc = input_buffers["q_start_loc"][: new_batch_size + 1]
-    attn_metadata.q_seqlens = input_buffers["q_seqlens"][:new_batch_size]
+    # attn_metadata.q_start_loc = input_buffers["q_start_loc"][: new_batch_size + 1]
+    # attn_metadata.q_seqlens = input_buffers["q_seqlens"][:new_batch_size]
     attn_metadata.kv_seqlens = input_buffers["kv_seqlens"][:new_batch_size]
     attn_metadata.kv_start_indices = input_buffers["kv_start_indices"][:new_batch_size]
 
@@ -152,7 +186,7 @@ from lmdeploy.pytorch.model_inputs import StepContext, get_step_ctx_manager
 from lmdeploy.pytorch.models.utils.cudagraph import CudaGraphMeta
 from lmdeploy.utils import get_logger
 
-from ..graph_runner import GraphRunner
+from lmdeploy.pytorch.backends.graph_runner import GraphRunner
 
 logger = get_logger('lmdeploy')
 
@@ -204,7 +238,7 @@ class AscendSingleGraphRunner:
         max_tokens: int,
         num_blocks: int,
         is_decoding: bool,
-        pool: Tuple[int, int],
+        pool: Any,
         model_config: ModelConfig,
         device: torch.device,
     ):
@@ -228,7 +262,7 @@ class AscendSingleGraphRunner:
         self.num_blocks = num_blocks
         self.is_decoding = is_decoding
         self.pool = pool
-        self._graph: torch.cuda.CUDAGraph = None
+        self._graph: torch.npu.NPUGraph = None
 
     @record_function('capture_cudagraph')
     def capture(self, **kwargs):
@@ -240,17 +274,16 @@ class AscendSingleGraphRunner:
         self.model.update_context_cudagraph(self.meta, context)
         current_stream = torch.cuda.current_stream()
 
-        # warmup
-        self.model(**padded_kwargs)
-
-        self._graph = torch.cuda.CUDAGraph()
-        # unsafe kernel call in other thread might invalid the capture
-        # so we set thread_safe capture mode here.
-        with torch.cuda.graph(self._graph, pool=self.pool, stream=current_stream, capture_error_mode='thread_local'):
-            output = self.model(**padded_kwargs)
+        aclgraph = torch.npu.NPUGraph()
+        with ExitStack() as stack:
+            stack.enter_context(patch("gc.collect", lambda: None))
+            stack.enter_context(patch("torch.npu.empty_cache", lambda: None))
+            with torch.npu.graph(aclgraph, auto_dispatch_capture=True, pool=self.pool, stream=current_stream):
+                output = self.model(**padded_kwargs)
 
         output_buffers = dict(logits=output)
         self.meta.output_buffers = output_buffers
+        self._graph = aclgraph
         return output
 
     @record_function('forward_cudagraph')
@@ -261,6 +294,7 @@ class AscendSingleGraphRunner:
         self.model.fill_buffers_cudagraph(self.meta, **kwargs)
         context = self.ctx_mgr.current_context()
         self.model.update_context_cudagraph(self.meta, context)
+        self._graph.update(cpu_update_input=[{"kv_seqlens": self.meta.input_buffers["kv_seqlens"]}])
         self._graph.replay()
 
         output = self.meta.output_buffers['logits'][:, :num_tokens]
@@ -271,7 +305,7 @@ class AscendSingleGraphRunner:
         del self._graph
 
 
-class CUDAGraphRunner(GraphRunner):
+class AscendGraphRunner(GraphRunner):
     """Cuda graph runner."""
 
     def __init__(self, model: torch.nn.Module, model_config: ModelConfig, cache_config: CacheConfig,
@@ -282,9 +316,11 @@ class CUDAGraphRunner(GraphRunner):
         self.num_blocks = cache_config.num_gpu_blocks
 
         self.enable_graph = self.check_enable_graph()
+        # import dlinfer.graph
+        # dlinfer.graph.config.enable_graph_mode = True
 
         self.graph_pool_handle = torch.cuda.graph_pool_handle()
-        self._runner_map: Dict[Any, CUDASingleGraphRunner] = dict()
+        self._runner_map: Dict[Any, AscendSingleGraphRunner] = dict()
         self.has_try_compile_model: bool = False
 
     def check_enable_graph(self):
@@ -343,14 +379,14 @@ class CUDAGraphRunner(GraphRunner):
         is_decoding = graph_key[1]
         if graph_key not in self._runner_map:
             max_batches = max_tokens if is_decoding else self.max_batches
-            runner = CUDASingleGraphRunner(self.model,
-                                           max_batches=max_batches,
-                                           max_tokens=max_tokens,
-                                           num_blocks=self.num_blocks,
-                                           is_decoding=is_decoding,
-                                           pool=self.graph_pool_handle,
-                                           model_config=self.model_config,
-                                           device=self.device)
+            runner = AscendSingleGraphRunner(self.model,
+                                            max_batches=max_batches,
+                                            max_tokens=max_tokens,
+                                            num_blocks=self.num_blocks,
+                                            is_decoding=is_decoding,
+                                            pool=self.graph_pool_handle,
+                                            model_config=self.model_config,
+                                            device=self.device)
             runner.capture(**kwargs)
             self._runner_map[graph_key] = runner
         else:
@@ -392,3 +428,7 @@ class CUDAGraphRunner(GraphRunner):
     def get_capture_batch_sizes(self) -> List[int]:
         """Capture batch sizes."""
         return _get_capture_batch_size_impl(self.cache_config.max_batches)
+
+
+from lmdeploy.pytorch.backends.cuda import graph_runner
+graph_runner.CUDAGraphRunner = AscendGraphRunner

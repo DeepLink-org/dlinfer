@@ -171,14 +171,9 @@ def fill_kv_cache(
     v_scales_zeros: Sequence[Optional[Tensor]],
     quant_bits: int,
 ) -> Tuple[Tensor, Tensor]:
-    _, head, dim = key.shape
-    block_num, block_size = key_cache.shape[:2]
-    block_total = block_num * block_size
-
     # only support contiguous k,v
     key = key.contiguous()
     value = value.contiguous()
-    kv_indices = kv_indices.view(-1, 1)
 
     if quant_bits == 8:
 
@@ -191,10 +186,12 @@ def fill_kv_cache(
         key = quant_int8(key, k_scales_zeros[0], k_scales_zeros[1])
         value = quant_int8(value, v_scales_zeros[0], v_scales_zeros[1])
 
-    key_cache_reshaped = key_cache.view(block_total, head, dim)
-    value_cache_reshaped = value_cache.view(block_total, head, dim)
-    torch.ops.npu.npu_scatter_nd_update_(key_cache_reshaped, kv_indices, key)
-    torch.ops.npu.npu_scatter_nd_update_(value_cache_reshaped, kv_indices, value)
+    torch_npu._npu_reshape_and_cache(
+        key=key,
+        value=value,
+        key_cache=key_cache,
+        value_cache=value_cache,
+        slot_indices=kv_indices.to(torch.int32))
     return key_cache, value_cache
 
 
@@ -245,30 +242,48 @@ def paged_decode_attention(
     key_cache = key_cache.view(block_num, block_size, -1)
     value_cache = value_cache.view(block_num, block_size, -1)
     scale_value = softmax_scale if softmax_scale else 1.0 / math.sqrt(dim)
-
-    torch.ops.npu_ext.npu_incre_flash_attention_v4_out(
+    
+    attn_output, _ = torch.ops.npu.npu_fused_infer_attention_score(
         query,
         key_cache,
         value_cache,
-        attn_output.view_as(query),
-        padding_mask=None,
+        pse_shift=None,
         atten_mask=None,
-        actual_seq_lengths=kv_seq_len.tolist(),
-        antiquant_scale=kv_scales,
-        antiquant_offset=kv_zeros,
-        block_table=block_table,
+        actual_seq_lengths=None,
+        actual_seq_lengths_kv=kv_seq_len,
         dequant_scale1=None,
         quant_scale1=None,
         dequant_scale2=None,
         quant_scale2=None,
         quant_offset2=None,
-        num_heads=num_q_heads,
-        scale_value=scale_value,
+        antiquant_scale=kv_scales,
+        antiquant_offset=kv_zeros,
+        block_table=block_table,
+        query_padding_size=None,
+        kv_padding_size=None,
+        key_antiquant_scale=None,
+        key_antiquant_offset=None,
+        value_antiquant_scale=None,  
+        value_antiquant_offset=None,  
+        key_shared_prefix=None,  
+        value_shared_prefix=None,  
+        actual_shared_prefix_len=None, 
+        query_rope=None,  
+        key_rope=None,  
+        key_rope_antiquant_scale=None,
+        num_heads=num_q_heads, 
+        scale=scale_value,
+        pre_tokens=2147483647,
+        next_tokens=2147483647,
         input_layout="BSH",
         num_key_value_heads=num_kv_heads,
-        block_size=block_size,
+        sparse_mode=0,
         inner_precise=1,
-    )
+        block_size=block_size,
+        antiquant_mode=0,
+        softmax_lse_flag=False,
+        key_antiquant_mode=0,
+        value_antiquant_mode=0)
     return attn_output
 
 
@@ -354,13 +369,8 @@ def silu_and_mul(input_tensor: Tensor, dim: int) -> Tensor:
 
 @register_ops(vendor_ops_registry)
 def moe_gating_topk_softmax(router_logits: Tensor, topk: int) -> Tuple[Tensor, Tensor]:
-    routing_weights = router_logits.new_empty((*router_logits.shape[:-1], topk))
-    selected_experts = router_logits.new_empty(
-        (*router_logits.shape[:-1], topk), dtype=torch.int32
-    )
-    selected_idx = torch.empty_like(selected_experts)
-    routing_weights, selected_idx = torch.ops.npu_ext.npu_moe_gating_topk_softmax(
-        router_logits, None, topk, routing_weights, selected_experts, selected_idx
+    routing_weights, selected_idx, _ = torch.ops.npu.npu_moe_gating_top_k_softmax(
+        router_logits, None, topk
     )
     return routing_weights, selected_idx.to(torch.int64)
 
