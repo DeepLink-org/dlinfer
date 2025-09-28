@@ -2,7 +2,6 @@
 import torch
 from dlinfer.vendor import vendor_ops_registry
 from dlinfer.utils.type_annotation import Tensor, Optional, Sequence, Tuple
-from dlinfer.graph.custom_op import register_custom_op
 from dlinfer.vendor import linear_w8a8_scale_type, dynamic_quant_scale_type
 
 
@@ -31,7 +30,6 @@ __all__ = [
 ]
 
 
-@register_custom_op("dlinfer::add_rms_norm", ["hidden_states", "residual"])
 def add_rms_norm(
     hidden_states: Tensor,
     residual: Tensor,
@@ -55,7 +53,6 @@ def add_rms_norm(
     return vendor_ops_registry["add_rms_norm"](hidden_states, residual, weight, epsilon)
 
 
-@register_custom_op("dlinfer::apply_rotary_pos_emb", ["query", "key"])
 def apply_rotary_pos_emb(
     query: Tensor,
     key: Tensor,
@@ -87,15 +84,6 @@ def apply_rotary_pos_emb(
     )
 
 
-@register_custom_op(
-    "dlinfer::prefill_attention",
-    ["attn_output"],
-    default_value={
-        "softmax_scale": None,
-        "alibi_slopes": None,
-        "attn_output": None,
-    },
-)
 def prefill_attention(
     query: Tensor,
     key: Tensor,
@@ -108,10 +96,10 @@ def prefill_attention(
     max_q_seq_len: int,
     num_q_heads: int,
     num_kv_heads: int,
-    attn_mask: Sequence[Optional[Tensor]],
-    softmax_scale: Optional[float],
-    alibi_slopes: Optional[Sequence[float]],
-    attn_output: Optional[Tensor],
+    attn_mask: Sequence[Optional[Tensor]]=None,
+    softmax_scale: Optional[float]=None,
+    alibi_slopes: Optional[Sequence[float]]=None,
+    attn_output: Optional[Tensor]=None,
 ) -> Tensor:
     """
     Computes the multi-head attention over the query, key, and value tensors.
@@ -153,13 +141,6 @@ def prefill_attention(
     )
 
 
-@register_custom_op(
-    "dlinfer::incre_flash_attention",
-    ["query"],
-    default_value={
-        "softmax_scale": None,
-    },
-)
 def incre_flash_attention(
     query: Tensor,
     key: Tensor,
@@ -192,15 +173,6 @@ def incre_flash_attention(
     )
 
 
-@register_custom_op(
-    "dlinfer::fill_kv_cache",
-    ["key_cache", "value_cache"],
-    default_value={
-        "k_scales_zeros": tuple(),
-        "v_scales_zeros": tuple(),
-        "quant_bits": 0,
-    },
-)
 def fill_kv_cache(
     key: Tensor,
     value: Tensor,
@@ -241,19 +213,6 @@ def fill_kv_cache(
     )
 
 
-@register_custom_op(
-    "dlinfer::paged_decode_attention",
-    ["attn_output"],
-    default_value={
-        "head_size_v": 0,
-        "softmax_scale": None,
-        "alibi_slopes": None,
-        "attn_output": None,
-        "kv_scales": None,
-        "kv_zeros": None,
-        "quant_bits": 0,
-    },
-)
 def paged_decode_attention(
     query: Tensor,
     key_cache: Tensor,
@@ -264,13 +223,13 @@ def paged_decode_attention(
     max_kv_seq_len: int,
     num_q_heads: int,
     num_kv_heads: int,
-    head_size_v: Optional[int],
-    softmax_scale: Optional[float],
-    alibi_slopes: Optional[Sequence[float]],
-    attn_output: Optional[Tensor],
-    kv_scales: Optional[Tensor],
-    kv_zeros: Optional[Tensor],
-    quant_bits: Optional[int],
+    head_size_v: Optional[int] = None,
+    softmax_scale: Optional[float] = None,
+    alibi_slopes: Optional[Sequence[float]] = None,
+    attn_output: Optional[Tensor] = None,
+    kv_scales: Optional[Tensor] = None,
+    kv_zeros: Optional[Tensor] = None,
+    quant_bits: Optional[int] = None,
 ) -> Tensor:
     """
     Computes the multi-head attention over the query, key, and value tensors.
@@ -317,19 +276,6 @@ def paged_decode_attention(
     )
 
 
-@register_custom_op(
-    "dlinfer::paged_prefill_attention",
-    ["attn_output"],
-    default_value={
-        "head_size_v": 0,
-        "softmax_scale": None,
-        "alibi_slopes": None,
-        "attn_output": None,
-        "kv_scales": None,
-        "kv_zeros": None,
-        "quant_bits": 0,
-    },
-)
 def paged_prefill_attention(
     query: Tensor,
     key: Tensor,
@@ -412,7 +358,6 @@ def paged_prefill_attention(
     )
 
 
-@register_custom_op("dlinfer::rms_norm", ["hidden_states"])
 def rms_norm(
     hidden_states: Tensor,
     weight: Tensor,
@@ -441,14 +386,9 @@ def silu_and_mul_impl_abstract_func(
     return gate
 
 
-@register_custom_op(
-    "dlinfer::silu_and_mul",
-    default_value={"dim": -1},
-    impl_abstract_func=silu_and_mul_impl_abstract_func,
-)
 def silu_and_mul(
     input_tensor: Tensor,
-    dim: int,
+    dim: int = -1,
 ) -> Tensor:
     """
     Apply silu activation on the first half part of input tensor along dim, and then do
@@ -474,10 +414,6 @@ def moe_gating_topk_softmax_impl_abstract_func(
     return routing_weights, selected_experts
 
 
-@register_custom_op(
-    "dlinfer::moe_gating_topk_softmax",
-    impl_abstract_func=moe_gating_topk_softmax_impl_abstract_func,
-)
 def moe_gating_topk_softmax(router_logits: Tensor, topk: int) -> Tuple[Tensor, Tensor]:
     """
     Given router_logits of experts, it computes the probability distributions of experts
@@ -585,7 +521,6 @@ def weight_quant_matmul(
     )
 
 
-@register_custom_op("dlinfer::fused_moe", ["hidden_states"])
 def fused_moe(
     hidden_states: Tensor,
     gate_up_weights: Tensor,
@@ -641,11 +576,6 @@ def linear_impl_abstract_func(
     return x.new_empty((shape_x[:-1] + shape_w[-2:-1]))
 
 
-@register_custom_op(
-    "dlinfer::linear",
-    impl_abstract_func=linear_impl_abstract_func,
-    default_value={"bias": None, "all_reduce": False, "group": ""},
-)
 def linear(
     x: Tensor,
     weight: Tensor,
@@ -674,11 +604,6 @@ def dynamic_quant_impl_abstract_func(
     return x.to(quant_dtype), x.new_empty(x.shape[:-1], dtype=torch.float)
 
 
-@register_custom_op(
-    "dlinfer::dynamic_quant",
-    impl_abstract_func=dynamic_quant_impl_abstract_func,
-    default_value={"quant_granularity": None},
-)
 def dynamic_quant(
     x: Tensor, quant_dtype: torch.dtype, quant_granularity: str
 ) -> Tuple[Tensor, dynamic_quant_scale_type]:
@@ -716,11 +641,6 @@ def linear_w8a8_impl_abstract_func(
     return a.new_empty(res_shape, dtype=out_dtype)
 
 
-@register_custom_op(
-    "dlinfer::linear_w8a8",
-    impl_abstract_func=linear_w8a8_impl_abstract_func,
-    default_value={"bias": None},
-)
 def linear_w8a8(
     a: Tensor,
     b: Tensor,
@@ -761,10 +681,6 @@ def rms_norm_w8a8_impl_abstract_func(
     )
 
 
-@register_custom_op(
-    "dlinfer::rms_norm_w8a8",
-    impl_abstract_func=rms_norm_w8a8_impl_abstract_func,
-)
 def rms_norm_w8a8(
     hidden_states: Tensor,
     weight: Tensor,
@@ -804,10 +720,6 @@ def add_rms_norm_w8a8_impl_abstract_func(
     )
 
 
-@register_custom_op(
-    "dlinfer::add_rms_norm_w8a8",
-    impl_abstract_func=add_rms_norm_w8a8_impl_abstract_func,
-)
 def add_rms_norm_w8a8(
     hidden_states: Tensor,
     residual: Tensor,
@@ -855,12 +767,6 @@ def transdata_abstract_func(x: Tensor, transdata_type: int):
     return res
 
 
-@register_custom_op(
-    "dlinfer::transdata",
-    ["hidden_states"],
-    impl_abstract_func=transdata_abstract_func,
-    default_value={"transdata_type": 2},
-)
 def transdata(
     hidden_states: Tensor,
     transdata_type: int,

@@ -118,7 +118,7 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
     # input_buffers["q_start_loc"][: batch_size + 1] = q_start_loc
     # input_buffers["q_seqlens"][:batch_size] = q_seqlens
     if not isinstance(kv_seqlens, list):
-        kv_seqlens = kv_seqlens.to("cpu").tolist()
+        kv_seqlens = kv_seqlens.tolist()
     input_buffers["kv_seqlens"][:batch_size] = kv_seqlens
     input_buffers["kv_start_indices"][:batch_size] = kv_start_indices
 
@@ -294,7 +294,9 @@ class AscendSingleGraphRunner:
         self.model.fill_buffers_cudagraph(self.meta, **kwargs)
         context = self.ctx_mgr.current_context()
         self.model.update_context_cudagraph(self.meta, context)
-        self._graph.update(cpu_update_input=[{"kv_seqlens": self.meta.input_buffers["kv_seqlens"]}])
+        torch.npu.synchronize()
+        self._graph.update(cpu_update_input=[{"actual_seq_lengths_kv": self.meta.input_buffers["kv_seqlens"]}])
+        self._graph.replay()
         self._graph.replay()
 
         output = self.meta.output_buffers['logits'][:, :num_tokens]
