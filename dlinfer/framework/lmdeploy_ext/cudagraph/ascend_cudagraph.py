@@ -297,7 +297,6 @@ class AscendSingleGraphRunner:
         torch.npu.synchronize()
         self._graph.update(cpu_update_input=[{"actual_seq_lengths_kv": self.meta.input_buffers["kv_seqlens"]}])
         self._graph.replay()
-        self._graph.replay()
 
         output = self.meta.output_buffers['logits'][:, :num_tokens]
         return output
