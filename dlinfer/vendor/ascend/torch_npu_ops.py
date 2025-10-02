@@ -326,6 +326,7 @@ def paged_prefill_attention(
     block_num = key_cache.size(0)
     key_cache = key_cache.view(block_num, block_size, -1)
     value_cache = value_cache.view(block_num, block_size, -1)
+    '''
     torch.ops.npu_ext.npu_incre_flash_attention_v4_out(
         query,
         key_cache,
@@ -349,6 +350,49 @@ def paged_prefill_attention(
         block_size=block_size,
         inner_precise=1,
     )
+    '''
+    attn_output, _ = torch.ops.npu.npu_fused_infer_attention_score(
+        query,
+        key_cache,
+        value_cache,
+        pse_shift=None,
+        atten_mask=attn_mask[0],
+        actual_seq_lengths=kv_seq_len_list,
+        actual_seq_lengths_kv=kv_seq_len,
+        dequant_scale1=None,
+        quant_scale1=None,
+        dequant_scale2=None,
+        quant_scale2=None,
+        quant_offset2=None,
+        antiquant_scale=kv_scales,
+        antiquant_offset=kv_zeros,
+        block_table=block_table,
+        query_padding_size=None,
+        kv_padding_size=None,
+        key_antiquant_scale=None,
+        key_antiquant_offset=None,
+        value_antiquant_scale=None,  
+        value_antiquant_offset=None,  
+        key_shared_prefix=None,  
+        value_shared_prefix=None,  
+        actual_shared_prefix_len=None, 
+        query_rope=None,  
+        key_rope=None,  
+        key_rope_antiquant_scale=None,
+        num_heads=num_q_heads, 
+        scale=scale_value,
+        pre_tokens=2147483647,
+        next_tokens=2147483647,
+        input_layout="BSH",
+        num_key_value_heads=num_kv_heads,
+        sparse_mode=0,
+        inner_precise=1,
+        block_size=block_size,
+        antiquant_mode=0,
+        softmax_lse_flag=False,
+        key_antiquant_mode=0,
+        value_antiquant_mode=0)
+
     return attn_output
 
 

@@ -292,14 +292,14 @@ def paged_prefill_attention(
     max_kv_seq_len: int,
     num_q_heads: int,
     num_kv_heads: int,
-    attn_mask: Sequence[Optional[Tensor]],
-    head_size_v: Optional[int],
-    softmax_scale: Optional[float],
-    alibi_slopes: Optional[Sequence[float]],
-    attn_output: Optional[Tensor],
-    kv_scales: Tensor,
-    kv_zeros: Tensor,
-    quant_bits: int,
+    attn_mask: Sequence[Optional[Tensor]] = None,
+    head_size_v: Optional[int] = None,
+    softmax_scale: Optional[float] = None,
+    alibi_slopes: Optional[Sequence[float]] = None,
+    attn_output: Optional[Tensor] = None,
+    kv_scales: Optional[Tensor] = None,
+    kv_zeros: Optional[Tensor] = None,
+    quant_bits: Optional[int] = None,
 ) -> Tensor:
     """
     Computes the multi-head attention over the query, key, and value tensors.

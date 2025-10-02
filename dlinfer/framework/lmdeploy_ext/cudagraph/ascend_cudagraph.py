@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from lmdeploy.pytorch.models.utils.cudagraph import CudaGraphMeta
 from lmdeploy.pytorch.models.utils.cudagraph import CudaGraphMixin, next_power_of_2
+import torch.distributed as dist
 
 BuffType = Dict[str, Tensor]
 
@@ -20,6 +21,11 @@ this file implements the cudagraph for ascend backend.
 Ascend CudaGraphMixin methods
 for cudagraph buffer management.
 '''
+
+import time
+ 
+totalt = 0
+cnt = 0
 
 def weak_ref_tensor(tensor: Any) -> Any:
     """
@@ -295,7 +301,16 @@ class AscendSingleGraphRunner:
         context = self.ctx_mgr.current_context()
         self.model.update_context_cudagraph(self.meta, context)
         torch.npu.synchronize()
+        global totalt
+        global cnt
+        st = time.time()
         self._graph.update(cpu_update_input=[{"actual_seq_lengths_kv": self.meta.input_buffers["kv_seqlens"]}])
+        timediff = time.time() - st
+        totalt += timediff
+        if cnt > 200:
+            cnt = 0
+            logger.error(f'loss time rank {dist.get_rank()}  {totalt}')
+        cnt += 1
         self._graph.replay()
 
         output = self.meta.output_buffers['logits'][:, :num_tokens]
