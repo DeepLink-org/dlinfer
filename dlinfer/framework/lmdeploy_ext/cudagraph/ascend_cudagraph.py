@@ -301,16 +301,18 @@ class AscendSingleGraphRunner:
         context = self.ctx_mgr.current_context()
         self.model.update_context_cudagraph(self.meta, context)
         torch.npu.synchronize()
-        global totalt
-        global cnt
-        st = time.time()
+        #global totalt
+        #global cnt
+        #st = time.time()
         self._graph.update(cpu_update_input=[{"actual_seq_lengths_kv": self.meta.input_buffers["kv_seqlens"]}])
+        '''
         timediff = time.time() - st
         totalt += timediff
         if cnt > 200:
             cnt = 0
             logger.error(f'loss time rank {dist.get_rank()}  {totalt}')
         cnt += 1
+        '''
         self._graph.replay()
 
         output = self.meta.output_buffers['logits'][:, :num_tokens]
