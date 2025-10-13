@@ -199,6 +199,7 @@ logger = get_logger('lmdeploy')
 
 def next_power_of_2(n: int):
     """Return the smallest power of 2 greater than or equal to n."""
+    '''
     n -= 1
     n |= n >> 1
     n |= n >> 2
@@ -207,12 +208,27 @@ def next_power_of_2(n: int):
     n |= n >> 16
     n |= n >> 32
     n += 1
+    '''
+    if n <= 2:                                                                
+        return n                                                                                                                                             
+    if n <= 4:                                                                
+        return 4                                                              
+    if n <= 8:                                                                
+        return 8                                                              
+    if n > 1024:
+        return 1200
+    if n > 512:
+        return 1024
+    if n > 256:
+        return 512
+    n = 16 * (n // 16 + 1)                                                                                                                                   
     return n
 
 
 @functools.lru_cache
 def _get_capture_batch_size_impl(max_batches: int):
     """Capture batch size."""
+    '''
     ret = []
     batch_size = 1
     batch_step = 256
@@ -226,6 +242,8 @@ def _get_capture_batch_size_impl(max_batches: int):
 
     if max_batches != ret[-1]:
         ret.append(max_batches)
+    '''
+    ret = [1, 2, 4, 8, 16, 32, 48, 64, 80, 96, 112, 128, 144, 160, 176, 192, 208, 224, 240, 256, 512, 1024, 1200]
     return ret
 
 
@@ -304,7 +322,6 @@ class AscendSingleGraphRunner:
         #global totalt
         #global cnt
         #st = time.time()
-        self._graph.update(cpu_update_input=[{"actual_seq_lengths_kv": self.meta.input_buffers["kv_seqlens"]}])
         '''
         timediff = time.time() - st
         totalt += timediff
@@ -314,6 +331,7 @@ class AscendSingleGraphRunner:
         cnt += 1
         '''
         self._graph.replay()
+        self._graph.update(cpu_update_input=[{"actual_seq_lengths_kv": self.meta.input_buffers["kv_seqlens"]}])
 
         output = self.meta.output_buffers['logits'][:, :num_tokens]
         return output
@@ -390,7 +408,14 @@ class AscendGraphRunner(GraphRunner):
 
         if not enable_graph:
             with record_function('forward_eager'):
-                return self.model(**kwargs)
+                #torch.npu.synchronize()
+                #start_t = time.time()
+                ret = self.model(**kwargs)
+                #torch.npu.synchronize()
+                #end_t = time.time()
+                #if dist.get_rank() == 0:
+                #    logger.error(f"prefill eager: {end_t - start_t} rank: {dist.get_rank()}")
+                return ret
 
         graph_key = self.get_graph_key(**kwargs)
         max_tokens = graph_key[0]
