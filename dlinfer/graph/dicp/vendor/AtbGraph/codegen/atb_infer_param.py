@@ -160,9 +160,9 @@ class PostNormParam:
 @dataclass
 class RmsNormParam:
     layerType: RmsNormType = RmsNormType.RMS_NORM_UNDEFINED
-    normParam: NormParam = NormParam()
-    preNormParam: PreNormParam = PreNormParam()
-    postNormParam: PostNormParam = PostNormParam()
+    normParam: NormParam = field(default_factory=NormParam)
+    preNormParam: PreNormParam = field(default_factory=PreNormParam)
+    postNormParam: PostNormParam = field(default_factory=PostNormParam)
 
 
 @dataclass
@@ -338,10 +338,10 @@ class MlpGateParamV2:
     isSparse: bool = False
     noGate: bool = False
     isBF16: bool = False
-    commDownParam: MlpCommParam = MlpCommParam()
-    quantUpParam: MlpQuantParam = MlpQuantParam()
-    quantGateParam: MlpQuantParam = MlpQuantParam()
-    quantDownParam: MlpQuantParam = MlpQuantParam()
+    commDownParam: MlpCommParam = field(default_factory=MlpCommParam)
+    quantUpParam: MlpQuantParam = field(default_factory=MlpQuantParam)
+    quantGateParam: MlpQuantParam = field(default_factory=MlpQuantParam)
+    quantDownParam: MlpQuantParam = field(default_factory=MlpQuantParam)
 
 
 class GeLUMode(IntEnum):
