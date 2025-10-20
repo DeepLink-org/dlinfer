@@ -13,19 +13,20 @@ import torch.distributed as dist
 
 BuffType = Dict[str, Tensor]
 
-'''
+"""
 this file implements the cudagraph for ascend backend.
-'''
+"""
 
-'''
+"""
 Ascend CudaGraphMixin methods
 for cudagraph buffer management.
-'''
+"""
 
 import time
- 
+
 totalt = 0
 cnt = 0
+
 
 def weak_ref_tensor(tensor: Any) -> Any:
     """
@@ -103,7 +104,7 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
     past_key_values: List,
     attn_metadata: Any,
     inputs_embeds: Tensor,
-    **kwargs
+    **kwargs,
 ) -> Dict[str, Tensor]:
     """fill cudagraph buffers from forward inputs."""
     block_offsets: Tensor = attn_metadata.block_offsets
@@ -194,12 +195,12 @@ from lmdeploy.utils import get_logger
 
 from lmdeploy.pytorch.backends.graph_runner import GraphRunner
 
-logger = get_logger('lmdeploy')
+logger = get_logger("lmdeploy")
 
 
 def next_power_of_2(n: int):
     """Return the smallest power of 2 greater than or equal to n."""
-    '''
+    """
     n -= 1
     n |= n >> 1
     n |= n >> 2
@@ -208,27 +209,27 @@ def next_power_of_2(n: int):
     n |= n >> 16
     n |= n >> 32
     n += 1
-    '''
-    if n <= 2:                                                                
-        return n                                                                                                                                             
-    if n <= 4:                                                                
-        return 4                                                              
-    if n <= 8:                                                                
-        return 8                                                              
+    """
+    if n <= 2:
+        return n
+    if n <= 4:
+        return 4
+    if n <= 8:
+        return 8
     if n > 1024:
         return 1200
     if n > 512:
         return 1024
     if n > 256:
         return 512
-    n = 16 * (n // 16 + 1)                                                                                                                                   
+    n = 16 * (n // 16 + 1)
     return n
 
 
 @functools.lru_cache
 def _get_capture_batch_size_impl(max_batches: int):
     """Capture batch size."""
-    '''
+    """
     ret = []
     batch_size = 1
     batch_step = 256
@@ -242,8 +243,32 @@ def _get_capture_batch_size_impl(max_batches: int):
 
     if max_batches != ret[-1]:
         ret.append(max_batches)
-    '''
-    ret = [1, 2, 4, 8, 16, 32, 48, 64, 80, 96, 112, 128, 144, 160, 176, 192, 208, 224, 240, 256, 512, 1024, 1200]
+    """
+    ret = [
+        1,
+        2,
+        4,
+        8,
+        16,
+        32,
+        48,
+        64,
+        80,
+        96,
+        112,
+        128,
+        144,
+        160,
+        176,
+        192,
+        208,
+        224,
+        240,
+        256,
+        512,
+        1024,
+        1200,
+    ]
     return ret
 
 
@@ -288,10 +313,10 @@ class AscendSingleGraphRunner:
         self.pool = pool
         self._graph: torch.npu.NPUGraph = None
 
-    @record_function('capture_cudagraph')
+    @record_function("capture_cudagraph")
     def capture(self, **kwargs):
         """Capture graph."""
-        logger.debug(f'Capturing graph with meta: {self.meta}')
+        logger.debug(f"Capturing graph with meta: {self.meta}")
         self.meta.input_buffers = self.model.make_buffers_cudagraph(self.meta, **kwargs)
         padded_kwargs = self.model.fill_buffers_cudagraph(self.meta, **kwargs)
         context = self.ctx_mgr.current_context()
@@ -302,7 +327,12 @@ class AscendSingleGraphRunner:
         with ExitStack() as stack:
             stack.enter_context(patch("gc.collect", lambda: None))
             stack.enter_context(patch("torch.npu.empty_cache", lambda: None))
-            with torch.npu.graph(aclgraph, auto_dispatch_capture=True, pool=self.pool, stream=current_stream):
+            with torch.npu.graph(
+                aclgraph,
+                auto_dispatch_capture=True,
+                pool=self.pool,
+                stream=current_stream,
+            ):
                 output = self.model(**padded_kwargs)
 
         output_buffers = dict(logits=output)
@@ -310,30 +340,35 @@ class AscendSingleGraphRunner:
         self._graph = aclgraph
         return output
 
-    @record_function('forward_cudagraph')
+    @record_function("forward_cudagraph")
     def forward(self, **kwargs):
         """forward."""
-        num_tokens = kwargs['input_ids'].size(-1)
+        num_tokens = kwargs["input_ids"].size(-1)
         assert self._graph is not None
         self.model.fill_buffers_cudagraph(self.meta, **kwargs)
         context = self.ctx_mgr.current_context()
         self.model.update_context_cudagraph(self.meta, context)
         torch.npu.synchronize()
-        #global totalt
-        #global cnt
-        #st = time.time()
-        '''
+        # global totalt
+        # global cnt
+        # st = time.time()
+        """
         timediff = time.time() - st
         totalt += timediff
         if cnt > 200:
             cnt = 0
             logger.error(f'loss time rank {dist.get_rank()}  {totalt}')
         cnt += 1
-        '''
+        """
         self._graph.replay()
-        self._graph.update(cpu_update_input=[{"actual_seq_lengths_kv": self.meta.input_buffers["kv_seqlens"]}])
+        self._graph.update(
+            cpu_update_input=[
+                {"actual_seq_lengths_kv": self.meta.input_buffers["kv_seqlens"]}
+            ]
+        )
+        # self._graph.replay()
 
-        output = self.meta.output_buffers['logits'][:, :num_tokens]
+        output = self.meta.output_buffers["logits"][:, :num_tokens]
         return output
 
     def __del__(self):
@@ -344,8 +379,14 @@ class AscendSingleGraphRunner:
 class AscendGraphRunner(GraphRunner):
     """Cuda graph runner."""
 
-    def __init__(self, model: torch.nn.Module, model_config: ModelConfig, cache_config: CacheConfig,
-                 backend_config: BackendConfig, device: torch.device):
+    def __init__(
+        self,
+        model: torch.nn.Module,
+        model_config: ModelConfig,
+        cache_config: CacheConfig,
+        backend_config: BackendConfig,
+        device: torch.device,
+    ):
         super().__init__(model, model_config, cache_config, backend_config, device)
         self.max_batches = cache_config.max_batches
         self.max_tokens = cache_config.max_prefill_token_num
@@ -364,7 +405,7 @@ class AscendGraphRunner(GraphRunner):
         if self.backend_config.eager_mode:
             return _false
 
-        return getattr(self.model, 'support_cuda_graph', _false)
+        return getattr(self.model, "support_cuda_graph", _false)
 
     def _try_compile_model_once(self):
         if self.has_try_compile_model:
@@ -383,10 +424,17 @@ class AscendGraphRunner(GraphRunner):
         for size in cap_sizes:
             if size >= batch_size:
                 return size
-        assert False, f'Unsupported batch_size={batch_size}'
+        assert False, f"Unsupported batch_size={batch_size}"
 
-    def get_graph_key(self, input_ids: torch.Tensor, position_ids: torch.Tensor, past_key_values: List,
-                      attn_metadata: Any, inputs_embeds: torch.Tensor, **kwargs):
+    def get_graph_key(
+        self,
+        input_ids: torch.Tensor,
+        position_ids: torch.Tensor,
+        past_key_values: List,
+        attn_metadata: Any,
+        inputs_embeds: torch.Tensor,
+        **kwargs,
+    ):
         """Get graph key."""
         context = self.ctx_mgr.current_context()
         is_decoding = context.is_decoding
@@ -401,19 +449,19 @@ class AscendGraphRunner(GraphRunner):
 
     def __call__(self, **kwargs):
         """call."""
-        if not self.backend_config.eager_mode and get_backend().get_name() == 'cuda':
+        if not self.backend_config.eager_mode and get_backend().get_name() == "cuda":
             self._try_compile_model_once()
 
         enable_graph = self.enable_graph(**kwargs)
 
         if not enable_graph:
-            with record_function('forward_eager'):
-                #torch.npu.synchronize()
-                #start_t = time.time()
+            with record_function("forward_eager"):
+                # torch.npu.synchronize()
+                # start_t = time.time()
                 ret = self.model(**kwargs)
-                #torch.npu.synchronize()
-                #end_t = time.time()
-                #if dist.get_rank() == 0:
+                # torch.npu.synchronize()
+                # end_t = time.time()
+                # if dist.get_rank() == 0:
                 #    logger.error(f"prefill eager: {end_t - start_t} rank: {dist.get_rank()}")
                 return ret
 
@@ -422,14 +470,16 @@ class AscendGraphRunner(GraphRunner):
         is_decoding = graph_key[1]
         if graph_key not in self._runner_map:
             max_batches = max_tokens if is_decoding else self.max_batches
-            runner = AscendSingleGraphRunner(self.model,
-                                            max_batches=max_batches,
-                                            max_tokens=max_tokens,
-                                            num_blocks=self.num_blocks,
-                                            is_decoding=is_decoding,
-                                            pool=self.graph_pool_handle,
-                                            model_config=self.model_config,
-                                            device=self.device)
+            runner = AscendSingleGraphRunner(
+                self.model,
+                max_batches=max_batches,
+                max_tokens=max_tokens,
+                num_blocks=self.num_blocks,
+                is_decoding=is_decoding,
+                pool=self.graph_pool_handle,
+                model_config=self.model_config,
+                device=self.device,
+            )
             runner.capture(**kwargs)
             self._runner_map[graph_key] = runner
         else:
@@ -437,7 +487,7 @@ class AscendGraphRunner(GraphRunner):
         output = runner.forward(**kwargs)
         return output
 
-    @record_function('prepare_inputs_for_generation')
+    @record_function("prepare_inputs_for_generation")
     def prepare_inputs_for_generation(
         self,
         past_key_values: List[List[torch.Tensor]],
@@ -474,4 +524,5 @@ class AscendGraphRunner(GraphRunner):
 
 
 from lmdeploy.pytorch.backends.cuda import graph_runner
+
 graph_runner.CUDAGraphRunner = AscendGraphRunner

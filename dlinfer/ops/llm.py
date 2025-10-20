@@ -96,10 +96,10 @@ def prefill_attention(
     max_q_seq_len: int,
     num_q_heads: int,
     num_kv_heads: int,
-    attn_mask: Sequence[Optional[Tensor]]=None,
-    softmax_scale: Optional[float]=None,
-    alibi_slopes: Optional[Sequence[float]]=None,
-    attn_output: Optional[Tensor]=None,
+    attn_mask: Sequence[Optional[Tensor]] = None,
+    softmax_scale: Optional[float] = None,
+    alibi_slopes: Optional[Sequence[float]] = None,
+    attn_output: Optional[Tensor] = None,
 ) -> Tensor:
     """
     Computes the multi-head attention over the query, key, and value tensors.

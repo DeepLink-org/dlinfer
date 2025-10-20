@@ -191,7 +191,8 @@ def fill_kv_cache(
         value=value,
         key_cache=key_cache,
         value_cache=value_cache,
-        slot_indices=kv_indices.to(torch.int32))
+        slot_indices=kv_indices.to(torch.int32),
+    )
     return key_cache, value_cache
 
 
@@ -242,7 +243,7 @@ def paged_decode_attention(
     key_cache = key_cache.view(block_num, block_size, -1)
     value_cache = value_cache.view(block_num, block_size, -1)
     scale_value = softmax_scale if softmax_scale else 1.0 / math.sqrt(dim)
-    
+
     attn_output, _ = torch.ops.npu.npu_fused_infer_attention_score(
         query,
         key_cache,
@@ -263,15 +264,15 @@ def paged_decode_attention(
         kv_padding_size=None,
         key_antiquant_scale=None,
         key_antiquant_offset=None,
-        value_antiquant_scale=None,  
-        value_antiquant_offset=None,  
-        key_shared_prefix=None,  
-        value_shared_prefix=None,  
-        actual_shared_prefix_len=None, 
-        query_rope=None,  
-        key_rope=None,  
+        value_antiquant_scale=None,
+        value_antiquant_offset=None,
+        key_shared_prefix=None,
+        value_shared_prefix=None,
+        actual_shared_prefix_len=None,
+        query_rope=None,
+        key_rope=None,
         key_rope_antiquant_scale=None,
-        num_heads=num_q_heads, 
+        num_heads=num_q_heads,
         scale=scale_value,
         pre_tokens=2147483647,
         next_tokens=2147483647,
@@ -283,7 +284,8 @@ def paged_decode_attention(
         antiquant_mode=0,
         softmax_lse_flag=False,
         key_antiquant_mode=0,
-        value_antiquant_mode=0)
+        value_antiquant_mode=0,
+    )
     return attn_output
 
 
@@ -326,31 +328,7 @@ def paged_prefill_attention(
     block_num = key_cache.size(0)
     key_cache = key_cache.view(block_num, block_size, -1)
     value_cache = value_cache.view(block_num, block_size, -1)
-    '''
-    torch.ops.npu_ext.npu_incre_flash_attention_v4_out(
-        query,
-        key_cache,
-        value_cache,
-        attn_output,
-        padding_mask=None,
-        atten_mask=attn_mask[0],
-        actual_seq_lengths=kv_seq_len_list,
-        antiquant_scale=kv_scales,
-        antiquant_offset=kv_zeros,
-        block_table=block_table,
-        dequant_scale1=None,
-        quant_scale1=None,
-        dequant_scale2=None,
-        quant_scale2=None,
-        quant_offset2=None,
-        num_heads=num_q_heads,
-        scale_value=scale_value,
-        input_layout="BSH",
-        num_key_value_heads=num_kv_heads,
-        block_size=block_size,
-        inner_precise=1,
-    )
-    '''
+
     attn_output, _ = torch.ops.npu.npu_fused_infer_attention_score(
         query,
         key_cache,
@@ -371,15 +349,15 @@ def paged_prefill_attention(
         kv_padding_size=None,
         key_antiquant_scale=None,
         key_antiquant_offset=None,
-        value_antiquant_scale=None,  
-        value_antiquant_offset=None,  
-        key_shared_prefix=None,  
-        value_shared_prefix=None,  
-        actual_shared_prefix_len=None, 
-        query_rope=None,  
-        key_rope=None,  
+        value_antiquant_scale=None,
+        value_antiquant_offset=None,
+        key_shared_prefix=None,
+        value_shared_prefix=None,
+        actual_shared_prefix_len=None,
+        query_rope=None,
+        key_rope=None,
         key_rope_antiquant_scale=None,
-        num_heads=num_q_heads, 
+        num_heads=num_q_heads,
         scale=scale_value,
         pre_tokens=2147483647,
         next_tokens=2147483647,
@@ -391,7 +369,8 @@ def paged_prefill_attention(
         antiquant_mode=0,
         softmax_lse_flag=False,
         key_antiquant_mode=0,
-        value_antiquant_mode=0)
+        value_antiquant_mode=0,
+    )
 
     return attn_output
 
@@ -545,8 +524,9 @@ def fused_moe(
             expert_tokens_num_type=1,
             expert_tokens_num_flag=True,
             active_expert_range=[0, num_experts],
-            quant_mode= -1,
-        ))
+            quant_mode=-1,
+        )
+    )
 
     # up sample
     group_list = expert_tokens.to(torch.int64)
@@ -574,9 +554,8 @@ def fused_moe(
 
     # moe finalize routing
     moe_output = torch_npu.npu_moe_token_unpermute(
-        permuted_tokens=down_proj,
-        sorted_indices=expanded_row_idx,
-        probs=topk_weights)
+        permuted_tokens=down_proj, sorted_indices=expanded_row_idx, probs=topk_weights
+    )
 
     return moe_output
 
