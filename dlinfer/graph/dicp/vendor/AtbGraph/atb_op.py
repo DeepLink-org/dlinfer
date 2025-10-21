@@ -430,17 +430,17 @@ class Squeeze(Operator):
         return x.squeeze(dim)
 
 
-class SplitSharing(Operator):
+class Split(Operator):
     def __init__(self):
-        super().__init__("SplitSharing")
+        super().__init__("Split")
 
-    def infer_result(self, x, size, dim):
+    def infer_result(self, x, size, dim, different_sizes=False):
         return x.split(size, dim=dim)
 
 
-class SplitWithSize(Operator):
+class AclNnSplitWithSize(Operator):
     def __init__(self):
-        super().__init__("SplitWithSize")
+        super().__init__("AclNnSplitWithSize")
 
     def infer_result(self, x, sizes, dim):
         return x.split_with_sizes(sizes, dim=dim)
