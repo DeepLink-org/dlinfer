@@ -163,7 +163,7 @@ def get_ascend_compatible_size(n: int):
     elif n <= 256:
         n = (n + 15) & ~0xF
     else:
-        n = (((1281 - 1) >> 8) + 1) << 8 
+        n = (((n - 1) >> 8) + 1) << 8
     return n
 
 
