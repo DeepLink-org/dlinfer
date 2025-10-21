@@ -1,59 +1,36 @@
 # Copyright (c) 2024, OpenMMLab and DeepLink. All rights reserved.
-import torch
-import torch_npu
-from torch import Tensor
-
-from typing import Any, Dict, List, Optional, Union, Tuple
-from contextlib import ExitStack
-from unittest.mock import patch
-
-from lmdeploy.pytorch.models.utils.cudagraph import CudaGraphMeta
-from lmdeploy.pytorch.models.utils.cudagraph import CudaGraphMixin, next_power_of_2
-import torch.distributed as dist
-
-BuffType = Dict[str, Tensor]
-
 """
 this file implements the cudagraph for ascend backend.
 """
+import functools
+from typing import Any, Dict, List
+from contextlib import ExitStack
+from unittest.mock import patch
+import torch
+from torch import Tensor
+from torch.profiler import record_function
+
+from lmdeploy.pytorch.models.utils.cudagraph import CudaGraphMeta
+from lmdeploy.pytorch.models.utils.cudagraph import CudaGraphMixin
+
+from lmdeploy.pytorch.backends.selector import get_backend
+from lmdeploy.pytorch.config import BackendConfig, CacheConfig, ModelConfig
+from lmdeploy.pytorch.model_inputs import StepContext, get_step_ctx_manager
+from lmdeploy.utils import get_logger
+
+from lmdeploy.pytorch.backends.graph_runner import GraphRunner
+from lmdeploy.pytorch.backends.cuda import graph_runner
+
+logger = get_logger("dlinfer")
+
+
+BuffType = Dict[str, Tensor]
+
 
 """
 Ascend CudaGraphMixin methods
 for cudagraph buffer management.
 """
-
-import time
-
-totalt = 0
-cnt = 0
-
-
-def weak_ref_tensor(tensor: Any) -> Any:
-    """
-    Create a weak reference to a tensor.
-    The new tensor will share the same data as the original tensor,
-    but will not keep the original tensor alive.
-    """
-    if isinstance(tensor, torch.Tensor):
-        return torch.ops._C.weak_ref_tensor(tensor)
-    else:
-        return tensor
-
-
-def weak_ref_tensors(
-    tensors: Union[torch.Tensor, list[torch.Tensor], tuple[torch.Tensor]]
-) -> Union[torch.Tensor, list[Any], tuple[Any], Any]:
-    """
-    Convenience function to create weak references to tensors,
-    for single tensor, list of tensors or tuple of tensors.
-    """
-    if isinstance(tensors, torch.Tensor):
-        return weak_ref_tensor(tensors)
-    if isinstance(tensors, list):
-        return [weak_ref_tensor(t) for t in tensors]
-    if isinstance(tensors, tuple):
-        return tuple(weak_ref_tensor(t) for t in tensors)
-    raise ValueError("Invalid type for tensors")
 
 
 def AscendCudaGraphMixin_make_buffers_cudagraph(
@@ -81,9 +58,6 @@ def AscendCudaGraphMixin_make_buffers_cudagraph(
         max_batches, dtype=torch.int32, device=device
     )
 
-    # input_buffers["kv_seqlens"] = torch.zeros(
-    #     max_batches, dtype=torch.int32, device=device
-    # )
     input_buffers["kv_seqlens"] = [0] * max_batches
 
     input_buffers["q_start_loc"] = torch.arange(
@@ -108,9 +82,7 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
 ) -> Dict[str, Tensor]:
     """fill cudagraph buffers from forward inputs."""
     block_offsets: Tensor = attn_metadata.block_offsets
-    # q_start_loc: Tensor = attn_metadata.q_start_loc
-    # q_seqlens: Tensor = attn_metadata.q_seqlens
-    kv_seqlens: Tensor = attn_metadata.kv_seqlens
+    kv_seqlens: List = attn_metadata.kv_seqlens
     kv_start_indices: Tensor = attn_metadata.kv_start_indices
 
     input_buffers: BuffType = graph_meta.input_buffers
@@ -122,10 +94,6 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
     input_buffers["input_ids"][:, :num_tokens] = input_ids
     input_buffers["position_ids"][:, :num_tokens] = position_ids
     input_buffers["block_offsets"][:batch_size, :num_blocks] = block_offsets
-    # input_buffers["q_start_loc"][: batch_size + 1] = q_start_loc
-    # input_buffers["q_seqlens"][:batch_size] = q_seqlens
-    if not isinstance(kv_seqlens, list):
-        kv_seqlens = kv_seqlens.tolist()
     input_buffers["kv_seqlens"][:batch_size] = kv_seqlens
     input_buffers["kv_start_indices"][:batch_size] = kv_start_indices
 
@@ -138,11 +106,9 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
             )
         input_buffers["inputs_embeds"][:, :num_tokens] = inputs_embeds
     # create inputs
-    new_batch_size = next_power_of_2(batch_size)
+    new_batch_size = get_ascend_compatible_size(batch_size)
 
     attn_metadata.block_offsets = input_buffers["block_offsets"][:new_batch_size]
-    # attn_metadata.q_start_loc = input_buffers["q_start_loc"][: new_batch_size + 1]
-    # attn_metadata.q_seqlens = input_buffers["q_seqlens"][:new_batch_size]
     attn_metadata.kv_seqlens = input_buffers["kv_seqlens"][:new_batch_size]
     attn_metadata.kv_start_indices = input_buffers["kv_start_indices"][:new_batch_size]
 
@@ -177,30 +143,8 @@ CudaGraphMixin.fill_buffers_cudagraph = AscendCudaGraphMixin_fill_buffers_cudagr
 CudaGraphMixin.update_context_cudagraph = AscendCudaGraphMixin_update_context_cudagraph
 
 
-"""
-implement Ascend CudaGraphRunner and CUDASingleGraphRunner. 
-"""
-
-import functools
-from typing import Any, Dict, List, Tuple
-
-import torch
-from torch.profiler import record_function
-
-from lmdeploy.pytorch.backends.selector import get_backend
-from lmdeploy.pytorch.config import BackendConfig, CacheConfig, ModelConfig
-from lmdeploy.pytorch.model_inputs import StepContext, get_step_ctx_manager
-from lmdeploy.pytorch.models.utils.cudagraph import CudaGraphMeta
-from lmdeploy.utils import get_logger
-
-from lmdeploy.pytorch.backends.graph_runner import GraphRunner
-
-logger = get_logger("lmdeploy")
-
-
 def next_power_of_2(n: int):
     """Return the smallest power of 2 greater than or equal to n."""
-    """
     n -= 1
     n |= n >> 1
     n |= n >> 2
@@ -209,66 +153,41 @@ def next_power_of_2(n: int):
     n |= n >> 16
     n |= n >> 32
     n += 1
-    """
-    if n <= 2:
-        return n
-    if n <= 4:
-        return 4
-    if n <= 8:
-        return 8
-    if n > 1024:
-        return 1200
-    if n > 512:
-        return 1024
-    if n > 256:
-        return 512
-    n = 16 * (n // 16 + 1)
+    return n
+
+
+def get_ascend_compatible_size(n: int):
+    """Get ascend compatible size."""
+    if n <= 16:
+        n = next_power_of_2(n)
+    elif n <= 256:
+        n = (n + 15) & ~0xF
+    else:
+        n = (((1281 - 1) >> 8) + 1) << 8 
     return n
 
 
 @functools.lru_cache
 def _get_capture_batch_size_impl(max_batches: int):
     """Capture batch size."""
-    """
     ret = []
     batch_size = 1
-    batch_step = 256
+    batch_step_1, batch_step_2 = 16, 256
     # power of 2
-    while batch_size <= min(batch_step, max_batches):
+    while batch_size <= min(batch_step_1, max_batches):
         ret.append(batch_size)
         batch_size *= 2
 
-    # step
-    ret += list(range(batch_size, max_batches + 1, batch_step))
+    # step 1
+    ret += list(range(batch_size, min(max_batches, batch_step_2) + 1, batch_step_1))
 
+    # step 2
+    ret += list(range(ret[-1] + batch_step_2, max_batches + 1, batch_step_2))
+
+    # ensure max_batches in ret
     if max_batches != ret[-1]:
         ret.append(max_batches)
-    """
-    ret = [
-        1,
-        2,
-        4,
-        8,
-        16,
-        32,
-        48,
-        64,
-        80,
-        96,
-        112,
-        128,
-        144,
-        160,
-        176,
-        192,
-        208,
-        224,
-        240,
-        256,
-        512,
-        1024,
-        1200,
-    ]
+
     return ret
 
 
@@ -349,24 +268,12 @@ class AscendSingleGraphRunner:
         context = self.ctx_mgr.current_context()
         self.model.update_context_cudagraph(self.meta, context)
         torch.npu.synchronize()
-        # global totalt
-        # global cnt
-        # st = time.time()
-        """
-        timediff = time.time() - st
-        totalt += timediff
-        if cnt > 200:
-            cnt = 0
-            logger.error(f'loss time rank {dist.get_rank()}  {totalt}')
-        cnt += 1
-        """
         self._graph.replay()
         self._graph.update(
             cpu_update_input=[
                 {"actual_seq_lengths_kv": self.meta.input_buffers["kv_seqlens"]}
             ]
         )
-        # self._graph.replay()
 
         output = self.meta.output_buffers["logits"][:, :num_tokens]
         return output
@@ -407,17 +314,6 @@ class AscendGraphRunner(GraphRunner):
 
         return getattr(self.model, "support_cuda_graph", _false)
 
-    def _try_compile_model_once(self):
-        if self.has_try_compile_model:
-            return
-
-        # TODO: recovery it when torch.compile is stable (should be add a flag to enable it?)
-        # if hasattr(self.model, 'compile_model'):
-        #     method = getattr(self.model, 'compile_model')
-        #     method()
-
-        self.has_try_compile_model = True
-
     def _get_capture_tokens(self, batch_size: int):
         """Get capture tokens."""
         cap_sizes = self.get_capture_batch_sizes()
@@ -429,10 +325,6 @@ class AscendGraphRunner(GraphRunner):
     def get_graph_key(
         self,
         input_ids: torch.Tensor,
-        position_ids: torch.Tensor,
-        past_key_values: List,
-        attn_metadata: Any,
-        inputs_embeds: torch.Tensor,
         **kwargs,
     ):
         """Get graph key."""
@@ -449,20 +341,11 @@ class AscendGraphRunner(GraphRunner):
 
     def __call__(self, **kwargs):
         """call."""
-        if not self.backend_config.eager_mode and get_backend().get_name() == "cuda":
-            self._try_compile_model_once()
-
         enable_graph = self.enable_graph(**kwargs)
 
         if not enable_graph:
             with record_function("forward_eager"):
-                # torch.npu.synchronize()
-                # start_t = time.time()
                 ret = self.model(**kwargs)
-                # torch.npu.synchronize()
-                # end_t = time.time()
-                # if dist.get_rank() == 0:
-                #    logger.error(f"prefill eager: {end_t - start_t} rank: {dist.get_rank()}")
                 return ret
 
         graph_key = self.get_graph_key(**kwargs)
@@ -522,7 +405,5 @@ class AscendGraphRunner(GraphRunner):
         """Capture batch sizes."""
         return _get_capture_batch_size_impl(self.cache_config.max_batches)
 
-
-from lmdeploy.pytorch.backends.cuda import graph_runner
 
 graph_runner.CUDAGraphRunner = AscendGraphRunner
