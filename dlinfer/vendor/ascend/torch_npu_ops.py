@@ -149,7 +149,7 @@ def incre_flash_attention(
     input_layout: str,
     softmax_scale: Optional[float],
 ) -> Tensor:
-    attn_output = torch_npu.npu_incre_flash_attention(
+    attn_output = torch.ops.npu.npu_incre_flash_attention(
         query,
         key,
         value,
@@ -553,7 +553,7 @@ def fused_moe(
     )[0]
 
     # moe finalize routing
-    moe_output = torch_npu.npu_moe_token_unpermute(
+    moe_output = torch.ops.npu.npu_moe_token_unpermute(
         permuted_tokens=down_proj, sorted_indices=expanded_row_idx, probs=topk_weights
     )
 
