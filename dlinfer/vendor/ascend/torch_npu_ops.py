@@ -2,7 +2,6 @@
 import os
 import math
 import torch
-import torch_npu
 
 from dlinfer.vendor import vendor_ops_registry
 from dlinfer.utils.registry import register_ops
@@ -186,7 +185,7 @@ def fill_kv_cache(
         key = quant_int8(key, k_scales_zeros[0], k_scales_zeros[1])
         value = quant_int8(value, v_scales_zeros[0], v_scales_zeros[1])
 
-    torch_npu._npu_reshape_and_cache(
+    torch.ops.atb._npu_reshape_and_cache(
         key=key,
         value=value,
         key_cache=key_cache,
