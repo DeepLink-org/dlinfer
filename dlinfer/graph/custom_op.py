@@ -1,6 +1,5 @@
 # Copyright (c) 2024, DeepLink. All rights reserved.
 import inspect
-import types
 from functools import wraps
 
 from torch.library import Library, impl
@@ -66,8 +65,6 @@ def register_custom_op(
         # use config.enable_graph_mode to control func call
         @wraps(func)
         def patched_func(*args, **kwargs):
-            # if qualname == "dlinfer::paged_decode_attention":
-            #     return func_with_default(*args, **kwargs)
             if not dlinfer.graph.config.enable_graph_mode:
                 return func_with_default(*args, **kwargs)
             else:
