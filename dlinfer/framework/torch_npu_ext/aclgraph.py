@@ -55,4 +55,5 @@ def __torch_dispatch__(self, func, types, args=(), kwargs=None):
         return func(*args, **kwargs)
 
 
-_GraphDispatchMode.__torch_dispatch__ = __torch_dispatch__
+def appy_patch():
+    _GraphDispatchMode.__torch_dispatch__ = __torch_dispatch__
