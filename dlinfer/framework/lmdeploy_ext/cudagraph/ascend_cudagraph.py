@@ -1,7 +1,5 @@
 # Copyright (c) 2024, OpenMMLab and DeepLink. All rights reserved.
-"""
-this file implements the cudagraph for ascend backend.
-"""
+# this file implements the cudagraph for ascend backend.
 import functools
 from typing import Any, Dict, List
 from contextlib import ExitStack
@@ -12,27 +10,18 @@ from torch.profiler import record_function
 
 from lmdeploy.pytorch.models.utils.cudagraph import CudaGraphMeta
 from lmdeploy.pytorch.models.utils.cudagraph import CudaGraphMixin
-
-from lmdeploy.pytorch.backends.selector import get_backend
 from lmdeploy.pytorch.config import BackendConfig, CacheConfig, ModelConfig
 from lmdeploy.pytorch.model_inputs import StepContext, get_step_ctx_manager
-from lmdeploy.utils import get_logger
-
 from lmdeploy.pytorch.backends.graph_runner import GraphRunner
 from lmdeploy.pytorch.backends.cuda import graph_runner
 
+from lmdeploy.utils import get_logger
+
 logger = get_logger("dlinfer")
-
-
 BuffType = Dict[str, Tensor]
 
 
-"""
-Ascend CudaGraphMixin methods
-for cudagraph buffer management.
-"""
-
-
+# AscendCudaGraphMixin methods for cudagraph buffer management.
 def AscendCudaGraphMixin_make_buffers_cudagraph(
     self, graph_meta: CudaGraphMeta, *args, **kwargs
 ) -> BuffType:
@@ -298,11 +287,7 @@ class AscendGraphRunner(GraphRunner):
         self.max_batches = cache_config.max_batches
         self.max_tokens = cache_config.max_prefill_token_num
         self.num_blocks = cache_config.num_gpu_blocks
-
         self.enable_graph = self.check_enable_graph()
-        # import dlinfer.graph
-        # dlinfer.graph.config.enable_graph_mode = True
-
         self.graph_pool_handle = torch.cuda.graph_pool_handle()
         self._runner_map: Dict[Any, AscendSingleGraphRunner] = dict()
         self.has_try_compile_model: bool = False
