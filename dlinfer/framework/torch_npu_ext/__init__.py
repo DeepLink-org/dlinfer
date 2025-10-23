@@ -5,7 +5,7 @@ from .aclgraph import appy_patch
 
 def torch_npu_ext_init():
     """Initialize torch npu extensions."""
-    if vendor_name() == "ascend":
+    if vendor_name == "ascend":
         appy_patch()
 
 
