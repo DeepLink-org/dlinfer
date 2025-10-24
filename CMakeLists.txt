@@ -24,5 +24,4 @@ elseif(NOT DEVICE IN_LIST SUPPORTED_DEVICE)
   message(FATAL_ERROR "Device ${DEVICE} is not supported! Supported devices: ${SUPPORTED_DEVICE}")
 endif()
 
-add_subdirectory(dlinfer/vendor/${DEVICE})
 add_subdirectory(dlinfer/graph/dicp/vendor)
