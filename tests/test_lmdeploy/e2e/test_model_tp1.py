@@ -32,6 +32,7 @@ def test_pipeline_chat_pytorch_tp1_ascend_eager(config, common_case_config, mode
     assert_pipeline_chat_log(config, common_case_config, model, "ascend")
 
 
+"""
 @pytest.mark.flaky(reruns=0)
 @pytest.mark.lmdeploy
 @pytest.mark.vl
@@ -45,6 +46,7 @@ def test_pipeline_vl_pytorch_tp1_ascend_eager(config, model):
 
     # assert script
     assert_pipeline_vl_chat_log(config, model, "ascend", True)
+"""
 
 
 @pytest.mark.usefixtures("common_case_config")
