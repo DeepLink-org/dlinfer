@@ -3,7 +3,6 @@
 import functools
 from typing import Any, Dict, List
 from contextlib import ExitStack
-from unittest.mock import patch
 import torch
 from torch import Tensor
 from torch.profiler import record_function
@@ -233,8 +232,6 @@ class AscendSingleGraphRunner:
 
         aclgraph = torch.npu.NPUGraph()
         with ExitStack() as stack:
-            stack.enter_context(patch("gc.collect", lambda: None))
-            stack.enter_context(patch("torch.npu.empty_cache", lambda: None))
             with torch.npu.graph(
                 aclgraph,
                 auto_dispatch_capture=True,
