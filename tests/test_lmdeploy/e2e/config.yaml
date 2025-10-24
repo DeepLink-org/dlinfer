@@ -1,5 +1,5 @@
 tp_config:
-    qwen_model/Qwen3-30B-A3B: 2
+    Qwen3-30B-A3B: 4
     InternVL2-26B: 2
 
 graph_config:
