@@ -4,6 +4,7 @@ import torch
 
 from lmdeploy.pytorch.backends.dlinfer.moe import DlinferFusedMoEImpl
 from lmdeploy.pytorch.models.chatglm2 import SelfAttention
+from lmdeploy.pytorch.engine import logits_process
 
 from dlinfer.vendor.ascend.utils import SocVersion
 
@@ -29,6 +30,23 @@ def ascend_chatglm2_fill_rope(states: torch.Tensor, rope: torch.Tensor):
 
 
 SelfAttention._fill_rope = ascend_chatglm2_fill_rope
+
+
+# modify bad words process for aclgraph performance
+def _process_bad_words_(
+    scores: torch.Tensor,
+    bad_words: torch.LongTensor,
+    mask: torch.BoolTensor,
+    filter_value: float = -99999.9999,
+):
+    """Process bad words."""
+    filtered_scores = scores.gather(1, bad_words)
+    filtered_scores = mask.to(filtered_scores.dtype) * filter_value + filtered_scores
+    scores.scatter_(1, bad_words, filtered_scores)
+    return scores
+
+
+logits_process._process_bad_words_ = _process_bad_words_
 
 ########## below is for ascend310P ##########
 

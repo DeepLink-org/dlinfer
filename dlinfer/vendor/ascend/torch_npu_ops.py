@@ -2,7 +2,6 @@
 import os
 import math
 import torch
-import torch_npu
 
 from dlinfer.vendor import vendor_ops_registry
 from dlinfer.utils.registry import register_ops
@@ -149,7 +148,7 @@ def incre_flash_attention(
     input_layout: str,
     softmax_scale: Optional[float],
 ) -> Tensor:
-    attn_output = torch_npu.npu_incre_flash_attention(
+    attn_output = torch.ops.npu.npu_incre_flash_attention(
         query,
         key,
         value,
@@ -171,14 +170,9 @@ def fill_kv_cache(
     v_scales_zeros: Sequence[Optional[Tensor]],
     quant_bits: int,
 ) -> Tuple[Tensor, Tensor]:
-    _, head, dim = key.shape
-    block_num, block_size = key_cache.shape[:2]
-    block_total = block_num * block_size
-
     # only support contiguous k,v
     key = key.contiguous()
     value = value.contiguous()
-    kv_indices = kv_indices.view(-1, 1)
 
     if quant_bits == 8:
 
@@ -191,10 +185,13 @@ def fill_kv_cache(
         key = quant_int8(key, k_scales_zeros[0], k_scales_zeros[1])
         value = quant_int8(value, v_scales_zeros[0], v_scales_zeros[1])
 
-    key_cache_reshaped = key_cache.view(block_total, head, dim)
-    value_cache_reshaped = value_cache.view(block_total, head, dim)
-    torch.ops.npu.npu_scatter_nd_update_(key_cache_reshaped, kv_indices, key)
-    torch.ops.npu.npu_scatter_nd_update_(value_cache_reshaped, kv_indices, value)
+    torch.ops.atb._npu_reshape_and_cache(
+        key=key,
+        value=value,
+        key_cache=key_cache,
+        value_cache=value_cache,
+        slot_indices=kv_indices.to(torch.int32),
+    )
     return key_cache, value_cache
 
 
@@ -246,28 +243,47 @@ def paged_decode_attention(
     value_cache = value_cache.view(block_num, block_size, -1)
     scale_value = softmax_scale if softmax_scale else 1.0 / math.sqrt(dim)
 
-    torch.ops.npu_ext.npu_incre_flash_attention_v4_out(
+    attn_output, _ = torch.ops.npu.npu_fused_infer_attention_score(
         query,
         key_cache,
         value_cache,
-        attn_output.view_as(query),
-        padding_mask=None,
+        pse_shift=None,
         atten_mask=None,
-        actual_seq_lengths=kv_seq_len.tolist(),
-        antiquant_scale=kv_scales,
-        antiquant_offset=kv_zeros,
-        block_table=block_table,
+        actual_seq_lengths=None,
+        actual_seq_lengths_kv=kv_seq_len,
         dequant_scale1=None,
         quant_scale1=None,
         dequant_scale2=None,
         quant_scale2=None,
         quant_offset2=None,
+        antiquant_scale=kv_scales,
+        antiquant_offset=kv_zeros,
+        block_table=block_table,
+        query_padding_size=None,
+        kv_padding_size=None,
+        key_antiquant_scale=None,
+        key_antiquant_offset=None,
+        value_antiquant_scale=None,
+        value_antiquant_offset=None,
+        key_shared_prefix=None,
+        value_shared_prefix=None,
+        actual_shared_prefix_len=None,
+        query_rope=None,
+        key_rope=None,
+        key_rope_antiquant_scale=None,
         num_heads=num_q_heads,
-        scale_value=scale_value,
+        scale=scale_value,
+        pre_tokens=2147483647,
+        next_tokens=2147483647,
         input_layout="BSH",
         num_key_value_heads=num_kv_heads,
-        block_size=block_size,
+        sparse_mode=0,
         inner_precise=1,
+        block_size=block_size,
+        antiquant_mode=0,
+        softmax_lse_flag=False,
+        key_antiquant_mode=0,
+        value_antiquant_mode=0,
     )
     return attn_output
 
@@ -311,29 +327,50 @@ def paged_prefill_attention(
     block_num = key_cache.size(0)
     key_cache = key_cache.view(block_num, block_size, -1)
     value_cache = value_cache.view(block_num, block_size, -1)
-    torch.ops.npu_ext.npu_incre_flash_attention_v4_out(
+
+    attn_output, _ = torch.ops.npu.npu_fused_infer_attention_score(
         query,
         key_cache,
         value_cache,
-        attn_output,
-        padding_mask=None,
+        pse_shift=None,
         atten_mask=attn_mask[0],
         actual_seq_lengths=kv_seq_len_list,
-        antiquant_scale=kv_scales,
-        antiquant_offset=kv_zeros,
-        block_table=block_table,
+        actual_seq_lengths_kv=kv_seq_len,
         dequant_scale1=None,
         quant_scale1=None,
         dequant_scale2=None,
         quant_scale2=None,
         quant_offset2=None,
+        antiquant_scale=kv_scales,
+        antiquant_offset=kv_zeros,
+        block_table=block_table,
+        query_padding_size=None,
+        kv_padding_size=None,
+        key_antiquant_scale=None,
+        key_antiquant_offset=None,
+        value_antiquant_scale=None,
+        value_antiquant_offset=None,
+        key_shared_prefix=None,
+        value_shared_prefix=None,
+        actual_shared_prefix_len=None,
+        query_rope=None,
+        key_rope=None,
+        key_rope_antiquant_scale=None,
         num_heads=num_q_heads,
-        scale_value=scale_value,
+        scale=scale_value,
+        pre_tokens=2147483647,
+        next_tokens=2147483647,
         input_layout="BSH",
         num_key_value_heads=num_kv_heads,
-        block_size=block_size,
+        sparse_mode=0,
         inner_precise=1,
+        block_size=block_size,
+        antiquant_mode=0,
+        softmax_lse_flag=False,
+        key_antiquant_mode=0,
+        value_antiquant_mode=0,
     )
+
     return attn_output
 
 
@@ -354,13 +391,8 @@ def silu_and_mul(input_tensor: Tensor, dim: int) -> Tensor:
 
 @register_ops(vendor_ops_registry)
 def moe_gating_topk_softmax(router_logits: Tensor, topk: int) -> Tuple[Tensor, Tensor]:
-    routing_weights = router_logits.new_empty((*router_logits.shape[:-1], topk))
-    selected_experts = router_logits.new_empty(
-        (*router_logits.shape[:-1], topk), dtype=torch.int32
-    )
-    selected_idx = torch.empty_like(selected_experts)
-    routing_weights, selected_idx = torch.ops.npu_ext.npu_moe_gating_topk_softmax(
-        router_logits, None, topk, routing_weights, selected_experts, selected_idx
+    routing_weights, selected_idx, _ = torch.ops.npu.npu_moe_gating_top_k_softmax(
+        router_logits, None, topk
     )
     return routing_weights, selected_idx.to(torch.int64)
 
@@ -468,9 +500,8 @@ def fused_moe(
     topk: int,
     renormalize: bool,
 ) -> Tensor:
-    seq_length = hidden_states.size(0)
     num_experts = gate_up_weights.size(0)
-    active_num = hidden_states.size(0)
+    active_num = hidden_states.size(0) * topk
     topk_ids = topk_ids.to(torch.int32)
 
     if renormalize:
@@ -483,28 +514,28 @@ def fused_moe(
         down_weights = down_weights.transpose(1, 2)
 
     # moe init routing
-    row_idx = (
-        torch.arange(seq_length * topk, dtype=torch.int32, device=hidden_states.device)
-        .view((topk, seq_length))
-        .transpose(0, 1)
-        .contiguous()
-    )
-    expanded_hidden_states, expanded_row_idx, expanded_expert_idx = (
-        torch.ops.npu.npu_moe_init_routing(hidden_states, row_idx, topk_ids, active_num)
+    expanded_hidden_states, expanded_row_idx, expert_tokens, pertoken_scale = (
+        torch.ops.npu.npu_moe_init_routing_v2(
+            hidden_states,
+            topk_ids,
+            active_num=active_num,
+            expert_num=num_experts,
+            expert_tokens_num_type=1,
+            expert_tokens_num_flag=True,
+            active_expert_range=[0, num_experts],
+            quant_mode=-1,
+        )
     )
 
     # up sample
-    group_list = torch.ops.npu.npu_moe_compute_expert_tokens(
-        expanded_expert_idx, num_experts
-    ).to(torch.int64)
+    group_list = expert_tokens.to(torch.int64)
     up_proj = torch.ops.npu.npu_grouped_matmul(
         [expanded_hidden_states],
         [gate_up_weights],
-        bias=None,
         group_list=group_list,
         split_item=2,
         group_type=0,
-        group_list_type=0,
+        group_list_type=1,
     )[0]
 
     # activation
@@ -514,22 +545,15 @@ def fused_moe(
     down_proj = torch.ops.npu.npu_grouped_matmul(
         [gate_cache],
         [down_weights],
-        bias=None,
         group_list=group_list,
         split_item=2,
         group_type=0,
-        group_list_type=0,
+        group_list_type=1,
     )[0]
 
     # moe finalize routing
-    moe_output = torch.ops.npu.npu_moe_finalize_routing(
-        down_proj,
-        skip1=None,
-        skip2=None,
-        bias=None,
-        scales=topk_weights,
-        expanded_src_to_dst_row=expanded_row_idx,
-        export_for_source_row=topk_ids,
+    moe_output = torch.ops.npu.npu_moe_token_unpermute(
+        permuted_tokens=down_proj, sorted_indices=expanded_row_idx, probs=topk_weights
     )
 
     return moe_output

@@ -1,26 +1,23 @@
 tp_config:
-    Mixtral-8x7B-Instruct-v0.1: 2
+    Qwen3-30B-A3B: 4
     InternVL2-26B: 2
-    cogvlm2-llama3-chat-19B: 2
 
 graph_config:
     internlm3-8b-instruct: True
     Meta-Llama-3-8B-Instruct: True
-    Mixtral-8x7B-Instruct-v0.1: True
+    Qwen3-30B-A3B: True
     Qwen2.5-7B-Instruct: True
-    Qwen2-VL-7B-Instruct: True
+    Qwen2.5-VL-7B-Instruct: True
     InternVL2-2B: True
     InternVL2-26B: True
 
 pytorch_chat_model:
     - internlm_model/internlm3-8b-instruct
     - llama_model/Meta-Llama-3.1-8B-Instruct
-    - mixtral_model/Mixtral-8x7B-Instruct-v0.1
+    - qwen_model/Qwen3-30B-A3B
     - qwen_model/Qwen2.5-7B-Instruct
 
 pytorch_vl_model:
     - internvl_model/InternVL2-26B
     - internvl_model/InternVL2-2B
-    # - cogvlm_model_data/cogvlm-chat
-    # - cogvlm_model_data/cogvlm2-llama3-chat-19B
     - qwen_model/Qwen2-VL-7B-Instruct

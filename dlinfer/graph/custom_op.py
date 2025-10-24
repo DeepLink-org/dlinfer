@@ -1,6 +1,5 @@
 # Copyright (c) 2024, DeepLink. All rights reserved.
 import inspect
-import types
 from functools import wraps
 
 from torch.library import Library, impl
