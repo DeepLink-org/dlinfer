@@ -389,9 +389,11 @@ class AtenToAtbTransformer(SingleOpTransformer):
 
     @register_conversion(torch.ops.aten.split_with_sizes.default)
     def split_with_sizes(self, x, size, dim):
-        if len(set(size)) == 1 and (len(size) == 2 or len(size) == 3):
-            return self.get_proxy(atb_op.SplitSharing, (x, size, dim))
-        return self.get_proxy(atb_op.SplitWithSize, (x, size, dim))
+        split_num = len(size)
+        if split_num >= 1 and split_num <= 3:
+            different_sizes = False if len(set(size)) == 1 else True
+            return self.get_proxy(atb_op.Split, (x, size, dim, different_sizes))
+        return self.get_proxy(atb_op.AclNnSplitWithSize, (x, size, dim))
 
     @register_conversion(torch.ops.aten.split.Tensor)
     def split_tensor(self, x, size, dim):
@@ -403,7 +405,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
         while split_dim_shape > 0:
             sizes.append(min(size, split_dim_shape))
             split_dim_shape -= size
-        return self.get_proxy(atb_op.SplitWithSize, (x, sizes, dim))
+        return self.get_proxy(atb_op.AclNnSplitWithSize, (x, sizes, dim))
 
     @register_conversion(torch.ops.aten.gelu.default)
     def gelu(self, x):
