@@ -2,4 +2,4 @@
 import dlinfer.vendor as vendor
 
 vendor.vendor_torch_init()
-__version__ = "0.2.2"
+__version__ = "0.2.3"
