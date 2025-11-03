@@ -120,7 +120,7 @@ def main():
             "Intended Audience :: Developers",
             "Operating System :: POSIX :: Linux",
         ],
-        python_requires=">=3.8, <3.11",
+        python_requires=">=3.8, <3.12",
         setup_requires=get_requirements("build.txt"),
         install_requires=get_requirements("runtime.txt"),
         entry_points=get_entry_points(),
