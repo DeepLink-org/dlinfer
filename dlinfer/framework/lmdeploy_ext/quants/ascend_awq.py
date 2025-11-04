@@ -6,7 +6,7 @@ from typing import Optional, Type, TypeVar, Any, List
 from lmdeploy.lite.quantization.modules.linear import WeightOnlyQLinear
 from lmdeploy.lite.utils.cal_qparams import QParams
 from lmdeploy.pytorch.nn.utils import chunk_aligned
-from lmdeploy.pytorch.nn.linear.utils import _get_tp_world_rank
+from lmdeploy.pytorch.distributed import get_tp_world_rank
 from lmdeploy.pytorch.nn.linear import (
     MergedAwqLinear,
     AwqLinear,
@@ -180,7 +180,7 @@ def AscendMergedAwqLinear_weight_loader(
     self, param: torch.nn.Parameter, loaded_weight: torch.Tensor, shard_id: Any
 ):
     """weight loader."""
-    world_size, rank = _get_tp_world_rank(self.is_tp)
+    world_size, rank = get_tp_world_rank(self.is_tp)
     shard_idx = self.out_names_map[shard_id]
 
     if loaded_weight.dim() == 1:
