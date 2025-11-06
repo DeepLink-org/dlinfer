@@ -20,7 +20,6 @@ from lmdeploy.pytorch.model_inputs import StepContext, get_step_ctx_manager
 
 from torch.profiler import record_function
 
-logger = get_logger('lmdeploy')
 logger = get_logger("dlinfer")
 BuffType = Dict[str, Tensor]
 
@@ -186,6 +185,8 @@ class AscendPiecewiseSingleGraphRunner:
         """Capture graph."""
         logger.debug(f"Capturing graph with meta: {self.meta}")
         
+        num_tokens = kwargs["input_ids"].size(-1)
+
         # 延迟初始化 backend，确保同一个 runner 复用
         if self.backend is None:
             self.backend = create_backend()
@@ -198,19 +199,15 @@ class AscendPiecewiseSingleGraphRunner:
         update_context_cudagraph(self.meta, context)
 
         # 优化torch.compile配置，减少编译开销
-        import torch._dynamo
-        original_cache_size = torch._dynamo.config.cache_size_limit
-        if original_cache_size < 1000:
-            torch._dynamo.config.cache_size_limit = 1000
+        import torch._dynamo as dynamo
+
+        cache_limit = dynamo.config.cache_size_limit
+        if cache_limit < 1000:
+            dynamo.config.cache_size_limit = 1000
             logger.info(
                 "Raised torch._dynamo cache_size_limit %s → %s for piecewise capture",
-                original_cache_size,
-                torch._dynamo.config.cache_size_limit,
-            )
-        else:
-            logger.info(
-                "Using existing torch._dynamo cache_size_limit=%s for piecewise capture",
-                original_cache_size,
+                cache_limit,
+                dynamo.config.cache_size_limit,
             )
 
         self.compiled_model = torch.compile(
@@ -222,17 +219,13 @@ class AscendPiecewiseSingleGraphRunner:
 
         output = self.compiled_model(**padded_kwargs)
 
-        # 预分配固定输出缓冲区，保持地址稳定
-        if self.meta.output_buffers is None:
-            self.meta.output_buffers = {}
-
         logits_buffer = self.meta.output_buffers.get("logits")
         if logits_buffer is None or logits_buffer.shape != output.shape:
             logits_buffer = torch.empty_like(output, device=output.device)
             self.meta.output_buffers["logits"] = logits_buffer
 
         logits_buffer.copy_(output)
-        return logits_buffer
+        return logits_buffer[:, :num_tokens]
 
 
     @record_function("forward_cudagraph")
@@ -315,17 +308,15 @@ class AscendPiecewiseGraphRunner(GraphRunner):
 
     def __call__(self, **kwargs):
         """call."""
-        enable_graph = self.enable_graph(**kwargs)
-
-        if not enable_graph:
+        if not self.enable_graph(**kwargs):
             with record_function("forward_eager"):
-                ret = self.model(**kwargs)
-                return ret
+                return self.model(**kwargs)
 
         graph_key = self.get_graph_key(**kwargs)
         max_tokens = graph_key[0]
         is_decoding = graph_key[1]
-        if graph_key not in self._runner_map:
+        runner = self._runner_map.get(graph_key)
+        if runner is None:
             max_batches = max_tokens if is_decoding else self.max_batches
             runner = AscendPiecewiseSingleGraphRunner(
                 self.model,
@@ -337,12 +328,10 @@ class AscendPiecewiseGraphRunner(GraphRunner):
                 model_config=self.model_config,
                 device=self.device,
             )
-            runner.capture(**kwargs)
             self._runner_map[graph_key] = runner
-        else:
-            runner = self._runner_map[graph_key]
-        output = runner.forward(**kwargs)
-        return output
+            return runner.capture(**kwargs)
+
+        return runner.forward(**kwargs)
 
     @record_function("prepare_inputs_for_generation")
     def prepare_inputs_for_generation(

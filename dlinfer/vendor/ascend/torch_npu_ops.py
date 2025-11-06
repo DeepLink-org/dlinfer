@@ -63,7 +63,7 @@ def apply_rotary_pos_emb(
         return (q * cos) + (rotate_half_(q) * sin), (k * cos) + (rotate_half_(k) * sin)
 
     # 注释掉调试打印，避免影响精度
-    print(f'####### in eager apply_rotary_pos_emb!!!', flush=True)
+    # print(f'####### in eager apply_rotary_pos_emb!!!', flush=True)
 
     # ascend ops currently only support dim 128
     if query.shape[-1] != 128 or key.shape[-1] != 128:
@@ -191,7 +191,7 @@ def fill_kv_cache(
         value = quant_int8(value, v_scales_zeros[0], v_scales_zeros[1])
 
     # 注释掉调试打印，避免影响精度
-    print(f'####### in eager fill_kv_cache!!!', flush=True)
+    # print(f'####### in eager fill_kv_cache!!!', flush=True)
     torch.ops.atb._npu_reshape_and_cache(
         key=key,
         value=value,
@@ -252,7 +252,7 @@ def paged_decode_attention(
 
     # import pdb;pdb.set_trace()
     # 注释掉调试打印，避免影响精度
-    print(f'####### in eager paged_decode_attention!!!', flush=True)
+    # print(f'####### in eager paged_decode_attention!!!', flush=True)
 
     attn_output, _ = torch.ops.npu.npu_fused_infer_attention_score(
         query,

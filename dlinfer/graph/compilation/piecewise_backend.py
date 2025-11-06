@@ -121,21 +121,9 @@ class DlinferPiecewiseBackend:
     ]
     
     def __init__(self):
-        self._compilation_count = 0
-        # 注意：不需要缓存split_gm和split_items
-        # 每个batch size都会重新调用backend，每次都重新split和wrap
-    
-    def _extract_input_shapes(self, example_inputs):
-        """从example_inputs中提取shape信息"""
-        shapes = []
-        if isinstance(example_inputs, (list, tuple)):
-            for inp in example_inputs:
-                if hasattr(inp, 'shape'):
-                    shapes.append(tuple(inp.shape))
-        elif hasattr(example_inputs, 'shape'):
-            shapes.append(tuple(example_inputs.shape))
-        return tuple(shapes)
-    
+        # 每次调用 backend 都会重新 split/ wrap
+        pass
+
     def __call__(self, gm: fx.GraphModule, example_inputs) -> Callable:
         """
         Backend入口
@@ -150,19 +138,6 @@ class DlinferPiecewiseBackend:
         注意：此方法可能被 PyTorch 多次调用（不同输入shapes）
         但对于我们的场景，只有第一次调用会进行分割和包装
         """
-        self._compilation_count += 1
-        
-        # 提取当前输入的shape信息
-        current_shapes = self._extract_input_shapes(example_inputs)
-        
-        # logger.info("=" * 60)
-        # logger.info(f"DlinferPiecewiseBackend: Graph compilation (call #{self._compilation_count}, shapes={current_shapes})")
-        # logger.info("=" * 60)
-        
-        # 关键：不能复用split_gm！
-        # 原因：FX graph中可能有硬编码的shape（如view操作）
-        # 每个不同的batch size需要重新split和wrap以获得正确的shape
-        
         try:
             # # Step 0: 打印完整的 FX graph（调试用，只在第一次打印）
             # if self._compilation_count == 1:
@@ -195,35 +170,24 @@ class DlinferPiecewiseBackend:
             for item in split_items:
                 submod_name = item.submod_name
                 original_submod = getattr(split_gm, submod_name)
-                
+
                 if item.is_splitting_graph:
-                    # Attention 子图：用 EagerExecutionWrapper 包装
-                    # logger.info(f"Wrapping '{submod_name}' with EagerExecutionWrapper (attention)")
-                    
                     wrapped = EagerExecutionWrapper(
                         op_or_module=original_submod,
                         op_name=f"attention_{submod_name}"
                     )
-                    
-                    # 关键：使用 __dict__ 直接赋值（参考 vLLM）
-                    split_gm.__dict__[submod_name] = wrapped
                 else:
-                    # Compute 子图：用 ACL Graph 包装
-                    # logger.info(f"Wrapping '{submod_name}' with ACL Graph wrapper")
-                    
-                    # 判断是否是first/last graph
-                    is_first = (item.graph_id == 0)
-                    is_last = (item.graph_id == len(split_items) - 1)
-                    
+                    is_first = item.graph_id == 0
+                    is_last = item.graph_id == len(split_items) - 1
+
                     wrapped = AscendPiecewiseGraphWrapper(
                         runnable=original_submod,
                         is_first_graph=is_first,
                         is_last_graph=is_last,
                         graph_pool=get_graph_pool(),
                     )
-                    
-                    # 关键：使用 __dict__ 直接赋值（参考 vLLM）
-                    split_gm.__dict__[submod_name] = wrapped
+
+                split_gm.__dict__[submod_name] = wrapped
             
             logger.info("Step 3: Graph preparation complete")
             logger.info("=" * 60)
@@ -237,7 +201,7 @@ class DlinferPiecewiseBackend:
     
     def reset(self):
         """重置状态（测试用）"""
-        self._compilation_count = 0
+        pass
 
 # 全局backend实例
 # 注意：每次compile都应该创建新实例

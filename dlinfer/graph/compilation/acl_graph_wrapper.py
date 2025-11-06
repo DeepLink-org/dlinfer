@@ -97,16 +97,12 @@ class AscendPiecewiseGraphWrapper(torch.nn.Module):
         # 关键添加：阶段检测逻辑
         self.is_decoding = is_decoding
         self.auto_detect_stage = is_decoding is None
+        self._use_graph = True if self.auto_detect_stage else bool(self.is_decoding)
         
         # Graph pool（全局共享）
         # 使用全局 graph_pool 实例，确保多个实例共用一个 graph_pool
         self.graph_pool = graph_pool
-        if self.graph_pool is None:
-            from .piecewise_backend import get_graph_pool
-            self.graph_pool = get_graph_pool()
-            logger.debug("Using global graph pool")
-        else:
-            logger.debug("Using provided graph pool")
+        assert self.graph_pool is not None
         
         # Debug模式
         self.debug_mode = logger.level <= 10  # DEBUG level
@@ -117,69 +113,12 @@ class AscendPiecewiseGraphWrapper(torch.nn.Module):
         # Debug模式（修复重复设置）
         self.debug_mode = logger.level <= 10  # DEBUG level
 
-        # 记录不同阶段（prefill/decode）的基准shape，用于强制单形状graph
-        self._canonical_signatures: Dict[bool, tuple] = {}
+        # 记录decode阶段的基准shape，用于强制单形状graph
+        self._canonical_signature: Optional[tuple] = None
 
         logger.debug(f"ACLGraphWrapper created: "
                      f"first={is_first_graph}, last={is_last_graph}, "
                      f"is_decoding={is_decoding}, auto_detect={self.auto_detect_stage}")
-
-    def _detect_stage(self, args, kwargs) -> bool:
-        """
-        检测当前执行阶段（prefill vs decode）
-        参考ascend_cudagraph.py的get_graph_key()逻辑
-        """
-        if not self.auto_detect_stage:
-            return self.is_decoding
-
-        # 1. 检查 attn_metadata.is_decoding（最可靠）
-        attn_metadata = kwargs.get('attn_metadata', None)
-        if attn_metadata is not None and hasattr(attn_metadata, 'is_decoding'):
-            is_decoding = getattr(attn_metadata, 'is_decoding', False)
-            logger.debug(f"Stage detected via attn_metadata.is_decoding: {is_decoding}")
-            return is_decoding
-
-        # 2. 检查输入tensor的形状特征（fallback）
-        # Prefill阶段：较长的input_ids，decode阶段：单个token
-        input_ids = kwargs.get('input_ids', None)
-        if input_ids is not None:
-            if isinstance(input_ids, torch.Tensor):
-                batch_size, seq_len = input_ids.shape
-                is_decoding = seq_len == 1  # decode阶段通常seq_len=1
-                logger.debug(f"Stage detected via input_ids shape: {input_ids.shape} -> decode={is_decoding}")
-                return is_decoding
-
-        # 3. 检查args中的tensor
-        for arg in args:
-            if isinstance(arg, torch.Tensor) and arg.dim() >= 2:
-                batch_size, seq_len = arg.shape[:2]
-                if seq_len == 1:
-                    logger.debug(f"Stage detected via tensor shape: {arg.shape} -> decode=True")
-                    return True
-                else:
-                    logger.debug(f"Stage detected via tensor shape: {arg.shape} -> decode=False")
-                    return False
-
-        # 默认假设为prefill阶段（更安全）
-        logger.debug("Stage detection fallback: assuming prefill (decode=False)")
-        return False
-
-    def _should_use_graph_mode(self, args, kwargs) -> bool:
-        """
-        判断是否应该使用graph模式
-        根据删除的ascend_piecewise_runner.py逻辑：
-        - Prefill阶段：使用eager模式（shape变化大）
-        - Decode阶段：使用graph模式（shape固定）
-        """
-        is_decoding = self._detect_stage(args, kwargs)
-
-        should_use_graph = is_decoding  # 只有decode阶段使用graph
-
-        if self.debug_mode:
-            logger.debug(f"Graph mode decision: is_decoding={is_decoding}, "
-                        f"should_use_graph={should_use_graph}")
-
-        return should_use_graph
 
     def _build_signature(self, args, kwargs) -> tuple:
         """根据当前输入构建 shape 签名（仅在 decode 阶段记录一次）。"""
@@ -194,15 +133,15 @@ class AscendPiecewiseGraphWrapper(torch.nn.Module):
 
         return tuple(signature)
 
-    def _ensure_signature(self, is_decoding: bool, args, kwargs):
+    def _ensure_signature(self, args, kwargs):
         """确保 decode 阶段的 shape 与首次 capture 完全一致。"""
         signature = self._build_signature(args, kwargs)
-        stored = self._canonical_signatures.get(is_decoding)
+        stored = self._canonical_signature
 
         if stored is None:
-            self._canonical_signatures[is_decoding] = signature
+            self._canonical_signature = signature
             if self.debug_mode:
-                logger.debug("Recorded canonical signature for stage %s: %s", is_decoding, signature)
+                logger.debug("Recorded canonical decode signature: %s", signature)
         elif signature != stored:
             raise RuntimeError(
                 "Input shapes changed between captures; expected %s, got %s. "
@@ -213,88 +152,70 @@ class AscendPiecewiseGraphWrapper(torch.nn.Module):
     
     def __call__(self, *args, **kwargs):
         """
-        执行：自动capture或replay，支持prefill/decode阶段切换
-
-        关键修复：根据删除的ascend_piecewise_runner.py逻辑
-        - Prefill阶段：使用eager模式，不走graph
-        - Decode阶段：使用graph模式，自动capture/replay
+        执行：自动capture或replay
+        当前实现仅支持decode阶段进入图。
         """
-        # 首先检测执行阶段
-        should_use_graph = self._should_use_graph_mode(args, kwargs)
-
-        if not should_use_graph:
-            # Prefill阶段：使用eager模式，避免graph capture
-            logger.debug("Prefill stage: using eager execution (skipping graph)")
+        if not self._use_graph:
+            if self.debug_mode:
+                logger.debug("Non-decode stage: using eager execution")
             return self.runnable(*args, **kwargs)
 
         # Decode阶段：使用graph模式
-        # 生成cache key：包含shape和阶段信息
         cache_key = self._generate_cache_key(args, kwargs)
-        stage_signature = self._canonical_signatures.get(cache_key[0])
+        stage_signature = self._canonical_signature
 
-        if cache_key not in self.cache:
-            # 首次遇到这个shape组合：capture
+        entry = self.cache.get(cache_key)
+        if entry is None:
             logger.info(
                 "Decode stage: capturing ACL Graph (signature=%s)",
                 stage_signature,
             )
             return self._capture(cache_key, args, kwargs)
-        else:
-            # 已capture：replay
-            logger.debug(
-                "Decode stage: replaying ACL Graph (signature=%s)",
-                stage_signature,
-            )
-            return self._replay(cache_key, args, kwargs)
+
+        logger.debug(
+            "Decode stage: replaying ACL Graph (signature=%s)",
+            stage_signature,
+        )
+        return self._replay(cache_key, args, kwargs)
     
     def _generate_cache_key(self, args, kwargs) -> tuple:
         """生成用于缓存的简单 key，并强制复用首个 capture 的形状。"""
-        is_decoding = self._detect_stage(args, kwargs)
-        self._ensure_signature(is_decoding, args, kwargs)
-        # 仅按阶段区分：decode 阶段固定为 True
-        return (is_decoding,)
+        # 仅按阶段区分：decode阶段固定 key
+        return (True,)
     
     def _capture(self, cache_key: tuple, args, kwargs):
         """捕获ACL Graph"""
+        self._ensure_signature(args, kwargs)
         entry = ACLGraphEntry(cache_key=cache_key)
+        entry.arg_buffers = []
+        entry.arg_indices = []
+        entry.arg_shapes = []
+        entry.arg_views = []
 
         new_args = list(args)
-        arg_buffers: list[torch.Tensor] = []
-        arg_indices: list[int] = []
-        arg_shapes: list[torch.Size] = []
-        arg_views: list[torch.Tensor] = []
 
         for idx, arg in enumerate(args):
             if not isinstance(arg, torch.Tensor):
                 continue
 
+            shape = arg.shape
+            entry.arg_indices.append(idx)
+            entry.arg_shapes.append(shape)
+
             if arg.dim() == 0:
                 buffer = torch.empty_like(arg, device=arg.device)
                 buffer.copy_(arg)
-                new_args[idx] = buffer
-                arg_buffers.append(buffer)
-                arg_indices.append(idx)
-                arg_shapes.append(arg.shape)
-                arg_views.append(buffer)
-                continue
+                view = buffer
+            else:
+                max_batch = get_ascend_compatible_size(shape[0])
+                buffer_shape = (max_batch,) + tuple(shape[1:])
+                buffer = torch.empty(buffer_shape, device=arg.device, dtype=arg.dtype)
+                view = buffer[: shape[0]]
+                view.copy_(arg)
 
-            batch_size = arg.shape[0]
-            max_batch = get_ascend_compatible_size(batch_size)
-            tail_shape = tuple(arg.shape[1:])
-            buffer_shape = (max_batch,) + tail_shape
-            full_buffer = torch.empty(buffer_shape, device=arg.device, dtype=arg.dtype)
-            view = full_buffer[:batch_size]
-            view.copy_(arg)
             new_args[idx] = view
-            arg_buffers.append(full_buffer)
-            arg_indices.append(idx)
-            arg_shapes.append(arg.shape)
-            arg_views.append(view)
-
-        entry.arg_buffers = arg_buffers if arg_buffers else None
-        entry.arg_indices = arg_indices if arg_indices else None
-        entry.arg_shapes = arg_shapes if arg_shapes else None
-        entry.arg_views = arg_views if arg_views else None
+            entry.arg_buffers.append(buffer)
+            entry.arg_views.append(view)
 
         if self.debug_mode and entry.arg_views:
             entry.input_addresses = [view.data_ptr() for view in entry.arg_views]
@@ -328,50 +249,7 @@ class AscendPiecewiseGraphWrapper(torch.nn.Module):
         """Replay ACL Graph"""
         entry = self.cache[cache_key]
 
-        if entry.arg_buffers and entry.arg_indices:
-            for buffer_idx, arg_idx in enumerate(entry.arg_indices):
-                buffer = entry.arg_buffers[buffer_idx]
-                expected_shape = (
-                    entry.arg_shapes[buffer_idx]
-                    if entry.arg_shapes and buffer_idx < len(entry.arg_shapes)
-                    else buffer.shape
-                )
-
-                new_tensor = args[arg_idx]
-
-                if new_tensor.shape != expected_shape:
-                    raise RuntimeError(
-                        f"Shape mismatch for positional arg{arg_idx}: expected {expected_shape}, got {new_tensor.shape}"
-                    )
-
-                if new_tensor.device != buffer.device:
-                    raise RuntimeError(
-                        f"Device mismatch for positional arg{arg_idx}: expected {buffer.device}, got {new_tensor.device}"
-                    )
-
-                if len(expected_shape) == 0:
-                    target_view = (
-                        entry.arg_views[buffer_idx]
-                        if entry.arg_views and buffer_idx < len(entry.arg_views)
-                        else buffer
-                    )
-                    if new_tensor.data_ptr() != target_view.data_ptr():
-                        target_view.copy_(new_tensor)
-                    continue
-
-                batch_size = expected_shape[0]
-                target_view = (
-                    entry.arg_views[buffer_idx]
-                    if entry.arg_views and buffer_idx < len(entry.arg_views)
-                    else buffer
-                )
-                if target_view.shape[0] != batch_size:
-                    target_view = buffer[(slice(0, batch_size),) + tuple(slice(None) for _ in expected_shape[1:])]
-
-                if new_tensor.data_ptr() != target_view.data_ptr():
-                    target_view.copy_(new_tensor)
-
-        if self.debug_mode and entry.input_addresses is not None and entry.arg_views:
+        if self.debug_mode and entry.input_addresses:
             new_addresses = [view.data_ptr() for view in entry.arg_views]
             if new_addresses != entry.input_addresses:
                 logger.error(
@@ -381,6 +259,27 @@ class AscendPiecewiseGraphWrapper(torch.nn.Module):
                     new_addresses,
                 )
                 raise RuntimeError("Input buffer addresses changed between capture and replay")
+
+        # Replay 之前，把新的输入数据拷贝到缓冲区
+        for arg_idx, buffer, target_view, expected_shape in zip(
+            entry.arg_indices or [],
+            entry.arg_buffers or [],
+            entry.arg_views or [],
+            entry.arg_shapes or [],
+        ):
+            new_tensor = args[arg_idx]
+
+            if new_tensor.shape != expected_shape:
+                raise RuntimeError(
+                    f"Shape mismatch for positional arg{arg_idx}: expected {expected_shape}, got {new_tensor.shape}"
+                )
+            if new_tensor.device != buffer.device:
+                raise RuntimeError(
+                    f"Device mismatch for positional arg{arg_idx}: expected {buffer.device}, got {new_tensor.device}"
+                )
+
+            if new_tensor.data_ptr() != target_view.data_ptr():
+                target_view.copy_(new_tensor)
 
         # Replay
         entry.aclgraph.replay()
