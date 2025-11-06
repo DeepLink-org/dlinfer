@@ -12,23 +12,6 @@ from contextlib import ExitStack
 from unittest.mock import patch
 from lmdeploy.utils import get_logger
 
-# 导入batch size管理函数
-try:
-    from .piecewise_backend import get_ascend_compatible_size
-except ImportError:
-    # Fallback实现
-    def get_ascend_compatible_size(n: int):
-        """Fallback implementation of ascend compatible size"""
-        if n <= 16:
-            # power of 2
-            power = 1
-            while power < n:
-                power *= 2
-            return power
-        else:
-            # round up to multiple of 16
-            return ((n + 15) // 16) * 16
-
 logger = get_logger('dlinfer.acl_graph')
 
 @dataclass
@@ -187,35 +170,20 @@ class AscendPiecewiseGraphWrapper(torch.nn.Module):
         """捕获ACL Graph"""
         self._ensure_signature(args, kwargs)
         entry = ACLGraphEntry(cache_key=cache_key)
+
         entry.arg_buffers = []
         entry.arg_indices = []
         entry.arg_shapes = []
         entry.arg_views = []
 
-        new_args = list(args)
-
         for idx, arg in enumerate(args):
             if not isinstance(arg, torch.Tensor):
                 continue
 
-            shape = arg.shape
             entry.arg_indices.append(idx)
-            entry.arg_shapes.append(shape)
-
-            if arg.dim() == 0:
-                buffer = torch.empty_like(arg, device=arg.device)
-                buffer.copy_(arg)
-                view = buffer
-            else:
-                max_batch = get_ascend_compatible_size(shape[0])
-                buffer_shape = (max_batch,) + tuple(shape[1:])
-                buffer = torch.empty(buffer_shape, device=arg.device, dtype=arg.dtype)
-                view = buffer[: shape[0]]
-                view.copy_(arg)
-
-            new_args[idx] = view
-            entry.arg_buffers.append(buffer)
-            entry.arg_views.append(view)
+            entry.arg_shapes.append(arg.shape)
+            entry.arg_views.append(arg)
+            entry.arg_buffers.append(arg)
 
         if self.debug_mode and entry.arg_views:
             entry.input_addresses = [view.data_ptr() for view in entry.arg_views]
@@ -235,7 +203,7 @@ class AscendPiecewiseGraphWrapper(torch.nn.Module):
 
             # Capture graph：positional tensor已经映射到持久化缓冲区
             with torch.npu.graph(aclgraph, pool=self.graph_pool):
-                output = self.runnable(*tuple(new_args), **kwargs)
+                output = self.runnable(*args, **kwargs)
 
         entry.aclgraph = aclgraph
         entry.output = weak_ref_tensor(output)
@@ -249,7 +217,7 @@ class AscendPiecewiseGraphWrapper(torch.nn.Module):
         """Replay ACL Graph"""
         entry = self.cache[cache_key]
 
-        if self.debug_mode and entry.input_addresses:
+        if self.debug_mode and entry.input_addresses is not None and entry.arg_views:
             new_addresses = [view.data_ptr() for view in entry.arg_views]
             if new_addresses != entry.input_addresses:
                 logger.error(
@@ -260,10 +228,9 @@ class AscendPiecewiseGraphWrapper(torch.nn.Module):
                 )
                 raise RuntimeError("Input buffer addresses changed between capture and replay")
 
-        # Replay 之前，把新的输入数据拷贝到缓冲区
-        for arg_idx, buffer, target_view, expected_shape in zip(
+        # Replay
+        for arg_idx, target_view, expected_shape in zip(
             entry.arg_indices or [],
-            entry.arg_buffers or [],
             entry.arg_views or [],
             entry.arg_shapes or [],
         ):
@@ -273,15 +240,14 @@ class AscendPiecewiseGraphWrapper(torch.nn.Module):
                 raise RuntimeError(
                     f"Shape mismatch for positional arg{arg_idx}: expected {expected_shape}, got {new_tensor.shape}"
                 )
-            if new_tensor.device != buffer.device:
+            if new_tensor.device != target_view.device:
                 raise RuntimeError(
-                    f"Device mismatch for positional arg{arg_idx}: expected {buffer.device}, got {new_tensor.device}"
+                    f"Device mismatch for positional arg{arg_idx}: expected {target_view.device}, got {new_tensor.device}"
                 )
 
             if new_tensor.data_ptr() != target_view.data_ptr():
                 target_view.copy_(new_tensor)
 
-        # Replay
         entry.aclgraph.replay()
         return entry.output
     
