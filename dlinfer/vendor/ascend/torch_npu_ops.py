@@ -35,6 +35,7 @@ def add_rms_norm(
     normed_hidden_states, _, added_hidden_states = torch.ops.npu.npu_add_rms_norm(
         hidden_states, residual, weight, epsilon
     )
+    # 注释掉调试打印，避免影响精度
     # print(f'####### in eager add_rms_norm!!!', flush=True)
     return normed_hidden_states, added_hidden_states
 
@@ -60,6 +61,9 @@ def apply_rotary_pos_emb(
 
     def apply_rotary_pos_emb_(q, k, cos, sin):
         return (q * cos) + (rotate_half_(q) * sin), (k * cos) + (rotate_half_(k) * sin)
+
+    # 注释掉调试打印，避免影响精度
+    print(f'####### in eager apply_rotary_pos_emb!!!', flush=True)
 
     # ascend ops currently only support dim 128
     if query.shape[-1] != 128 or key.shape[-1] != 128:
@@ -186,7 +190,8 @@ def fill_kv_cache(
         key = quant_int8(key, k_scales_zeros[0], k_scales_zeros[1])
         value = quant_int8(value, v_scales_zeros[0], v_scales_zeros[1])
 
-    # print(f'####### in eager fill_kv_cache!!!', flush=True)
+    # 注释掉调试打印，避免影响精度
+    print(f'####### in eager fill_kv_cache!!!', flush=True)
     torch.ops.atb._npu_reshape_and_cache(
         key=key,
         value=value,
@@ -246,7 +251,8 @@ def paged_decode_attention(
     scale_value = softmax_scale if softmax_scale else 1.0 / math.sqrt(dim)
 
     # import pdb;pdb.set_trace()
-    # print(f'####### in eager paged_decode_attention!!!', flush=True)
+    # 注释掉调试打印，避免影响精度
+    print(f'####### in eager paged_decode_attention!!!', flush=True)
 
     attn_output, _ = torch.ops.npu.npu_fused_infer_attention_score(
         query,

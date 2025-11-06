@@ -15,6 +15,7 @@ Dlinfer Piecewise Backend for torch.compile
 """
 import torch
 import torch.fx as fx
+import functools
 from typing import Callable, List
 from lmdeploy.utils import get_logger
 from .graph_splitter import split_graph, SplitItem
@@ -22,6 +23,68 @@ from .acl_graph_wrapper import AscendPiecewiseGraphWrapper
 from .eager_wrapper import EagerExecutionWrapper
 
 logger = get_logger('dlinfer.backend')
+
+# 全局 graph_pool 实例，确保多个实例共用一个 graph_pool
+_global_graph_pool = None
+
+def get_graph_pool():
+    """获取全局唯一的 graph_pool 实例"""
+    global _global_graph_pool
+    if _global_graph_pool is None:
+        _global_graph_pool = torch.cuda.graph_pool_handle()
+        logger.info("Created global graph pool for shared use across instances")
+    return _global_graph_pool
+
+# Batch Size管理策略（从ascend_cudagraph.py移植）
+def next_power_of_2(n: int):
+    """Return the smallest power of 2 greater than or equal to n."""
+    n -= 1
+    n |= n >> 1
+    n |= n >> 2
+    n |= n >> 4
+    n |= n >> 8
+    n |= n >> 16
+    n |= n >> 32
+    n += 1
+    return n
+
+def get_ascend_compatible_size(n: int):
+    """Get ascend compatible size. 参考ascend_cudagraph.py实现"""
+    if n <= 16:
+        n = next_power_of_2(n)
+    elif n <= 256:
+        n = (n + 15) & ~0xF
+    else:
+        n = (((n - 1) >> 8) + 1) << 8
+    return n
+
+@functools.lru_cache
+def _get_capture_batch_size_impl(max_batches: int):
+    """Capture batch size. 从ascend_cudagraph.py移植"""
+    ret = []
+    batch_size = 1
+    batch_step_1, batch_step_2 = 16, 256
+    # power of 2
+    while batch_size <= min(batch_step_1, max_batches):
+        ret.append(batch_size)
+        batch_size *= 2
+
+    # step 1
+    ret += list(range(batch_size, min(max_batches, batch_step_2) + 1, batch_step_1))
+
+    # step 2
+    ret += list(range(ret[-1] + batch_step_2, max_batches + 1, batch_step_2))
+
+    # ensure max_batches in ret
+    if max_batches != ret[-1]:
+        ret.append(max_batches)
+
+    return ret
+
+
+def get_capture_batch_sizes(max_batches: int) -> List[int]:
+    """获取Ascend兼容的捕获batch size列表"""
+    return _get_capture_batch_size_impl(max_batches)
 
 class DlinferPiecewiseBackend:
     """
@@ -121,9 +184,9 @@ class DlinferPiecewiseBackend:
             split_gm, split_items = split_graph(gm, self.SPLITTING_OPS)
             
             logger.info(f"Graph split into {len(split_items)} submodules:")
-            for i, item in enumerate(split_items):
-                graph_type = "ATTENTION" if item.is_splitting_graph else "COMPUTE"
-                logger.info(f"  [{i}] {item.submod_name}: {graph_type}")
+            # for i, item in enumerate(split_items):
+            #     graph_type = "ATTENTION" if item.is_splitting_graph else "COMPUTE"
+            #     logger.info(f"  [{i}] {item.submod_name}: {graph_type}")
             
             # Step 2: 包装子图（每次都重新wrap以获得独立的cache）
             # 参考 vLLM 的实现（backends.py:366-375）
@@ -135,7 +198,7 @@ class DlinferPiecewiseBackend:
                 
                 if item.is_splitting_graph:
                     # Attention 子图：用 EagerExecutionWrapper 包装
-                    logger.info(f"Wrapping '{submod_name}' with EagerExecutionWrapper (attention)")
+                    # logger.info(f"Wrapping '{submod_name}' with EagerExecutionWrapper (attention)")
                     
                     wrapped = EagerExecutionWrapper(
                         op_or_module=original_submod,
@@ -146,7 +209,7 @@ class DlinferPiecewiseBackend:
                     split_gm.__dict__[submod_name] = wrapped
                 else:
                     # Compute 子图：用 ACL Graph 包装
-                    logger.info(f"Wrapping '{submod_name}' with ACL Graph wrapper")
+                    # logger.info(f"Wrapping '{submod_name}' with ACL Graph wrapper")
                     
                     # 判断是否是first/last graph
                     is_first = (item.graph_id == 0)
@@ -156,6 +219,7 @@ class DlinferPiecewiseBackend:
                         runnable=original_submod,
                         is_first_graph=is_first,
                         is_last_graph=is_last,
+                        graph_pool=get_graph_pool(),
                     )
                     
                     # 关键：使用 __dict__ 直接赋值（参考 vLLM）

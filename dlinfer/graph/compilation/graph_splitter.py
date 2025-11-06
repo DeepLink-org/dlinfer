@@ -52,12 +52,12 @@ def split_graph(
         # Debug: 记录所有 call_function 节点的 target
         if node.op == 'call_function':
             target_str = str(node.target)
-            if 'attention' in target_str.lower() or 'fill_kv' in target_str.lower():
-                logger.info(f"Found potential attention op: {node.op} {target_str}")
+            # if 'attention' in target_str.lower() or 'fill_kv' in target_str.lower():
+            #     logger.info(f"Found potential attention op: {node.op} {target_str}")
         
         # 检查是否是splitting op
         if node.op == 'call_function' and str(node.target) in ops:
-            logger.info(f"Matched splitting op: {node.target}")
+            # logger.info(f"Matched splitting op: {node.target}")
             # Splitting op前面的节点是一个子图
             subgraph_id += 1
             # Splitting op自己单独是一个子图
@@ -68,8 +68,8 @@ def split_graph(
         else:
             node_to_subgraph_id[node] = subgraph_id
     
-    logger.debug(f"Total subgraphs: {subgraph_id + 1}, "
-                 f"splitting graphs: {split_op_graphs}")
+    # logger.debug(f"Total subgraphs: {subgraph_id + 1}, "
+    #              f"splitting graphs: {split_op_graphs}")
     
     # Step 2: 使用torch.fx的split_module进行实际分割
     # keep_original_order=True 非常重要！

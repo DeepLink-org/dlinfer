@@ -48,7 +48,7 @@ class EagerExecutionWrapper(nn.Module):
         super().__init__()
         self.op_or_module = op_or_module
         self.op_name = op_name
-        logger.debug(f"Created EagerExecutionWrapper for '{op_name}'")
+        # logger.info(f"Created EagerExecutionWrapper for '{op_name}'")
     
     def forward(self, *args, **kwargs) -> Any:
         """
@@ -79,8 +79,8 @@ class ConditionalEagerWrapper(nn.Module):
         self.op_or_module = op_or_module
         self.op_name = op_name
         self.always_eager = always_eager
-        logger.debug(f"Created ConditionalEagerWrapper for '{op_name}' "
-                    f"(always_eager={always_eager})")
+        # logger.debug(f"Created ConditionalEagerWrapper for '{op_name}' "
+        #             f"(always_eager={always_eager})")
     
     def should_use_eager(self, *args, **kwargs) -> bool:
         """
