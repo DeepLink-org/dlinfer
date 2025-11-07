@@ -150,16 +150,17 @@ def prefill_attention(
         return attn_output
 
     # for cogvlm vl part.
-    if query.size(-2) != num_q_heads:
+    if q_start_loc.size(0) == q_seq_len.size(0):
         causal = False
-        head_dim = query.size(-1) // num_q_heads
-        query = query.view(-1, num_q_heads, head_dim)
-        key = key.view(-1, num_kv_heads, head_dim)
-        value = value.view(-1, num_kv_heads, head_dim)
-        q_start_loc = torch.tensor(
-            [0, q_seq_len], dtype=torch.int32, device=query.device
-        )
-        softmax_scale = float(1 / math.sqrt(head_dim))
+        #head_dim = query.size(-1) // num_q_heads
+        #query = query.view(-1, num_q_heads, head_dim)
+        #key = key.view(-1, num_kv_heads, head_dim)
+        #value = value.view(-1, num_kv_heads, head_dim)
+        #q_start_loc = torch.tensor(
+        #    [0, q_seq_len.size(0) + 1], dtype=torch.int32, device=query.device
+        #)
+        q_start_loc = torch.cat((torch.tensor([0], dtype=torch.int32, device=query.device), q_seq_len.cumsum(0).to(torch.int32)), dim=0)
+        #softmax_scale = float(1 / math.sqrt(head_dim))
 
     output = flash_attn_varlen_func(
         query,
