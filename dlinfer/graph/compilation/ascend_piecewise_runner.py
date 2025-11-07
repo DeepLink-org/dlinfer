@@ -2,6 +2,7 @@
 Piecewise Graph Runner
 与lmdeploy的warmup机制集成
 """
+from dataclasses import dataclass
 import torch
 from torch import Tensor
 from typing import Any, Dict, List, Tuple, Optional
@@ -11,6 +12,7 @@ from lmdeploy.utils import get_logger
 from lmdeploy.pytorch.backends.graph_runner import GraphRunner
 from lmdeploy.pytorch.models.utils.cudagraph import CudaGraphMeta
 from lmdeploy.pytorch.config import BackendConfig, CacheConfig, ModelConfig
+import dlinfer.graph
 from dlinfer.graph.compilation.piecewise_backend import (
     create_backend,
     get_ascend_compatible_size,
@@ -24,6 +26,39 @@ from torch.profiler import record_function
 logger = get_logger("dlinfer")
 BuffType = Dict[str, Tensor]
 
+@dataclass
+class AscendPiecewiseGraphMeta:
+    """Meta info of cudagraph."""
+    max_batchs: int
+    max_tokens: int
+    num_blocks: int
+    is_decoding: int
+    device: torch.device
+    head_dim: int
+    num_attention_heads: int
+    dtype: torch.dtype
+    input_buffers: BuffType = None
+    output_buffers: BuffType = None
+    vocab_size: int = 1
+
+
+class AscendPiecewiseAttentionBuffer:
+    class_attention_output: Tensor = None
+
+    @classmethod
+    def get_attention_output(cls, batch_size: int, num_attention_heads, head_dim, dtype, device) -> Tensor:
+        if cls.class_attention_output is None:
+            from lmdeploy.pytorch.distributed import get_tp_world_rank
+            tp, tp_rank = get_tp_world_rank('attn')
+            print(f'########### in get_attention_output, tp={tp}, tp_rank={tp_rank}', flush=True)
+            cls.class_attention_output = torch.empty(
+                batch_size, num_attention_heads // tp, head_dim, dtype=dtype, device=device
+            )
+            return cls.class_attention_output
+        else:
+            return cls.class_attention_output[:batch_size]
+
+
 # AscendCudaGraphMixin methods for cudagraph buffer management.
 def make_buffers_cudagraph(
     graph_meta: CudaGraphMeta, *args, **kwargs
@@ -32,6 +67,9 @@ def make_buffers_cudagraph(
     max_batches = graph_meta.max_batchs
     max_tokens = graph_meta.max_tokens
     num_blocks = graph_meta.num_blocks
+    num_attention_heads = graph_meta.num_attention_heads
+    head_dim = graph_meta.head_dim
+    dtype = graph_meta.dtype
     device = graph_meta.device
     input_buffers: BuffType = dict()
     input_buffers["input_ids"] = torch.empty(
@@ -51,7 +89,7 @@ def make_buffers_cudagraph(
     )
 
     input_buffers["kv_seqlens"] = torch.zeros(
-        max_batches, dtype=torch.int32, device=device
+        max_batches, dtype=torch.int32,
     )
 
     input_buffers["fill_seqlens"] = torch.zeros(
@@ -65,7 +103,12 @@ def make_buffers_cudagraph(
     input_buffers["kv_start_indices"] = -torch.ones(
         (max_batches), dtype=torch.int64, device=device
     )
-    return input_buffers
+    output_buffers: BuffType = dict()
+    output_buffers["attention_output"] = AscendPiecewiseAttentionBuffer.get_attention_output(max_batches, num_attention_heads, head_dim, dtype, device)
+    # output_buffers["attention_output"] = torch.empty(
+    #     max_batches, num_attention_heads, head_dim, dtype=dtype, device=device
+    # )
+    return input_buffers, output_buffers
 
 
 def _root_key_from_path(path: str) -> str:
@@ -184,6 +227,7 @@ def fill_buffers_cudagraph(
     kv_start_indices: Tensor = attn_metadata.kv_start_indices
 
     input_buffers: BuffType = graph_meta.input_buffers
+    output_buffers: BuffType = graph_meta.output_buffers
     # 说明：input_buffers 在 capture 阶段构建，并在整个 decode 生命周期中复用。
     # AscendPiecewiseGraphWrapper 依赖这些缓冲区的地址不变来保证 ACL graph 可重复执行。
 
@@ -199,8 +243,9 @@ def fill_buffers_cudagraph(
     input_buffers["block_offsets"][:batch_size, :num_blocks] = block_offsets
 
     kv_seqlens_tensor = torch.as_tensor(
-        kv_seqlens, dtype=torch.int32, device=input_buffers["kv_seqlens"].device
+        kv_seqlens, dtype=torch.int32,
     )
+    # device=input_buffers["kv_seqlens"].device
     input_buffers["kv_seqlens"].zero_()
     input_buffers["kv_seqlens"][:batch_size] = kv_seqlens_tensor
 
@@ -228,6 +273,7 @@ def fill_buffers_cudagraph(
     attn_metadata.block_offsets = input_buffers["block_offsets"][:new_batch_size]
     attn_metadata.kv_seqlens = input_buffers["kv_seqlens"][:new_batch_size]
     attn_metadata.kv_start_indices = input_buffers["kv_start_indices"][:new_batch_size]
+    attn_metadata.attn_output_buffer = output_buffers["attention_output"][:new_batch_size]
 
     q_seqlens_tensor = getattr(attn_metadata, "q_seqlens", None)
     if q_seqlens_tensor is not None:
@@ -326,12 +372,16 @@ class AscendPiecewiseSingleGraphRunner:
         self.ctx_mgr = model.ctx_mgr
         self.model_config = model_config
 
-        self.meta = CudaGraphMeta(
+        # import pdb;pdb.set_trace()
+        self.meta = AscendPiecewiseGraphMeta(
             max_batchs=max_batches,
             max_tokens=max_tokens,
             num_blocks=num_blocks,
             is_decoding=is_decoding,
             device=device,
+            head_dim =self.model_config.head_dim,
+            num_attention_heads=self.model_config.num_attention_heads,
+            dtype=self.model_config.dtype,
             input_buffers=dict(),
             output_buffers=dict(),
             vocab_size=self.model_config.vocab_size,
@@ -357,7 +407,7 @@ class AscendPiecewiseSingleGraphRunner:
             logger.info(f"Created new backend for runner (is_decoding={self.is_decoding})")
         
         # Capture 阶段初始化持久化缓冲区；后续 replay 将反复复用同一块内存。
-        self.meta.input_buffers = make_buffers_cudagraph(self.meta, **kwargs)
+        self.meta.input_buffers, self.meta.output_buffers = make_buffers_cudagraph(self.meta, **kwargs)
         padded_kwargs = fill_buffers_cudagraph(self.meta, **kwargs)
         context = self.ctx_mgr.current_context()
         update_context_cudagraph(self.meta, context)
@@ -435,8 +485,8 @@ class AscendPiecewiseGraphRunner(GraphRunner):
         self._runner_map: Dict[Any, AscendPiecewiseSingleGraphRunner] = dict()
         self.has_try_compile_model: bool = False
 
-        import dlinfer.graph
         dlinfer.graph.config.enable_graph_mode = True
+        dlinfer.graph.config.piecewise_graph_enabled = True
 
     def check_enable_graph(self):
         """Check enable graph."""
@@ -493,7 +543,17 @@ class AscendPiecewiseGraphRunner(GraphRunner):
                 device=self.device,
             )
             self._runner_map[graph_key] = runner
-            return runner.capture(**kwargs)
+            
+            # Set is_capturing flag for torch.compile tracing
+            from dlinfer.graph import config
+            original_is_capturing = config.is_capturing
+            config.is_capturing = True
+            
+            try:
+                return runner.capture(**kwargs)
+            finally:
+                # Restore is_capturing flag
+                config.is_capturing = original_is_capturing
 
         return runner.forward(**kwargs)
 

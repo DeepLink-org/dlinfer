@@ -1,12 +1,15 @@
 # Copyright (c) 2024, DeepLink. All rights reserved.
 import os
 import math
+import warnings
 import torch
+import torch_npu
 
 from dlinfer.vendor import vendor_ops_registry
 from dlinfer.utils.registry import register_ops
 from dlinfer.utils.type_annotation import Tensor, Optional, Sequence, Tuple
 from .utils import SocVersion
+from dlinfer.graph import config as graph_config
 
 __all__ = [
     "add_rms_norm",
@@ -243,60 +246,86 @@ def paged_decode_attention(
 
     bs, _, dim = query.shape
     block_num = key_cache.size(0)
-    query = query.contiguous()
-    attn_output = attn_output.contiguous()
-    query = query.view(bs, 1, num_q_heads * dim)
-    key_cache = key_cache.view(block_num, block_size, -1)
-    value_cache = value_cache.view(block_num, block_size, -1)
     scale_value = softmax_scale if softmax_scale else 1.0 / math.sqrt(dim)
+    
+    # Check if we're in graph mode
+    use_piecewise_graph = getattr(graph_config, "piecewise_graph_enabled", False)
 
+    if not use_piecewise_graph:
+        query = query.contiguous()
+        query = query.view(bs, 1, num_q_heads * dim)
+        key_cache = key_cache.view(block_num, block_size, -1)
+        value_cache = value_cache.view(block_num, block_size, -1)
+        
+        attn_output, _ = torch.ops.npu.npu_fused_infer_attention_score(
+            query,
+            key_cache,
+            value_cache,
+            pse_shift=None,
+            atten_mask=None,
+            actual_seq_lengths=None,
+            actual_seq_lengths_kv=kv_seq_len,
+            dequant_scale1=None,
+            quant_scale1=None,
+            dequant_scale2=None,
+            quant_scale2=None,
+            quant_offset2=None,
+            antiquant_scale=kv_scales,
+            antiquant_offset=kv_zeros,
+            block_table=block_table,
+            query_padding_size=None,
+            kv_padding_size=None,
+            key_antiquant_scale=None,
+            key_antiquant_offset=None,
+            value_antiquant_scale=None,
+            value_antiquant_offset=None,
+            key_shared_prefix=None,
+            value_shared_prefix=None,
+            actual_shared_prefix_len=None,
+            query_rope=None,
+            key_rope=None,
+            key_rope_antiquant_scale=None,
+            num_heads=num_q_heads,
+            scale=scale_value,
+            pre_tokens=2147483647,
+            next_tokens=2147483647,
+            input_layout="BSH",
+            num_key_value_heads=num_kv_heads,
+            sparse_mode=0,
+            inner_precise=1,
+            block_size=block_size,
+            antiquant_mode=0,
+            softmax_lse_flag=False,
+            key_antiquant_mode=0,
+            value_antiquant_mode=0,
+        )
+        return attn_output
+    
+    # Replay mode - use _npu_paged_attention
+    # Prepare tensors
+    query = query.contiguous()
+    
+    # Ensure attn_output is not None and is contiguous
+    if attn_output is None:
+        raise RuntimeError("attn_output must be provided in graph mode")
+    # attn_output = attn_output.contiguous()
+    
+    # Direct call to _npu_paged_attention without workspace for eager execution
     # import pdb;pdb.set_trace()
-    # 注释掉调试打印，避免影响精度
-    # print(f'####### in eager paged_decode_attention!!!', flush=True)
-
-    attn_output, _ = torch.ops.npu.npu_fused_infer_attention_score(
-        query,
-        key_cache,
-        value_cache,
-        pse_shift=None,
-        atten_mask=None,
-        actual_seq_lengths=None,
-        actual_seq_lengths_kv=kv_seq_len,
-        dequant_scale1=None,
-        quant_scale1=None,
-        dequant_scale2=None,
-        quant_scale2=None,
-        quant_offset2=None,
-        antiquant_scale=kv_scales,
-        antiquant_offset=kv_zeros,
-        block_table=block_table,
-        query_padding_size=None,
-        kv_padding_size=None,
-        key_antiquant_scale=None,
-        key_antiquant_offset=None,
-        value_antiquant_scale=None,
-        value_antiquant_offset=None,
-        key_shared_prefix=None,
-        value_shared_prefix=None,
-        actual_shared_prefix_len=None,
-        query_rope=None,
-        key_rope=None,
-        key_rope_antiquant_scale=None,
+    # print(f'########### in replay paged_decode_attention, use torch_npu._npu_paged_attention!!!', flush=True)
+    torch_npu._npu_paged_attention(
+        query=query,
+        key_cache=key_cache,
+        value_cache=value_cache,
+        num_kv_heads=num_kv_heads,
         num_heads=num_q_heads,
-        scale=scale_value,
-        pre_tokens=2147483647,
-        next_tokens=2147483647,
-        input_layout="BSH",
-        num_key_value_heads=num_kv_heads,
-        sparse_mode=0,
-        inner_precise=1,
-        block_size=block_size,
-        antiquant_mode=0,
-        softmax_lse_flag=False,
-        key_antiquant_mode=0,
-        value_antiquant_mode=0,
+        scale_value=scale_value,
+        block_table=block_table,
+        context_lens=kv_seq_len,
+        out=attn_output
     )
-    return attn_output
+    
+    return attn_output.view(bs, 1, num_q_heads * dim)
 
 
 @register_ops(vendor_ops_registry)

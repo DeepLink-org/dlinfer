@@ -14,6 +14,9 @@ from lmdeploy.utils import get_logger
 
 logger = get_logger('dlinfer.acl_graph')
 
+# 全局计数器，用于统计捕获的ACL Graph数量
+acl_graph_capture_count = 0
+
 @dataclass
 class ACLGraphEntry:
     """ACL Graph缓存条目"""
@@ -168,6 +171,7 @@ class AscendPiecewiseGraphWrapper(torch.nn.Module):
     
     def _capture(self, cache_key: tuple, args, kwargs):
         """捕获ACL Graph"""
+        global acl_graph_capture_count
         self._ensure_signature(args, kwargs)
         entry = ACLGraphEntry(cache_key=cache_key)
 
@@ -193,6 +197,12 @@ class AscendPiecewiseGraphWrapper(torch.nn.Module):
                 entry.input_addresses,
             )
 
+        # Set is_capturing flag for paged attention
+        from dlinfer.graph import config
+        original_is_capturing = config.is_capturing
+        config.is_capturing = True
+
+        current_stream = torch.cuda.current_stream()
         aclgraph = torch.npu.NPUGraph()
         with ExitStack() as stack:
             # 非第一个graph：禁用GC以加速capture
@@ -202,14 +212,21 @@ class AscendPiecewiseGraphWrapper(torch.nn.Module):
                 stack.enter_context(patch("torch.npu.empty_cache", lambda: None))
 
             # Capture graph：positional tensor已经映射到持久化缓冲区
-            with torch.npu.graph(aclgraph, pool=self.graph_pool):
+            with torch.npu.graph(aclgraph, pool=self.graph_pool, stream=current_stream, auto_dispatch_capture=True,):
                 output = self.runnable(*args, **kwargs)
+
+        # Restore is_capturing flag
+        config.is_capturing = original_is_capturing
 
         entry.aclgraph = aclgraph
         entry.output = weak_ref_tensor(output)
         self.cache[cache_key] = entry
 
+        # 增加全局计数器
+        acl_graph_capture_count += 1
+        
         logger.info(f"ACL Graph captured for shapes {cache_key}")
+        logger.info(f"Total ACL Graph captures: {acl_graph_capture_count}")
 
         return output
     
@@ -246,6 +263,14 @@ class AscendPiecewiseGraphWrapper(torch.nn.Module):
                 )
 
             if new_tensor.data_ptr() != target_view.data_ptr():
+                logger.info(
+                    "Input buffer address changed for arg%d (cache_key=%s): "
+                    "expected 0x%x, got 0x%x, copying data",
+                    arg_idx,
+                    cache_key,
+                    target_view.data_ptr(),
+                    new_tensor.data_ptr(),
+                )
                 target_view.copy_(new_tensor)
 
         entry.aclgraph.replay()

@@ -50,6 +50,7 @@ def next_power_of_2(n: int):
 
 def get_ascend_compatible_size(n: int):
     """Get ascend compatible size. 参考ascend_cudagraph.py实现"""
+    return next_power_of_2(n)
     if n <= 16:
         n = next_power_of_2(n)
     elif n <= 256:
@@ -58,27 +59,38 @@ def get_ascend_compatible_size(n: int):
         n = (((n - 1) >> 8) + 1) << 8
     return n
 
+# @functools.lru_cache
+# def _get_capture_batch_size_impl(max_batches: int):
+#     """Capture batch size. 从ascend_cudagraph.py移植"""
+#     ret = []
+#     batch_size = 1
+#     batch_step_1, batch_step_2 = 16, 256
+#     # power of 2
+#     while batch_size <= min(batch_step_1, max_batches):
+#         ret.append(batch_size)
+#         batch_size *= 2
+
+#     # step 1
+#     ret += list(range(batch_size, min(max_batches, batch_step_2) + 1, batch_step_1))
+
+#     # step 2
+#     ret += list(range(ret[-1] + batch_step_2, max_batches + 1, batch_step_2))
+
+#     # ensure max_batches in ret
+#     if max_batches != ret[-1]:
+#         ret.append(max_batches)
+
+#     return ret
+
 @functools.lru_cache
 def _get_capture_batch_size_impl(max_batches: int):
-    """Capture batch size. 从ascend_cudagraph.py移植"""
+    """Capture batch size."""
     ret = []
     batch_size = 1
-    batch_step_1, batch_step_2 = 16, 256
-    # power of 2
-    while batch_size <= min(batch_step_1, max_batches):
+    while batch_size < max_batches:
         ret.append(batch_size)
         batch_size *= 2
-
-    # step 1
-    ret += list(range(batch_size, min(max_batches, batch_step_2) + 1, batch_step_1))
-
-    # step 2
-    ret += list(range(ret[-1] + batch_step_2, max_batches + 1, batch_step_2))
-
-    # ensure max_batches in ret
-    if max_batches != ret[-1]:
-        ret.append(max_batches)
-
+    ret.append(max_batches)
     return ret
 
 
@@ -123,7 +135,7 @@ class DlinferPiecewiseBackend:
     def __init__(self):
         # 每次调用 backend 都会重新 split/ wrap
         pass
-
+    
     def __call__(self, gm: fx.GraphModule, example_inputs) -> Callable:
         """
         Backend入口
@@ -170,7 +182,7 @@ class DlinferPiecewiseBackend:
             for item in split_items:
                 submod_name = item.submod_name
                 original_submod = getattr(split_gm, submod_name)
-
+                
                 if item.is_splitting_graph:
                     wrapped = EagerExecutionWrapper(
                         op_or_module=original_submod,
@@ -179,15 +191,15 @@ class DlinferPiecewiseBackend:
                 else:
                     is_first = item.graph_id == 0
                     is_last = item.graph_id == len(split_items) - 1
-
+                    
                     wrapped = AscendPiecewiseGraphWrapper(
                         runnable=original_submod,
                         is_first_graph=is_first,
                         is_last_graph=is_last,
                         graph_pool=get_graph_pool(),
                     )
-
-                split_gm.__dict__[submod_name] = wrapped
+                    
+                    split_gm.__dict__[submod_name] = wrapped
             
             logger.info("Step 3: Graph preparation complete")
             logger.info("=" * 60)
