@@ -1,23 +1,22 @@
 """
 Eager Execution Wrapper for Piecewise Mode
 
-在 Piecewise 模式下，某些 ops（如 attention）需要执行 eager 版本。
-这个 wrapper 临时关闭 graph mode，执行 eager 版本的函数。
+In piecewise mode, certain operations (like attention) require eager execution.
+This wrapper temporarily disables graph mode to execute eager versions of functions.
 """
 import torch.nn as nn
 from typing import Any, Callable
 from contextlib import contextmanager
 import dlinfer.graph
 
-
 @contextmanager
 def eager_mode():
     """
-    临时关闭 graph mode 的上下文管理器
-    
-    用法:
+    Context manager to temporarily disable graph mode.
+
+    Usage:
         with eager_mode():
-            result = some_dlinfer_op(...)  # 执行 eager 版本
+            result = some_dlinfer_op(...)  # Execute eager version
     """
     original_mode = dlinfer.graph.config.enable_graph_mode
     try:
@@ -26,14 +25,13 @@ def eager_mode():
     finally:
         dlinfer.graph.config.enable_graph_mode = original_mode
 
-
 class EagerExecutionWrapper(nn.Module):
     """
-    强制 eager 执行的 wrapper
-    
-    功能：
-    - 将某个 op 或 module 包装，使其始终在 eager 模式下执行
-    - 即使外层 enable_graph_mode=True，这个 wrapper 内部也会临时关闭
+    Wrapper to force eager execution.
+
+    Features:
+    - Wraps operations or modules to always execute in eager mode
+    - Temporarily disables graph mode internally even when outer enable_graph_mode=True
     """
     
     def __init__(self, op_or_module: Callable, op_name: str = "unknown"):

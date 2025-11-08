@@ -247,7 +247,7 @@ def paged_decode_attention(
     bs, _, dim = query.shape
     block_num = key_cache.size(0)
     scale_value = softmax_scale if softmax_scale else 1.0 / math.sqrt(dim)
-    
+
     # Check if we're in graph mode
     use_piecewise_graph = getattr(graph_config, "piecewise_graph_enabled", False)
 
@@ -256,7 +256,7 @@ def paged_decode_attention(
         query = query.view(bs, 1, num_q_heads * dim)
         key_cache = key_cache.view(block_num, block_size, -1)
         value_cache = value_cache.view(block_num, block_size, -1)
-        
+
         attn_output, _ = torch.ops.npu.npu_fused_infer_attention_score(
             query,
             key_cache,
@@ -300,16 +300,16 @@ def paged_decode_attention(
             value_antiquant_mode=0,
         )
         return attn_output
-    
+
     # Replay mode - use _npu_paged_attention
     # Prepare tensors
     query = query.contiguous()
-    
+
     # Ensure attn_output is not None and is contiguous
     if attn_output is None:
         raise RuntimeError("attn_output must be provided in graph mode")
     # attn_output = attn_output.contiguous()
-    
+
     # Direct call to _npu_paged_attention without workspace for eager execution
     # import pdb;pdb.set_trace()
     # print(f'########### in replay paged_decode_attention, use torch_npu._npu_paged_attention!!!', flush=True)
@@ -322,9 +322,9 @@ def paged_decode_attention(
         scale_value=scale_value,
         block_table=block_table,
         context_lens=kv_seq_len,
-        out=attn_output
+        out=attn_output,
     )
-    
+
     return attn_output.view(bs, 1, num_q_heads * dim)
 
 

@@ -2,4 +2,6 @@
 from dlinfer.utils.config import Config
 
 
-config = Config(enable_graph_mode=False, piecewise_graph_enabled=False, is_capturing=False)
+config = Config(
+    enable_graph_mode=False, piecewise_graph_enabled=False, is_capturing=False
+)
