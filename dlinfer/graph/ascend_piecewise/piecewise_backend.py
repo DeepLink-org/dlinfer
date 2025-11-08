@@ -1,9 +1,10 @@
 """
 Dlinfer Piecewise Backend for torch.compile.
 
-Strategy: Separate attention operations (executed eagerly) from compute operations 
+Strategy: Separate attention operations (executed eagerly) from compute operations
 (optimized with ACL Graph) using enable_graph_mode=True.
 """
+
 import torch
 import torch.fx as fx
 import functools
@@ -21,14 +22,18 @@ from dlinfer.graph.ascend_piecewise.utils import (
     is_fx_graph_debug_enabled,
 )
 
-logger = get_logger('dlinfer.backend')
+logger = get_logger("dlinfer.backend")
+
 
 def is_debug_enabled() -> bool:
     """Check if FX graph debugging is enabled via environment variable."""
     import os
-    return os.environ.get('DLINFER_ASCEND_PIECEWISE_GRAPH_DEBUG', '0') == '1'
+
+    return os.environ.get("DLINFER_ASCEND_PIECEWISE_GRAPH_DEBUG", "0") == "1"
+
 
 _global_graph_pool = None
+
 
 def get_graph_pool() -> Any:
     """Get the global unique graph_pool instance."""
@@ -38,6 +43,7 @@ def get_graph_pool() -> Any:
         if is_debug_enabled():
             logger.info("Created global graph pool for shared use across instances")
     return _global_graph_pool
+
 
 def next_power_of_2(n: int) -> int:
     """Return the smallest power of 2 greater than or equal to n."""
@@ -51,8 +57,10 @@ def next_power_of_2(n: int) -> int:
     n += 1
     return n
 
+
 def get_ascend_compatible_size(n: int) -> int:
     return next_power_of_2(n)
+
 
 @functools.lru_cache
 def _get_capture_batch_size_impl(max_batches: int) -> List[int]:
@@ -65,9 +73,11 @@ def _get_capture_batch_size_impl(max_batches: int) -> List[int]:
     ret.append(max_batches)
     return ret
 
+
 def get_capture_batch_sizes(max_batches: int) -> List[int]:
     """Get Ascend-compatible capture batch size list."""
     return _get_capture_batch_size_impl(max_batches)
+
 
 class DlinferPiecewiseBackend:
     """
@@ -81,7 +91,7 @@ class DlinferPiecewiseBackend:
     3. Wraps non-attention parts with ACL Graph
     4. Returns executable split GraphModule
     """
-    
+
     SPLITTING_OPS = [
         "dlinfer.prefill_attention",
         "dlinfer.paged_decode_attention",
@@ -92,8 +102,10 @@ class DlinferPiecewiseBackend:
 
     def __init__(self):
         self._compilation_count = 0
-    
-    def __call__(self, gm: fx.GraphModule, example_inputs: Tuple[Any, ...]) -> Callable[..., Any]:
+
+    def __call__(
+        self, gm: fx.GraphModule, example_inputs: Tuple[Any, ...]
+    ) -> Callable[..., Any]:
         """
         Backend entry point.
 
@@ -117,7 +129,11 @@ class DlinferPiecewiseBackend:
             # Debug Step 0: Print original FX graph structure (only on first compilation)
             if self._compilation_count == 1 and is_fx_graph_debug_enabled():
                 debug_fx_graph_structure(gm, "Original FX Graph (First Compilation)")
-                debug_fx_graph_nodes(gm, filter_ops=['call_function'], title="Original FX Graph - Call Functions")
+                debug_fx_graph_nodes(
+                    gm,
+                    filter_ops=["call_function"],
+                    title="Original FX Graph - Call Functions",
+                )
 
             if is_debug_enabled():
                 logger.info("Step 1: Splitting graph...")
@@ -141,8 +157,7 @@ class DlinferPiecewiseBackend:
 
                 if item.is_splitting_graph:
                     wrapped = EagerExecutionWrapper(
-                        op_or_module=original_submod,
-                        op_name=f"attention_{submod_name}"
+                        op_or_module=original_submod, op_name=f"attention_{submod_name}"
                     )
                 else:
                     is_first = item.graph_id == 0
@@ -167,18 +182,20 @@ class DlinferPiecewiseBackend:
 
             # Debug Step 3: Final compilation summary
             if is_fx_graph_debug_enabled():
-                debug_compilation_summary(gm, split_gm, split_items, self._compilation_count)
+                debug_compilation_summary(
+                    gm, split_gm, split_items, self._compilation_count
+                )
 
             return split_gm
-        
+
         except Exception as e:
             logger.error(f"Error in DlinferPiecewiseBackend: {e}", exc_info=True)
             raise
-    
+
     def reset(self) -> None:
         """Reset state (for testing)."""
         pass
 
+
 def create_backend():
     return DlinferPiecewiseBackend()
-
