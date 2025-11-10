@@ -1,6 +1,6 @@
 pyyaml
 ninja
-setuptools==69.5.1
+setuptools
 wheel
 scikit-build
 cmake>=3.18
