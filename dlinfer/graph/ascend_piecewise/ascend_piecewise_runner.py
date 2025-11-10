@@ -416,8 +416,8 @@ class AscendPiecewiseSingleGraphRunner:
     @record_function("capture_cudagraph")
     def capture(self, **kwargs):
         """Capture graph."""
-        if is_debug_enabled():
-            logger.debug(f"Capturing graph with meta: {self.meta}")
+        # logger.info(f"Capturing graph with meta: {self.meta}")
+        print(f"######## Capturing graph with meta: {self.meta}")
 
         num_tokens = kwargs["input_ids"].size(-1)
 

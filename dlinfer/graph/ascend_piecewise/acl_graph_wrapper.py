@@ -186,10 +186,7 @@ class AscendPiecewiseGraphWrapper(torch.nn.Module):
 
         except Exception as e:
             logger.error("Error in ACL graph execution: %s", str(e))
-            if self._use_graph:
-                logger.warning("Falling back to eager execution due to graph error")
-                return self.runnable(*args, **kwargs)
-            raise
+            raise RuntimeError(f"Error in ACL graph execution: {str(e)}") from e
 
     def _debug_log(self, message: str, *args: Any) -> None:
         """Helper method for debug logging to avoid conditional checks"""
