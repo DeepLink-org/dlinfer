@@ -63,7 +63,8 @@ class AscendPiecewiseAttentionBuffer:
         if cls.class_attention_output is None:
             from lmdeploy.pytorch.distributed import get_tp_world_rank
 
-            tp, tp_rank = get_tp_world_rank("attn")
+            # tp, tp_rank = get_tp_world_rank("attn") // need lmpdeploy to support dp+tp
+            tp, tp_rank = get_tp_world_rank()
             if is_debug_enabled():
                 logger.info(f"get_attention_output: tp={tp}, tp_rank={tp_rank}")
             cls.class_attention_output = torch.empty(
