@@ -3,7 +3,7 @@ set -e
 
 eval "$(conda shell.bash hook)"
 
-REPO_ROOT=$(cd $(dirname $(dirname $0)); pwd)
+REPO_ROOT=$(dirname $(cd $(dirname $0); pwd))
 cd ${REPO_ROOT}
 
 PY_VERSION_LIST=("3.10" "3.11")
