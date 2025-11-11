@@ -88,39 +88,20 @@ def prefill_attention(
         raise RuntimeError(
             "paged_decode_attention does not " "support alibi_slopes yet"
         )
-
     query = query.contiguous()
     key = key.contiguous()
     value = value.contiguous()
     scale_value = softmax_scale if softmax_scale else 1.0 / math.sqrt(query.shape[-1])
     if SocVersion.is_Ascend910():
-        seq_qlen_list = (
-            [max_q_seq_len * (i + 1) for i in range(query.shape[0])]
-            if q_seq_len is None
-            else q_seq_len.cumsum(0).tolist()
-        )
-        seq_kvlen_list = seq_qlen_list
-        if (attn_mask is None or len(attn_mask) == 0) and q_seq_len is None:
-            query = query.view(query.shape[0] * query.shape[1], num_q_heads, -1)
-            key = key.view(key.shape[0] * key.shape[1], num_kv_heads, -1)
-            value = value.view(value.shape[0] * value.shape[1], num_kv_heads, -1)
-        # some vl models pass a fp16 mask from lmdeploy in vision part of prefill phase.
-        attn_mask_ = (
-            None
-            if (attn_mask is None or len(attn_mask) == 0)
-            else attn_mask[0].to(torch.bool)
-        )
-        attn_output.view(query.shape)[:] = torch.ops.npu.npu_fusion_attention(
-            query,
-            key,
-            value,
-            num_q_heads,
-            "TND",
-            scale=scale_value,
-            atten_mask=attn_mask_,
-            actual_seq_qlen=seq_qlen_list,
-            actual_seq_kvlen=seq_kvlen_list,
-        )[0]
+        torch.ops.atb._npu_flash_attention(query=query,
+                                            key=key,
+                                            value=value,
+                                            mask=attn_mask[0].to(query.dtype),
+                                            seq_len=q_seq_len,
+                                            scale_value=scale_value,
+                                            num_heads=num_q_heads,
+                                            num_kv_heads=num_kv_heads,
+                                            out=attn_output)
     elif SocVersion.is_Ascend310P():
         # Used for Qwen2.5-VL model vision block
         query = query.unsqueeze(0)
@@ -343,6 +324,11 @@ def paged_prefill_attention(
     kv_zeros: Optional[Tensor],
     quant_bits: Optional[int],
 ) -> Tensor:
+
+    raise RuntimeError(
+        "invalid paged_decode_attention!!!!"
+    )
+
     if alibi_slopes is not None:
         raise RuntimeError(
             "paged_decode_attention does not " "support alibi_slopes yet"
