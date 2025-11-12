@@ -325,9 +325,9 @@ def paged_prefill_attention(
     quant_bits: Optional[int],
 ) -> Tensor:
 
-    raise RuntimeError(
-        "invalid paged_decode_attention!!!!"
-    )
+    # raise RuntimeError(
+    #     "invalid paged_decode_attention!!!!"
+    # )
 
     if alibi_slopes is not None:
         raise RuntimeError(

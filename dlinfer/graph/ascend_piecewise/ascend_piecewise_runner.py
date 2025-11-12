@@ -63,8 +63,8 @@ class AscendPiecewiseAttentionBuffer:
         if cls.class_attention_output is None:
             from lmdeploy.pytorch.distributed import get_tp_world_rank
 
-            # tp, tp_rank = get_tp_world_rank("attn") // need lmpdeploy to support dp+tp
-            tp, tp_rank = get_tp_world_rank()
+            tp, tp_rank = get_tp_world_rank("attn") # need lmpdeploy to support dp+tp
+            # tp, tp_rank = get_tp_world_rank()
             if is_debug_enabled():
                 logger.info(f"get_attention_output: tp={tp}, tp_rank={tp_rank}")
             cls.class_attention_output = torch.empty(
@@ -606,7 +606,8 @@ class AscendPiecewiseGraphRunner(GraphRunner):
             meta = self.get_meta()
             padding_batch_size = meta.padding_batch_size
             tp_size = self._get_capture_tokens(padding_batch_size)
-            dp_meta.tp_sizes = [tp_size] * len(dp_meta.tp_sizes)
+            # Sync both tp_sizes and moe_tp_sizes so downstream MoE ops see the padded token count.
+            dp_meta.sync_tp_size(tp_size)
         return inputs
 
     def get_capture_batch_sizes(self) -> List[int]:
