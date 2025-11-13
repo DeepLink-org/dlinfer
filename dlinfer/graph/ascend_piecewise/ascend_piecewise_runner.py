@@ -3,6 +3,7 @@ Piecewise Graph Runner
 lmdeploywarmup
 """
 
+import os
 from dataclasses import dataclass
 import torch
 from torch import Tensor
@@ -19,6 +20,8 @@ from dlinfer.graph.ascend_piecewise.piecewise_backend import (
     get_ascend_compatible_size,
     get_capture_batch_sizes as backend_capture_batch_sizes,
 )
+from dlinfer.graph.ascend_piecewise.bucket_utils import limit_capture_bucket_list
+from dlinfer.graph.ascend_piecewise.bucket_utils import adjust_capture_batch_sizes
 from lmdeploy.pytorch.model_inputs import StepContext, get_step_ctx_manager
 
 from torch.profiler import record_function
@@ -507,8 +510,85 @@ class AscendPiecewiseGraphRunner(GraphRunner):
         self._runner_map: Dict[Any, AscendPiecewiseSingleGraphRunner] = dict()
         self.has_try_compile_model: bool = False
 
+        override_env = os.getenv("DLINFER_ASCEND_CAPTURE_SIZES")
+        override_sizes = None
+
+        if override_env:
+            try:
+                parsed = sorted(
+                    {int(item.strip()) for item in override_env.split(",") if item.strip()}
+                )
+                override_sizes = [size for size in parsed if size > 0]
+                if not override_sizes:
+                    logger.warning(
+                        "DLINFER_ASCEND_CAPTURE_SIZES provided but no valid positive integers found: %s",
+                        override_env,
+                    )
+                    override_sizes = None
+            except ValueError:
+                logger.warning(
+                    "Failed to parse DLINFER_ASCEND_CAPTURE_SIZES=%s; ignoring user override",
+                    override_env,
+                )
+                override_sizes = None
+
+        try:
+            from lmdeploy.pytorch.distributed import get_dist_manager
+
+            dist_config = get_dist_manager().current_context().dist_config
+        except Exception:  # pragma: no cover - dist context may not be initialized
+            dist_config = None
+
+        default_capture_sizes = backend_capture_batch_sizes(self.cache_config.max_batches)
+        base_sizes = override_sizes or default_capture_sizes
+        if override_sizes:
+            filtered = [size for size in base_sizes if size in default_capture_sizes]
+            if not filtered:
+                logger.warning(
+                    "DLINFER_ASCEND_CAPTURE_SIZES=%s has no overlap with default buckets %s; falling back",
+                    override_env,
+                    default_capture_sizes,
+                )
+                base_sizes = default_capture_sizes
+            else:
+                base_sizes = filtered
+                logger.info("Using user-specified capture buckets before adjustment: %s", base_sizes)
+
+        self._capture_batch_sizes = adjust_capture_batch_sizes(
+            base_sizes,
+            model_config=self.model_config,
+            cache_config=self.cache_config,
+            dist_config=dist_config,
+            logger_=logger,
+        )
+
         dlinfer.graph.config.enable_graph_mode = True
         dlinfer.graph.config.piecewise_graph_enabled = True
+
+        max_capture_env = os.getenv("DLINFER_ASCEND_MAX_CAPTURE_GRAPHS")
+        max_capture_graphs = None
+        if max_capture_env:
+            try:
+                max_capture_graphs = int(max_capture_env)
+            except ValueError:
+                logger.warning(
+                    "Invalid DLINFER_ASCEND_MAX_CAPTURE_GRAPHS=%s, ignoring.", max_capture_env
+                )
+
+        # Only apply trimming if custom capture sizes are not provided via environment variable
+        if not os.getenv("DLINFER_ASCEND_GRAPH_CAPTURE_SIZES"):
+            limited_sizes = limit_capture_bucket_list(
+                self._capture_batch_sizes,
+                model_config=self.model_config,
+                dist_config=dist_config,
+                max_capture_graphs=max_capture_graphs,
+            )
+            if not limited_sizes:
+                logger.warning(
+                    "Ascend capture bucket limiter returned empty list; falling back to defaults."
+                )
+                limited_sizes = self._capture_batch_sizes
+            self._capture_batch_sizes = limited_sizes
 
     def check_enable_graph(self):
         """Check enable graph."""
@@ -612,4 +692,4 @@ class AscendPiecewiseGraphRunner(GraphRunner):
 
     def get_capture_batch_sizes(self) -> List[int]:
         """Capture batch sizes."""
-        return backend_capture_batch_sizes(self.cache_config.max_batches)
+        return self._capture_batch_sizes

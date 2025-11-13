@@ -238,7 +238,7 @@ class AscendPiecewiseGraphWrapper(torch.nn.Module):
         original_is_capturing = config.is_capturing
         config.is_capturing = True
 
-        current_stream = torch.cuda.current_stream()
+        # current_stream = torch.cuda.current_stream()
         acl_graph = torch.npu.NPUGraph()
 
         try:
@@ -250,22 +250,26 @@ class AscendPiecewiseGraphWrapper(torch.nn.Module):
                 with torch.npu.graph(
                     acl_graph,
                     pool=self.graph_pool,
-                    stream=current_stream,
-                    auto_dispatch_capture=True,
+                    # stream=current_stream,
+                    # auto_dispatch_capture=True,
                 ):
                     output = self.runnable(*args, **kwargs)
 
             entry.acl_graph = acl_graph
-            entry.output = weak_ref_tensor(output)
+            # entry.output = weak_ref_tensor(output)
+            ref_output = weak_ref_tensor(output)
+            entry.output = ref_output
 
             self._add_to_cache(cache_key, entry)
             acl_graph_capture_count += 1
 
             if is_debug_enabled():
-                logger.info("ACL Graph captured for shapes %s", cache_key)
-                logger.info("Total ACL Graph captures: %d", acl_graph_capture_count)
+                logger.info(f"########## ACL Graph captured for shapes {cache_key}")
+                logger.info(f"########## Total ACL Graph captures: {acl_graph_capture_count}")
+            print(f"########## Total ACL Graph captures: {acl_graph_capture_count}")
 
-            return output
+            # return output
+            return ref_output
 
         except Exception as e:
             if acl_graph is not None:
