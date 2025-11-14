@@ -1,8 +1,6 @@
 import atexit
 import os
-
 import acl
-import numpy as np
 import torch
 from torch.profiler import record_function
 
