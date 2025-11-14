@@ -252,6 +252,7 @@ def fill_buffers_cudagraph(
     batch_size, num_blocks = block_offsets.size()
     num_tokens = input_ids.size(-1)
 
+    input_buffers["input_ids"].zero_()
     input_buffers["input_ids"][:, :num_tokens] = input_ids
     input_buffers["position_ids"].zero_()
     input_buffers["position_ids"][:, :num_tokens] = position_ids
@@ -285,13 +286,18 @@ def fill_buffers_cudagraph(
             input_buffers["inputs_embeds"].zero_()
         input_buffers["inputs_embeds"][:, :num_tokens] = inputs_embeds
 
-    new_batch_size = get_ascend_compatible_size(batch_size)
+    if graph_meta.is_decoding:
+        padded_batch_size = max(graph_meta.max_batchs, batch_size)
+    else:
+        padded_batch_size = get_ascend_compatible_size(batch_size)
 
-    attn_metadata.block_offsets = input_buffers["block_offsets"][:new_batch_size]
-    attn_metadata.kv_seqlens = input_buffers["kv_seqlens"][:new_batch_size]
-    attn_metadata.kv_start_indices = input_buffers["kv_start_indices"][:new_batch_size]
+    attn_metadata.block_offsets = input_buffers["block_offsets"][:padded_batch_size]
+    attn_metadata.kv_seqlens = input_buffers["kv_seqlens"][:padded_batch_size]
+    attn_metadata.kv_start_indices = input_buffers["kv_start_indices"][
+        :padded_batch_size
+    ]
     attn_metadata.attn_output_buffer = output_buffers["attention_output"][
-        :new_batch_size
+        :padded_batch_size
     ]
 
     q_seqlens_tensor = getattr(attn_metadata, "q_seqlens", None)
@@ -300,15 +306,15 @@ def fill_buffers_cudagraph(
             graph_meta,
             "q_seqlens",
             q_seqlens_tensor,
-            target_first_dim=new_batch_size,
+            target_first_dim=padded_batch_size,
         )
 
     q_start_loc_tensor = getattr(attn_metadata, "q_start_loc", None)
     if q_start_loc_tensor is not None:
         pad_dim = (
-            new_batch_size
+            padded_batch_size
             if q_start_loc_tensor.dim() == 0
-            else max(new_batch_size + 1, q_start_loc_tensor.shape[0])
+            else max(padded_batch_size + 1, q_start_loc_tensor.shape[0])
         )
         attn_metadata.q_start_loc = _ensure_tensor_view(
             graph_meta,
@@ -323,7 +329,7 @@ def fill_buffers_cudagraph(
             graph_meta,
             "fill_seqlens",
             fill_seqlens_tensor,
-            target_first_dim=new_batch_size,
+            target_first_dim=padded_batch_size,
         )
 
     new_inputs = dict(
@@ -331,11 +337,13 @@ def fill_buffers_cudagraph(
         attn_metadata=attn_metadata,
     )
 
-    new_inputs["input_ids"] = input_buffers["input_ids"][:, :new_batch_size]
-    new_inputs["position_ids"] = input_buffers["position_ids"][:, :new_batch_size]
+    new_inputs["input_ids"] = input_buffers["input_ids"][:, :padded_batch_size]
+    new_inputs["position_ids"] = input_buffers["position_ids"][:, :padded_batch_size]
 
     if inputs_embeds is not None:
-        new_inputs["inputs_embeds"] = input_buffers["inputs_embeds"][:, :new_batch_size]
+        new_inputs["inputs_embeds"] = input_buffers["inputs_embeds"][
+            :, :padded_batch_size
+        ]
 
     handled_keys = {
         "input_ids",
@@ -353,7 +361,7 @@ def fill_buffers_cudagraph(
             graph_meta,
             key,
             value,
-            pad_dim=new_batch_size,
+            pad_dim=padded_batch_size,
         )
         extra_kwargs[key] = materialized
 
@@ -687,7 +695,20 @@ class AscendPiecewiseGraphRunner(GraphRunner):
             padding_batch_size = meta.padding_batch_size
             tp_size = self._get_capture_tokens(padding_batch_size)
             # Sync both tp_sizes and moe_tp_sizes so downstream MoE ops see the padded token count.
+            logger.info(
+                "[AscendRunner] sync_tp_size padding_batch_size=%s tp_size=%s "
+                "tp_sizes_before=%s moe_tp_sizes_before=%s",
+                padding_batch_size,
+                tp_size,
+                dp_meta.tp_sizes,
+                dp_meta.moe_tp_sizes,
+            )
             dp_meta.sync_tp_size(tp_size)
+            logger.info(
+                "[AscendRunner] synced tp_sizes_after=%s moe_tp_sizes_after=%s",
+                dp_meta.tp_sizes,
+                dp_meta.moe_tp_sizes,
+            )
         return inputs
 
     def get_capture_batch_sizes(self) -> List[int]:

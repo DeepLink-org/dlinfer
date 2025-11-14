@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import math
 import os
-from dataclasses import dataclass
-from typing import Iterable, List, Optional, Sequence, Tuple
+from typing import Iterable, List, Optional, Sequence
 
 from lmdeploy.pytorch.config import CacheConfig, ModelConfig
 from lmdeploy.utils import get_logger
@@ -16,18 +15,11 @@ _LOGGER = get_logger("dlinfer.ascend.bucket")
 # Default limit from vLLM-Ascend: 2048 hardware streams minus a safety buffer.
 DEFAULT_MAX_CAPTURE_GRAPHS = 1800
 COMM_STREAM_BUFFER = 40
+_SHARED_EXPERT_ENV = "DLINFER_ASCEND_MULTISTREAM_SHARED_EXPERT"
 
 
-@dataclass
-class DistSummary:
-    dp: int = 1
-    tp: int = 1
-    ep: int = 1
-    enable_expert_parallel: bool = False
-
-
-def _sorted_unique(values: Iterable[int]) -> List[int]:
-    return sorted({v for v in values if isinstance(v, int) and v > 0})
+def _collect_positive(values: Iterable[int]) -> List[int]:
+    return [value for value in values if isinstance(value, int) and value > 0]
 
 
 def _uniform_sample(values: Sequence[int], target_len: int) -> List[int]:
@@ -43,36 +35,29 @@ def _uniform_sample(values: Sequence[int], target_len: int) -> List[int]:
     indices[0] = 0
     indices[-1] = len(values) - 1
 
-    sampled: List[int] = []
-    for idx in indices:
-        value = values[idx]
-        if not sampled or sampled[-1] != value:
-            sampled.append(value)
-    return sampled
+    return [values[idx] for idx in indices]
 
 
-def _detect_moe(model_config: Optional[ModelConfig]) -> bool:
+def _contains_expert(config) -> bool:
+    if isinstance(config, dict):
+        for key, value in config.items():
+            if "expert" in str(key).lower():
+                return True
+            if _contains_expert(value):
+                return True
+    return False
+
+
+def _is_moe_model(model_config: Optional[ModelConfig]) -> bool:
     hf_config = getattr(model_config, "hf_config", None)
     if hf_config is None:
         return False
-
-    if getattr(hf_config, "num_experts", 0):
-        return True
-
-    architectures = getattr(hf_config, "architectures", None)
-    if isinstance(architectures, (list, tuple)):
-        lowered = " ".join(str(item) for item in architectures).lower()
-        if "moe" in lowered or "expert" in lowered:
-            return True
-
-    try:
-        to_dict = getattr(hf_config, "to_dict", None)
-        if callable(to_dict):
-            hf_dict = to_dict()
-            return any("expert" in str(key).lower() for key in hf_dict.keys())
-    except Exception:  # pragma: no cover - defensive
-        _LOGGER.debug("MoE detection failed", exc_info=True)
-
+    to_dict = getattr(hf_config, "to_dict", None)
+    if callable(to_dict):
+        try:
+            return _contains_expert(to_dict())
+        except Exception:  # pragma: no cover - defensive
+            _LOGGER.debug("MoE detection failed", exc_info=True)
     return False
 
 
@@ -96,111 +81,40 @@ def _get_num_layers(model_config: Optional[ModelConfig]) -> Optional[int]:
     return None
 
 
-def _moe_multiplier(model_config: Optional[ModelConfig]) -> float:
-    if model_config is None:
-        return 1.0
+def _get_architecture_name(model_config: Optional[ModelConfig]) -> str:
     hf_config = getattr(model_config, "hf_config", None)
-    if hf_config is None:
-        return 1.0
-
-    experts_per_tok = getattr(hf_config, "num_experts_per_tok", None)
-    if isinstance(experts_per_tok, int) and experts_per_tok > 0:
-        return max(1.0, experts_per_tok / 4.0)
-    return 1.0
+    if hf_config is not None:
+        architectures = getattr(hf_config, "architectures", None)
+        if isinstance(architectures, (list, tuple)) and architectures:
+            return str(architectures[0])
+    return "unknown"
 
 
-def summarize_dist(dist_config) -> DistSummary:
-    if dist_config is None:
-        return DistSummary()
+def _shared_expert_overlap_enabled() -> bool:
+    env = os.getenv(_SHARED_EXPERT_ENV)
+    if not env:
+        return False
+    try:
+        return bool(int(env))
+    except ValueError:
+        lowered = env.strip().lower()
+        return lowered in {"true", "on", "yes"}
 
-    dp = getattr(dist_config, "dp", 1) or 1
-    tp = getattr(dist_config, "attn_tp", None) or getattr(dist_config, "tp", 1) or 1
-    ep = getattr(dist_config, "ep", 1) or 1
-    enable_expert_parallel = bool(getattr(dist_config, "enable_eplb", False) or ep > 1)
-    return DistSummary(dp=dp, tp=tp, ep=ep, enable_expert_parallel=enable_expert_parallel)
 
-
-def _compute_bucket_limit(
-    original_sizes: Sequence[int],
-    model_config: Optional[ModelConfig],
-    dist_summary: DistSummary,
-    max_capture_graphs: int,
-) -> Tuple[List[int], dict]:
-    if max_capture_graphs is None:
-        max_capture_graphs = DEFAULT_MAX_CAPTURE_GRAPHS
-
-    sizes = _sorted_unique(original_sizes)
-    info = {
-        "valid": bool(sizes),
-        "reason": "",
-        "max_capture_graphs": max_capture_graphs,
-        "parallel_factor": None,
-        "resources_per_graph": None,
-        "num_comm_groups": None,
-        "dp": dist_summary.dp,
-        "tp": dist_summary.tp,
-        "ep": dist_summary.ep,
-    }
-
-    if not sizes:
-        info["reason"] = "empty_input"
-        return [], info
-
-    num_layers = _get_num_layers(model_config)
-    if num_layers is None:
-        info["reason"] = "unknown_num_layers"
-        return list(sizes), info
-
-    resources_per_graph = num_layers + 1
-    is_moe = _detect_moe(model_config)
-    if is_moe:
-        resources_per_graph = int(resources_per_graph * _moe_multiplier(model_config))
-        resources_per_graph = max(resources_per_graph, num_layers + 1)
-    info["resources_per_graph"] = resources_per_graph
-
-    num_comm_groups = sum(size > 1 for size in (dist_summary.dp, dist_summary.tp))
-    info["num_comm_groups"] = num_comm_groups
-
-    hccl_mode = os.getenv("HCCL_OP_EXPANSION_MODE", "").upper()
-    is_moe = _detect_moe(model_config)
-
-    if hccl_mode == "AIV":
-        parallel_factor = 1 + num_comm_groups + int(dist_summary.enable_expert_parallel)
-        if is_moe and dist_summary.dp > 1:
-            parallel_factor += 1
-        else:
-            max_capture_graphs = max_capture_graphs - parallel_factor * resources_per_graph
-
-        parallel_factor = max(parallel_factor, 1)
-        info.update({"parallel_factor": parallel_factor, "max_capture_graphs": max_capture_graphs})
-
-        if max_capture_graphs <= 0:
-            info["reason"] = "insufficient_streams"
-            return [sizes[-1]], info
-
-        limit = max_capture_graphs // resources_per_graph // parallel_factor
-    else:
-        denom = 1 + num_comm_groups * 2
-        effective = max_capture_graphs - num_comm_groups * COMM_STREAM_BUFFER
-        info.update({"parallel_factor": denom, "max_capture_graphs": effective})
-
-        if denom <= 0 or effective <= 0:
-            info["reason"] = "invalid_stream_estimate"
-            return [sizes[-1]], info
-
-        limit = effective // resources_per_graph // denom
-
-    limit = max(1, limit)
-    if limit >= len(sizes):
-        info["reason"] = "no_truncation"
-        return list(sizes), info
-
-    sampled = _uniform_sample(sizes, limit)
-    if not sampled:
-        sampled = [sizes[-1]]
-    info["reason"] = "truncated"
-    info["final_bucket_count"] = len(sampled)
-    return sampled, info
+def _parallel_config(dist_config) -> tuple[int, int, bool]:
+    dp = 1
+    tp = 1
+    enable_expert_parallel = False
+    if dist_config is not None:
+        dp = getattr(dist_config, "dp", 1) or 1
+        tp = getattr(dist_config, "attn_tp", None) or getattr(dist_config, "tp", 1) or 1
+        ep = getattr(dist_config, "ep", 1) or 1
+        enable_expert_parallel = bool(
+            getattr(dist_config, "enable_expert_parallel", False)
+            or getattr(dist_config, "enable_eplb", False)
+            or ep > 1
+        )
+    return dp, tp, enable_expert_parallel
 
 
 def limit_capture_buckets(
@@ -212,30 +126,125 @@ def limit_capture_buckets(
 ) -> List[int]:
     if max_capture_graphs is None:
         max_capture_graphs = DEFAULT_MAX_CAPTURE_GRAPHS
-    sizes, info = _compute_bucket_limit(
-        default_sizes,
-        model_config,
-        summarize_dist(dist_config),
-        max_capture_graphs,
-    )
 
-    reason = info.get("reason")
-    if reason == "truncated":
-        _LOGGER.info(
-            "Ascend capture buckets truncated %s → %s (layers=%s, dp=%s, tp=%s, ep=%s, streams=%s)",
-            list(_sorted_unique(default_sizes)),
-            sizes,
-            info.get("resources_per_graph"),
-            info.get("dp"),
-            info.get("tp"),
-            info.get("ep"),
-            info.get("max_capture_graphs"),
+    sizes = _collect_positive(default_sizes)
+    if not sizes:
+        return []
+
+    original_sizes = list(sizes)
+    num_layers = _get_num_layers(model_config)
+    if num_layers is None:
+        _LOGGER.debug(
+            "Unable to determine number of hidden layers; returning original capture sizes."
         )
-    elif reason == "no_truncation":
-        _LOGGER.info("Ascend capture buckets remain unchanged (count=%d).", len(sizes))
-    elif reason not in (None, ""):
-        _LOGGER.debug("Bucket limiter status=%s (result=%s)", reason, sizes)
-    return sizes
+        return list(sizes)
+
+    dp, tp, enable_expert_parallel = _parallel_config(dist_config)
+    num_comm_groups = sum(size > 1 for size in (dp, tp))
+    resources_per_graph = num_layers + 1
+    hccl_mode = os.getenv("HCCL_OP_EXPANSION_MODE", "").upper()
+    is_moe = _is_moe_model(model_config)
+    shared_overlap = _shared_expert_overlap_enabled()
+
+    capture_limit = max_capture_graphs
+    calc_info = {
+        "model": _get_architecture_name(model_config),
+        "layers": num_layers,
+        "dp": dp,
+        "tp": tp,
+        "expert_parallel": enable_expert_parallel,
+        "num_comm_groups": num_comm_groups,
+        "is_moe": is_moe,
+        "hccl_mode": hccl_mode or "DEFAULT",
+        "shared_expert_overlap": shared_overlap,
+        "resources_per_graph": resources_per_graph,
+        "max_capture_graphs_input": max_capture_graphs,
+    }
+
+    if hccl_mode == "AIV":
+        parallel_factor = 1 + num_comm_groups + int(enable_expert_parallel) + int(
+            shared_overlap
+        )
+        # if is_moe and dp > 1:
+        #     parallel_factor += 1
+        # else:
+        #     capture_limit -= parallel_factor * resources_per_graph
+        # Tighter control to avoid graph capture failures caused by too many batches
+        parallel_factor += 1
+        capture_limit -= parallel_factor * resources_per_graph
+
+        parallel_factor = max(parallel_factor, 1)
+        max_num_batch_sizes = math.floor(
+            capture_limit / resources_per_graph / parallel_factor
+        )
+        calc_info.update(
+            {
+                "parallel_factor": parallel_factor,
+                "capture_limit_after_reserve": capture_limit,
+            }
+        )
+        _LOGGER.info(
+            "Calculated maximum supported batch sizes for ACL graph: %s",
+            max_num_batch_sizes,
+        )
+    else:
+        effective = capture_limit - num_comm_groups * COMM_STREAM_BUFFER
+        denom = 1 + num_comm_groups * 2
+        max_num_batch_sizes = math.floor(
+            effective / resources_per_graph / denom
+        )
+        calc_info.update(
+            {
+                "effective_stream_budget": effective,
+                "denominator": denom,
+            }
+        )
+        _LOGGER.info(
+            "Calculated maximum supported batch sizes for ACL graph: %s",
+            max_num_batch_sizes,
+        )
+        _LOGGER.warning(
+            "Currently, communication is performed using FFTS+ method, which reduces "
+            "the number of available streams and, as a result, limits the range of runtime "
+            "shapes that can be handled. To both improve communication performance and "
+            "increase the number of supported shapes, set HCCL_OP_EXPANSION_MODE=AIV."
+        )
+
+    if max_num_batch_sizes < 1:
+        max_num_batch_sizes = 1
+
+    truncated = max_num_batch_sizes < len(sizes)
+    if not truncated:
+        result = list(sizes)
+        _LOGGER.info(
+            "No adjustment needed for ACL graph batch sizes: layers=%d, count=%d",
+            num_layers,
+            len(sizes),
+        )
+    else:
+        sampled = _uniform_sample(sizes, max_num_batch_sizes)
+        if not sampled:
+            sampled = [sizes[-1]]
+        result = sampled
+        _LOGGER.info(
+            "Adjusted ACL graph batch sizes for %s model (layers: %d): %d → %d sizes",
+            _get_architecture_name(model_config),
+            num_layers,
+            len(sizes),
+            len(result),
+        )
+
+    calc_info.update(
+        {
+            "max_num_batch_sizes": max_num_batch_sizes,
+            "sizes_before": original_sizes,
+            "sizes_after": list(result),
+            "final_bucket_count": len(result),
+            "result": "truncated" if truncated else "unchanged",
+        }
+    )
+    _LOGGER.info("ACL graph capture bucket summary: %s", calc_info)
+    return result
 
 
 def adjust_capture_batch_sizes(
@@ -246,22 +255,18 @@ def adjust_capture_batch_sizes(
     logger_: Optional[object] = None,
 ) -> List[int]:
     local_logger = logger_ or _LOGGER
-    
-    # Check for custom capture sizes from environment variable
+
     env_sizes_str = os.getenv("DLINFER_ASCEND_GRAPH_CAPTURE_SIZES", "")
     if env_sizes_str:
         try:
-            # Parse comma-separated values and convert to integers
             env_sizes = [int(x.strip()) for x in env_sizes_str.split(",") if x.strip()]
             if env_sizes:
                 local_logger.info(
                     "Using custom ACL graph capture sizes from environment: %s",
                     env_sizes,
                 )
-                # Validate that custom sizes are within reasonable bounds
-                validated_sizes = _sorted_unique(env_sizes)
+                validated_sizes = _collect_positive(env_sizes)
                 if validated_sizes:
-                    # When custom sizes are provided, use them directly without trimming
                     if cache_config is not None:
                         local_logger.info(
                             "Using custom ACL graph batches: %s (max_batches=%s)",
@@ -269,23 +274,25 @@ def adjust_capture_batch_sizes(
                             getattr(cache_config, "max_batches", "?"),
                         )
                     return validated_sizes
-        except (ValueError, AttributeError) as e:
+        except (ValueError, AttributeError) as exc:
             local_logger.warning(
                 "Failed to parse DLINFER_ASCEND_GRAPH_CAPTURE_SIZES=%s: %s. Using default sizes.",
-                env_sizes_str, e
+                env_sizes_str,
+                exc,
             )
-    
+
+    sanitized_original = _collect_positive(original_sizes)
     limited = limit_capture_buckets(
-        original_sizes,
+        sanitized_original,
         model_config,
         dist_config,
         max_capture_graphs=DEFAULT_MAX_CAPTURE_GRAPHS,
     )
 
-    if cache_config is not None and limited != list(original_sizes):
+    if cache_config is not None and limited != sanitized_original:
         local_logger.info(
             "Adjusted ACL graph batches %s → %s (max_batches=%s)",
-            list(original_sizes),
+            sanitized_original,
             limited,
             getattr(cache_config, "max_batches", "?"),
         )
