@@ -1,9 +1,11 @@
 # Copyright (c) 2024, OpenMMLab and DeepLink. All rights reserved.
 # this file implements the cudagraph for ascend backend.
 import functools
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
+from dataclasses import dataclass
 from contextlib import ExitStack
 import torch
+import torch_npu
 from torch import Tensor
 from torch.profiler import record_function
 
@@ -46,7 +48,7 @@ def AscendCudaGraphMixin_make_buffers_cudagraph(
         max_batches, dtype=torch.int32, device=device
     )
 
-    input_buffers["kv_seqlens"] = [0] * max_batches
+    input_buffers["kv_seqlens"] = torch.ones(max_batches, dtype=torch.int32)
 
     input_buffers["q_start_loc"] = torch.arange(
         max_batches + 1, dtype=torch.int32, device=device
@@ -71,6 +73,7 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
     """fill cudagraph buffers from forward inputs."""
     block_offsets: Tensor = attn_metadata.block_offsets
     kv_seqlens: List = attn_metadata.kv_seqlens
+    kv_seqlens: Tensor = attn_metadata.kv_seqlens
     kv_start_indices: Tensor = attn_metadata.kv_start_indices
 
     input_buffers: BuffType = graph_meta.input_buffers
@@ -176,6 +179,7 @@ def _get_capture_batch_size_impl(max_batches: int):
     if max_batches != ret[-1]:
         ret.append(max_batches)
 
+    set_graph_params(set(ret))
     return ret
 
 
@@ -197,6 +201,7 @@ class AscendSingleGraphRunner:
         pool: Any,
         model_config: ModelConfig,
         device: torch.device,
+        update_stream: torch.npu.Stream,
     ):
         self.model = model
         self.ctx_mgr = model.ctx_mgr
@@ -219,6 +224,7 @@ class AscendSingleGraphRunner:
         self.is_decoding = is_decoding
         self.pool = pool
         self._graph: torch.npu.NPUGraph = None
+        self.update_stream = update_stream
 
     @record_function("capture_cudagraph")
     def capture(self, **kwargs):
@@ -253,14 +259,8 @@ class AscendSingleGraphRunner:
         self.model.fill_buffers_cudagraph(self.meta, **kwargs)
         context = self.ctx_mgr.current_context()
         self.model.update_context_cudagraph(self.meta, context)
-        torch.npu.synchronize()
+        update_attn_params(self.update_stream, self.meta, self.max_tokens)
         self._graph.replay()
-        self._graph.update(
-            cpu_update_input=[
-                {"actual_seq_lengths_kv": self.meta.input_buffers["kv_seqlens"]}
-            ]
-        )
-
         output = self.meta.output_buffers["logits"][:, :num_tokens]
         return output
 
@@ -271,6 +271,8 @@ class AscendSingleGraphRunner:
 
 class AscendGraphRunner(GraphRunner):
     """Cuda graph runner."""
+
+    capturing = False
 
     def __init__(
         self,
@@ -288,6 +290,7 @@ class AscendGraphRunner(GraphRunner):
         self.graph_pool_handle = torch.cuda.graph_pool_handle()
         self._runner_map: Dict[Any, AscendSingleGraphRunner] = dict()
         self.has_try_compile_model: bool = False
+        self.update_stream = torch.npu.Stream()
 
     def check_enable_graph(self):
         """Check enable graph."""
@@ -344,7 +347,9 @@ class AscendGraphRunner(GraphRunner):
                 pool=self.graph_pool_handle,
                 model_config=self.model_config,
                 device=self.device,
+                update_stream=self.update_stream,
             )
+            AscendGraphRunner.capturing = True
             runner.capture(**kwargs)
             self._runner_map[graph_key] = runner
         else:
@@ -389,3 +394,73 @@ class AscendGraphRunner(GraphRunner):
 
 
 graph_runner.CUDAGraphRunner = AscendGraphRunner
+
+
+@dataclass
+class GraphParams:
+    events: dict[int, list[torch.npu.ExternalEvent]]
+    workspaces: dict[int, torch.Tensor]
+    handles: dict[int, list[torch_npu._C._NPUTaskGroupHandle]]
+    attn_params: dict[int, list[tuple]]
+
+
+_graph_params: Optional[GraphParams] = None
+
+
+def set_graph_params(aclgraph_capture_sizes: set[int]):
+    global _graph_params
+    if _graph_params is not None:
+        raise ValueError("Graph parameters have already been set!")
+    _graph_params = GraphParams(
+        {size: [] for size in aclgraph_capture_sizes},
+        {size: None for size in aclgraph_capture_sizes},
+        {size: [] for size in aclgraph_capture_sizes},
+        {size: [] for size in aclgraph_capture_sizes},
+    )
+
+
+def update_graph_params_workspaces(num_tokens: int, workspace: Any):
+    global _graph_params
+    if _graph_params is not None:
+        _graph_params.workspaces[num_tokens] = workspace
+
+
+def get_graph_params():
+    return _graph_params
+
+
+def update_attn_params(update_stream, forward_meta, runtime_size):
+    graph_params = get_graph_params()
+    graph_params = get_graph_params()
+    for param, handle, event in zip(
+        graph_params.attn_params[runtime_size],
+        graph_params.handles[runtime_size],
+        graph_params.events[runtime_size],
+    ):
+        (
+            query,
+            key_cache,
+            value_cache,
+            num_kv_heads,
+            num_heads,
+            scale,
+            block_table,
+            seq_lens,
+            output,
+        ) = param
+        seq_lens = forward_meta.input_buffers["kv_seqlens"]
+        with torch.npu.stream(update_stream):
+            torch.npu.graph_task_update_begin(update_stream, handle)
+            torch.ops.atb._npu_paged_attention(
+                query=query,
+                key_cache=key_cache,
+                value_cache=value_cache,
+                num_kv_heads=num_kv_heads,
+                num_heads=num_heads,
+                scale_value=scale,
+                block_table=block_table,
+                context_lens=seq_lens,
+                out=output,
+            )
+            torch.npu.graph_task_update_end(update_stream)
+            event.record(update_stream)
