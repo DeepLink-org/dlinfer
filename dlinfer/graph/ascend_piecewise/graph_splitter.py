@@ -8,15 +8,9 @@ import torch.fx as fx
 from typing import List
 from dataclasses import dataclass
 from lmdeploy.utils import get_logger
+from dlinfer.graph.ascend_piecewise.utils import is_debug_enabled
 
 logger = get_logger("dlinfer.graph_splitter")
-
-
-def is_debug_enabled() -> bool:
-    """Check if FX graph debugging is enabled via environment variable."""
-    import os
-
-    return os.environ.get("DLINFER_ASCEND_PIECEWISE_GRAPH_DEBUG", "0") == "1"
 
 
 @dataclass

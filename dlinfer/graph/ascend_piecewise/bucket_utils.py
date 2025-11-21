@@ -162,14 +162,14 @@ def limit_capture_buckets(
     }
 
     if hccl_mode == "AIV":
-        parallel_factor = 1 + num_comm_groups + int(enable_expert_parallel) + int(
-            shared_overlap
+        parallel_factor = (
+            1 + num_comm_groups + int(enable_expert_parallel) + int(shared_overlap)
         )
         # if is_moe and dp > 1:
         #     parallel_factor += 1
         # else:
         #     capture_limit -= parallel_factor * resources_per_graph
-        # Tighter control to avoid graph capture failures caused by too many batches
+        # # Tighter control to avoid graph capture failures caused by too many batches
         parallel_factor += 1
         capture_limit -= parallel_factor * resources_per_graph
 
@@ -190,9 +190,7 @@ def limit_capture_buckets(
     else:
         effective = capture_limit - num_comm_groups * COMM_STREAM_BUFFER
         denom = 1 + num_comm_groups * 2
-        max_num_batch_sizes = math.floor(
-            effective / resources_per_graph / denom
-        )
+        max_num_batch_sizes = math.floor(effective / resources_per_graph / denom)
         calc_info.update(
             {
                 "effective_stream_budget": effective,
@@ -306,4 +304,3 @@ __all__ = [
     "limit_capture_buckets",
     "limit_capture_bucket_list",
 ]
-

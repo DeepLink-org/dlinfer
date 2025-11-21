@@ -93,15 +93,17 @@ def prefill_attention(
     value = value.contiguous()
     scale_value = softmax_scale if softmax_scale else 1.0 / math.sqrt(query.shape[-1])
     if SocVersion.is_Ascend910():
-        torch.ops.atb._npu_flash_attention(query=query,
-                                            key=key,
-                                            value=value,
-                                            mask=attn_mask[0].to(query.dtype),
-                                            seq_len=q_seq_len,
-                                            scale_value=scale_value,
-                                            num_heads=num_q_heads,
-                                            num_kv_heads=num_kv_heads,
-                                            out=attn_output)
+        torch.ops.atb._npu_flash_attention(
+            query=query,
+            key=key,
+            value=value,
+            mask=attn_mask[0].to(query.dtype),
+            seq_len=q_seq_len,
+            scale_value=scale_value,
+            num_heads=num_q_heads,
+            num_kv_heads=num_kv_heads,
+            out=attn_output,
+        )
     elif SocVersion.is_Ascend310P():
         # Used for Qwen2.5-VL model vision block
         query = query.unsqueeze(0)
@@ -324,11 +326,6 @@ def paged_prefill_attention(
     kv_zeros: Optional[Tensor],
     quant_bits: Optional[int],
 ) -> Tensor:
-
-    # raise RuntimeError(
-    #     "invalid paged_decode_attention!!!!"
-    # )
-
     if alibi_slopes is not None:
         raise RuntimeError(
             "paged_decode_attention does not " "support alibi_slopes yet"

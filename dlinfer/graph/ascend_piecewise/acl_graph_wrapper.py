@@ -14,22 +14,62 @@ from contextlib import ExitStack
 from unittest.mock import patch
 from collections import OrderedDict
 from lmdeploy.utils import get_logger
+from dlinfer.graph.ascend_piecewise.utils import (
+    is_acl_graph_debug_enabled,
+    is_debug_enabled,
+)
 
 logger = get_logger("dlinfer.acl_graph")
 
 
-def is_debug_enabled() -> bool:
-    """Check if ACL graph debugging is enabled via environment variable."""
-    import os
-
-    return os.environ.get("DLINFER_ASCEND_PIECEWISE_GRAPH_DEBUG", "0") == "1"
-
-
-# Global counter for ACL graph capture statistics
+# Global counter for ACL graph capture statistics and resource tracking.
 acl_graph_capture_count = 0
+_capture_attempts = 0
+_capture_success = 0
 
-# Default maximum number of cached graphs to prevent memory bloat
-DEFAULT_MAX_CACHE_SIZE = 8
+
+def _record_capture_attempt(cache_key: Tuple[Any, ...], cache_size: int) -> int:
+    """Track capture attempt counts for debugging resource usage."""
+    global _capture_attempts
+    _capture_attempts += 1
+    attempt_id = _capture_attempts
+    if is_acl_graph_debug_enabled():
+        logger.info(
+            "[ACLGraphCapture] attempt #%s cache_key=%s cache_size=%s",
+            attempt_id,
+            cache_key,
+            cache_size,
+        )
+    return attempt_id
+
+
+def _record_capture_success(capture_id: int, cache_key: Tuple[Any, ...]) -> None:
+    """Track successful captures."""
+    global _capture_success
+    _capture_success += 1
+    if is_acl_graph_debug_enabled():
+        logger.info(
+            "[ACLGraphCapture] success #%s cache_key=%s",
+            capture_id,
+            cache_key,
+        )
+
+
+def _record_capture_failure(
+    capture_id: int, cache_key: Tuple[Any, ...], exc: Exception
+):
+    """Log capture failures with aggregate stats."""
+    if is_acl_graph_debug_enabled():
+        failures = _capture_attempts - _capture_success
+        logger.error(
+            "[ACLGraphCapture] failure #%s cache_key=%s attempts=%s successes=%s failures=%s reason=%s",
+            capture_id,
+            cache_key,
+            _capture_attempts,
+            _capture_success,
+            failures,
+            exc,
+        )
 
 
 @dataclass
@@ -86,12 +126,9 @@ class AscendPiecewiseGraphWrapper(torch.nn.Module):
         is_last_graph: bool = False,
         graph_pool: Optional[Any] = None,
         is_decoding: Optional[bool] = None,
-        max_cache_size: int = DEFAULT_MAX_CACHE_SIZE,
     ):
         if not callable(runnable):
             raise ValueError("runnable must be callable")
-        if max_cache_size <= 0:
-            raise ValueError("max_cache_size must be positive")
         if graph_pool is None:
             raise ValueError("graph_pool cannot be None")
 
@@ -106,9 +143,9 @@ class AscendPiecewiseGraphWrapper(torch.nn.Module):
         self._use_graph = self.auto_detect_stage or bool(is_decoding)
 
         self.graph_pool = graph_pool
-        self.debug_mode = logger.level <= 10
+        self.debug_mode = is_debug_enabled()
+        self.acl_debug = is_acl_graph_debug_enabled()
 
-        self.max_cache_size = max_cache_size
         self.cache: OrderedDict[Tuple[Any, ...], ACLGraphEntry] = OrderedDict()
 
         self._canonical_signature: Optional[Tuple[Tuple[str, Tuple[int, ...]], ...]] = (
@@ -205,11 +242,12 @@ class AscendPiecewiseGraphWrapper(torch.nn.Module):
         global acl_graph_capture_count
         self._ensure_signature(args, kwargs)
         entry = ACLGraphEntry(cache_key=cache_key)
+        capture_id = _record_capture_attempt(cache_key, len(self.cache))
 
         tensor_args = [
             (idx, arg) for idx, arg in enumerate(args) if isinstance(arg, torch.Tensor)
         ]
-
+        views = []
         if tensor_args:
             indices, shapes, views, buffers = zip(
                 *[(idx, arg.shape, arg, arg) for idx, arg in tensor_args]
@@ -220,7 +258,7 @@ class AscendPiecewiseGraphWrapper(torch.nn.Module):
             entry.arg_views = list(views)
             entry.arg_buffers = list(buffers)
 
-            if self.debug_mode:
+            if self.acl_debug:
                 entry.input_addresses = [view.data_ptr() for view in views]
                 logger.debug(
                     "Captured arg buffer addresses for %s: %s",
@@ -232,13 +270,14 @@ class AscendPiecewiseGraphWrapper(torch.nn.Module):
             entry.arg_shapes = []
             entry.arg_views = []
             entry.arg_buffers = []
+            if self.acl_debug:
+                entry.input_addresses = []
 
         from dlinfer.graph import config
 
         original_is_capturing = config.is_capturing
         config.is_capturing = True
 
-        # current_stream = torch.cuda.current_stream()
         acl_graph = torch.npu.NPUGraph()
 
         try:
@@ -250,8 +289,6 @@ class AscendPiecewiseGraphWrapper(torch.nn.Module):
                 with torch.npu.graph(
                     acl_graph,
                     pool=self.graph_pool,
-                    # stream=current_stream,
-                    # auto_dispatch_capture=True,
                 ):
                     output = self.runnable(*args, **kwargs)
 
@@ -262,11 +299,11 @@ class AscendPiecewiseGraphWrapper(torch.nn.Module):
 
             self._add_to_cache(cache_key, entry)
             acl_graph_capture_count += 1
+            _record_capture_success(capture_id, cache_key)
 
-            if is_debug_enabled():
-                logger.info(f"########## ACL Graph captured for shapes {cache_key}")
-                logger.info(f"########## Total ACL Graph captures: {acl_graph_capture_count}")
-            print(f"########## Total ACL Graph captures: {acl_graph_capture_count}")
+            if self.acl_debug:
+                logger.info("ACL Graph captured for shapes %s", cache_key)
+                logger.info("Total ACL Graph captures: %s", acl_graph_capture_count)
 
             # return output
             return ref_output
@@ -275,6 +312,7 @@ class AscendPiecewiseGraphWrapper(torch.nn.Module):
             if acl_graph is not None:
                 del acl_graph
             logger.error("Failed to capture ACL graph for shapes %s: %s", cache_key, e)
+            _record_capture_failure(capture_id, cache_key, e)
             raise
         finally:
             config.is_capturing = original_is_capturing
@@ -293,18 +331,8 @@ class AscendPiecewiseGraphWrapper(torch.nn.Module):
         return entry.output
 
     def _add_to_cache(self, cache_key: Tuple[Any, ...], entry: ACLGraphEntry) -> None:
-        if len(self.cache) >= self.max_cache_size and cache_key not in self.cache:
-            oldest_key, oldest_entry = self.cache.popitem(last=False)
-            if is_debug_enabled():
-                logger.debug("Evicted cache entry %s due to size limit", oldest_key)
-
-            if oldest_entry.acl_graph is not None:
-                del oldest_entry.acl_graph
-            oldest_entry.output = None
-            oldest_entry.arg_buffers = None
-            oldest_entry.arg_views = None
-
-        self.cache[cache_key] = entry
+        if cache_key not in self.cache:
+            self.cache[cache_key] = entry
         if is_debug_enabled():
             logger.debug(
                 "Added cache entry %s (cache size: %d)", cache_key, len(self.cache)

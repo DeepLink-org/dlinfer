@@ -14,6 +14,7 @@ from dlinfer.graph.ascend_piecewise.graph_splitter import split_graph, SplitItem
 from dlinfer.graph.ascend_piecewise.acl_graph_wrapper import AscendPiecewiseGraphWrapper
 from dlinfer.graph.ascend_piecewise.eager_wrapper import EagerExecutionWrapper
 from dlinfer.graph.ascend_piecewise.utils import (
+    is_debug_enabled,
     debug_fx_graph_structure,
     debug_fx_graph_nodes,
     debug_graph_splitting,
@@ -23,13 +24,6 @@ from dlinfer.graph.ascend_piecewise.utils import (
 )
 
 logger = get_logger("dlinfer.backend")
-
-
-def is_debug_enabled() -> bool:
-    """Check if FX graph debugging is enabled via environment variable."""
-    import os
-
-    return os.environ.get("DLINFER_ASCEND_PIECEWISE_GRAPH_DEBUG", "0") == "1"
 
 
 _global_graph_pool = None
