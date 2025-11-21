@@ -2,6 +2,7 @@
 import os
 import math
 import torch
+import torch_npu
 
 from dlinfer.vendor import vendor_ops_registry
 from dlinfer.utils.registry import register_ops
