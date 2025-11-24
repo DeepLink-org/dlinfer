@@ -158,6 +158,47 @@ def fill_kv_cache(
     v_scales_zeros: Sequence[Optional[Tensor]],
     quant_bits: int,
 ) -> Tuple[Tensor, Tensor]:
+    _, head, dim = key.shape
+    block_num, block_size = key_cache.shape[:2]
+    block_total = block_num * block_size
+
+    # only support contiguous k,v
+    key = key.contiguous()
+    value = value.contiguous()
+    kv_indices = kv_indices.view(-1, 1)
+
+    if quant_bits == 8:
+
+        def quant_int8(x, x_scale, x_offset):
+            quantized = (
+                ((x / x_scale) - x_offset).round().clamp(-128, 127).to(torch.int8)
+            )
+            return quantized
+
+        key = quant_int8(key, k_scales_zeros[0], k_scales_zeros[1])
+        value = quant_int8(value, v_scales_zeros[0], v_scales_zeros[1])
+
+    key_cache_reshaped = key_cache.view(block_total, head, dim)
+    value_cache_reshaped = value_cache.view(block_total, head, dim)
+    torch.ops.npu.npu_scatter_nd_update_(key_cache_reshaped, kv_indices, key)
+    torch.ops.npu.npu_scatter_nd_update_(value_cache_reshaped, kv_indices, value)
+    return key_cache, value_cache
+
+
+# atb._npu_reshape_and_cache has a performace advantage of about 3% compared to npu.npu_scatter_nd_update_,
+# but when slot_indices is an empty tensor will report an error.
+"""
+@register_ops(vendor_ops_registry)
+def fill_kv_cache(
+    key: Tensor,
+    value: Tensor,
+    key_cache: Tensor,
+    value_cache: Tensor,
+    kv_indices: Tensor,
+    k_scales_zeros: Sequence[Optional[Tensor]],
+    v_scales_zeros: Sequence[Optional[Tensor]],
+    quant_bits: int,
+) -> Tuple[Tensor, Tensor]:
     # only support contiguous k,v
     key = key.contiguous()
     value = value.contiguous()
@@ -181,6 +222,7 @@ def fill_kv_cache(
         slot_indices=kv_indices.to(torch.int32),
     )
     return key_cache, value_cache
+"""
 
 
 @register_ops(vendor_ops_registry)
