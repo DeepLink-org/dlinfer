@@ -72,7 +72,6 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
 ) -> Dict[str, Tensor]:
     """fill cudagraph buffers from forward inputs."""
     block_offsets: Tensor = attn_metadata.block_offsets
-    kv_seqlens: List = attn_metadata.kv_seqlens
     kv_seqlens: Tensor = attn_metadata.kv_seqlens
     kv_start_indices: Tensor = attn_metadata.kv_start_indices
 
