@@ -431,7 +431,6 @@ def get_graph_params():
 
 def update_attn_params(update_stream, forward_meta, runtime_size):
     graph_params = get_graph_params()
-    graph_params = get_graph_params()
     for param, handle, event in zip(
         graph_params.attn_params[runtime_size],
         graph_params.handles[runtime_size],
