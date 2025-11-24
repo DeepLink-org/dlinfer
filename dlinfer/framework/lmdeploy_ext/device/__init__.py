@@ -65,6 +65,44 @@ def patch_compiled_func():
     torch.compile = real_torch_compile
 
 
+def patch_async_sampling_logits():
+    from torch.profiler import record_function
+    from lmdeploy.pytorch.engine.model_agent import BaseModelAgent
+    from lmdeploy.pytorch.engine.logits_process import (
+        SamplingInputs,
+        FusedLogitsProcessor,
+    )
+    from lmdeploy.pytorch.model_inputs import ModelInputs
+
+    async def async_sampling_logits(
+        self, logits: torch.Tensor, sampling_inputs: SamplingInputs, inputs: ModelInputs
+    ):
+        """Sampling logits."""
+
+        # record function does not support async function
+        # so we can not decorate it on async_sampling_logits
+        with record_function("sampling_logits"):
+            logits = logits.to(torch.float32)
+            logits_processor = FusedLogitsProcessor(
+                sampling_inputs,
+                logprobs_mode=self.misc_config.logprobs_mode,
+                guided_decoding_manager=self.guided_decoding_manager,
+            )
+            origin_logits = logits
+            logits, raw_logprobs = await logits_processor(origin_logits)
+            next_token_ids = logits_processor.sampling(logits)
+            logprobs = logits_processor.compute_logprobs(raw_logprobs, next_token_ids)
+            if logprobs is not None:
+                logprobs = BatchedLogProbs(
+                    vals=logprobs[0],
+                    indices=logprobs[1],
+                )
+
+        return next_token_ids, logprobs
+
+    BaseModelAgent.async_sampling_logits = async_sampling_logits
+
+
 @lru_cache(1)
 def import_vendor_module(vendor_name_str):
     if vendor_name_str in vendor:
@@ -74,6 +112,7 @@ def import_vendor_module(vendor_name_str):
 def vendor_device_init():
     import_vendor_module(vendor_name)
     patch_compiled_func()
+    patch_async_sampling_logits()
 
 
 vendor_device_init()
