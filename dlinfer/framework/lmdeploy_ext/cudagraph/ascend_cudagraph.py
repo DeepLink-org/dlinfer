@@ -418,12 +418,6 @@ def set_graph_params(aclgraph_capture_sizes: set[int]):
     )
 
 
-def update_graph_params_workspaces(num_tokens: int, workspace: Any):
-    global _graph_params
-    if _graph_params is not None:
-        _graph_params.workspaces[num_tokens] = workspace
-
-
 def get_graph_params():
     return _graph_params
 
