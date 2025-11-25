@@ -279,7 +279,6 @@ def paged_decode_attention(
     attn_output = attn_output.contiguous()
     scale_value = softmax_scale if softmax_scale else 1.0 / math.sqrt(query.shape[-1])
     if AscendGraphRunner.capturing:
-        kv_seq_len = kv_seq_len
         graph_params = get_graph_params()
         num_tokens = query.shape[0]
         stream = torch.npu.current_stream()
