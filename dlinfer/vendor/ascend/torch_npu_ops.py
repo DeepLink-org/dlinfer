@@ -94,12 +94,23 @@ def prefill_attention(
     key = key.contiguous()
     value = value.contiguous()
     scale_value = softmax_scale if softmax_scale else 1.0 / math.sqrt(query.shape[-1])
+    if len(attn_mask):
+        mask = attn_mask[0].to(query.dtype)
+    else:
+        mask = torch.logical_not(
+            torch.tril(
+                torch.ones(
+                    max_q_seq_len, max_q_seq_len, dtype=torch.bool, device=query.device
+                )
+            )
+        ).to(query.dtype)
+        q_seq_len = q_seq_len.cpu()
     if SocVersion.is_Ascend910():
         torch.ops.atb._npu_flash_attention(
             query=query,
             key=key,
             value=value,
-            mask=attn_mask[0].to(query.dtype),
+            mask=mask,
             seq_len=q_seq_len,
             scale_value=scale_value,
             num_heads=num_q_heads,
