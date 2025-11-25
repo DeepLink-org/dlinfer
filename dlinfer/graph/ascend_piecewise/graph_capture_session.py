@@ -20,6 +20,7 @@ from lmdeploy.utils import get_logger
 from .utils import is_debug_enabled
 from .piecewise_backend import create_backend, get_ascend_compatible_size
 
+
 logger = get_logger("dlinfer.ascend.capture")
 if os.environ.get("DLINFER_ASCEND_DEBUG_CAPTURE", "0") == "1":
     logger.setLevel(logging.INFO)
@@ -130,6 +131,7 @@ def _root_key_from_path(path: str) -> str:
     return root
 
 
+@record_function("ascend_piecewise_ensure_tensor_view")
 def _ensure_tensor_view(
     graph_meta: CudaGraphMeta,
     name: str,
@@ -171,6 +173,7 @@ def _ensure_tensor_view(
     return view
 
 
+@record_function("ascend_piecewise_materialize_argument")
 def _materialize_argument(
     graph_meta: CudaGraphMeta,
     key_path: str,
@@ -221,7 +224,7 @@ def _materialize_argument(
 
     return value
 
-
+@record_function("ascend_piecewise_fill_buffers")
 def fill_buffers_cudagraph(
     graph_meta: CudaGraphMeta,
     input_ids: Tensor,
@@ -232,7 +235,7 @@ def fill_buffers_cudagraph(
     **kwargs,
 ) -> Dict[str, Tensor]:
     block_offsets: Tensor = attn_metadata.block_offsets
-    kv_seqlens: List = attn_metadata.kv_seqlens
+    kv_seqlens: Tensor = attn_metadata.kv_seqlens
     kv_start_indices: Tensor = attn_metadata.kv_start_indices
 
     input_buffers: BuffType = graph_meta.input_buffers
@@ -261,13 +264,9 @@ def fill_buffers_cudagraph(
     if batch_size < padded_batch_size:
         block_offsets_buf[batch_size:padded_batch_size, :num_blocks].zero_()
 
+
     kv_seqlens_buffer = input_buffers["kv_seqlens"]
-    kv_seqlens_tensor = _as_tensor_on_device(
-        kv_seqlens,
-        dtype=kv_seqlens_buffer.dtype,
-        device=kv_seqlens_buffer.device,
-    )
-    kv_seqlens_buffer[:batch_size].copy_(kv_seqlens_tensor)
+    kv_seqlens_buffer[:batch_size].copy_(kv_seqlens.cpu())
     if batch_size < padded_batch_size:
         kv_seqlens_buffer[batch_size:padded_batch_size].zero_()
 
@@ -372,6 +371,7 @@ def fill_buffers_cudagraph(
     return new_inputs
 
 
+@record_function("ascend_piecewise_update_context")
 def update_context_cudagraph(graph_meta, context):
     input_buffers = graph_meta.input_buffers
     context.block_offsets = input_buffers["block_offsets"]

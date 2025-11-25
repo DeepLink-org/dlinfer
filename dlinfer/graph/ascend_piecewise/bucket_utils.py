@@ -169,7 +169,7 @@ def limit_capture_buckets(
         #     parallel_factor += 1
         # else:
         #     capture_limit -= parallel_factor * resources_per_graph
-        # # Tighter control to avoid graph capture failures caused by too many batches
+        # Tighter control to avoid graph capture failures caused by too many batches
         parallel_factor += 1
         capture_limit -= parallel_factor * resources_per_graph
 
