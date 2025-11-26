@@ -286,7 +286,6 @@ class AscendSingleGraphRunner:
             pass
 
 
-
 class AscendGraphRunner(GraphRunner):
     """Cuda graph runner."""
 
@@ -395,9 +394,7 @@ class AscendGraphRunner(GraphRunner):
             try:
                 runner.reset()
             except Exception as e:
-                logger.warning(
-                    f"AscendGraphRunner.reset: runner.reset error: {e!r}"
-                )
+                logger.warning(f"AscendGraphRunner.reset: runner.reset error: {e!r}")
         self._runner_map.clear()
         clear_graph_params()
         self.graph_pool_handle = None
@@ -457,6 +454,7 @@ def set_graph_params(aclgraph_capture_sizes: set[int]):
 def get_graph_params():
     return _graph_params
 
+
 def clear_graph_params():
     """Clear global graph params and release references to KV cache tensors."""
     global _graph_params
@@ -474,6 +472,7 @@ def clear_graph_params():
         _graph_params.workspaces.clear()
     finally:
         _graph_params = None
+
 
 def update_attn_params(update_stream, forward_meta, runtime_size):
     graph_params = get_graph_params()
