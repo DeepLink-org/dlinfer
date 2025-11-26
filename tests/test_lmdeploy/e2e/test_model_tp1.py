@@ -11,6 +11,9 @@ from test_lmdeploy.utils.pipeline_chat import (
     assert_pipeline_vl_chat_log,
     run_pipeline_vl_chat_test,
 )
+import multiprocessing
+
+multiprocessing.set_start_method("spawn", force=True)
 
 
 @pytest.mark.usefixtures("common_case_config")
