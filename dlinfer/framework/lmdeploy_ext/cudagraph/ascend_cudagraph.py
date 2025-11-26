@@ -231,7 +231,6 @@ class AscendSingleGraphRunner:
         logger.debug(f"Capturing graph with meta: {self.meta}")
         self.meta.input_buffers = self.model.make_buffers_cudagraph(self.meta, **kwargs)
         padded_kwargs = self.model.fill_buffers_cudagraph(self.meta, **kwargs)
-        # logger.error(f"########### {padded_kwargs=}, {padded_kwargs.keys()=}")
         context = self.ctx_mgr.current_context()
         self.model.update_context_cudagraph(self.meta, context)
         current_stream = torch.cuda.current_stream()
