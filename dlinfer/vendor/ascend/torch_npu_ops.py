@@ -7,6 +7,10 @@ from dlinfer.vendor import vendor_ops_registry
 from dlinfer.utils.registry import register_ops
 from dlinfer.utils.type_annotation import Tensor, Optional, Sequence, Tuple
 from .utils import SocVersion
+from dlinfer.framework.lmdeploy_ext.cudagraph.ascend_cudagraph import (
+    AscendGraphRunner,
+    get_graph_params,
+)
 
 __all__ = [
     "add_rms_norm",
@@ -90,34 +94,29 @@ def prefill_attention(
     key = key.contiguous()
     value = value.contiguous()
     scale_value = softmax_scale if softmax_scale else 1.0 / math.sqrt(query.shape[-1])
+    if len(attn_mask):
+        mask = attn_mask[0].to(query.dtype)
+    else:
+        mask = torch.logical_not(
+            torch.tril(
+                torch.ones(
+                    max_q_seq_len, max_q_seq_len, dtype=torch.bool, device=query.device
+                )
+            )
+        ).to(query.dtype)
+        q_seq_len = q_seq_len.cpu()
     if SocVersion.is_Ascend910():
-        seq_qlen_list = (
-            [max_q_seq_len * (i + 1) for i in range(query.shape[0])]
-            if q_seq_len is None
-            else q_seq_len.cumsum(0).tolist()
+        torch.ops.atb._npu_flash_attention(
+            query=query,
+            key=key,
+            value=value,
+            mask=mask,
+            seq_len=q_seq_len,
+            scale_value=scale_value,
+            num_heads=num_q_heads,
+            num_kv_heads=num_kv_heads,
+            out=attn_output,
         )
-        seq_kvlen_list = seq_qlen_list
-        if (attn_mask is None or len(attn_mask) == 0) and q_seq_len is None:
-            query = query.view(query.shape[0] * query.shape[1], num_q_heads, -1)
-            key = key.view(key.shape[0] * key.shape[1], num_kv_heads, -1)
-            value = value.view(value.shape[0] * value.shape[1], num_kv_heads, -1)
-        # some vl models pass a fp16 mask from lmdeploy in vision part of prefill phase.
-        attn_mask_ = (
-            None
-            if (attn_mask is None or len(attn_mask) == 0)
-            else attn_mask[0].to(torch.bool)
-        )
-        attn_output.view(query.shape)[:] = torch.ops.npu.npu_fusion_attention(
-            query,
-            key,
-            value,
-            num_q_heads,
-            "TND",
-            scale=scale_value,
-            atten_mask=attn_mask_,
-            actual_seq_qlen=seq_qlen_list,
-            actual_seq_kvlen=seq_kvlen_list,
-        )[0]
     elif SocVersion.is_Ascend310P():
         # Used for Qwen2.5-VL model vision block
         query = query.unsqueeze(0)
@@ -170,6 +169,47 @@ def fill_kv_cache(
     v_scales_zeros: Sequence[Optional[Tensor]],
     quant_bits: int,
 ) -> Tuple[Tensor, Tensor]:
+    _, head, dim = key.shape
+    block_num, block_size = key_cache.shape[:2]
+    block_total = block_num * block_size
+
+    # only support contiguous k,v
+    key = key.contiguous()
+    value = value.contiguous()
+    kv_indices = kv_indices.view(-1, 1)
+
+    if quant_bits == 8:
+
+        def quant_int8(x, x_scale, x_offset):
+            quantized = (
+                ((x / x_scale) - x_offset).round().clamp(-128, 127).to(torch.int8)
+            )
+            return quantized
+
+        key = quant_int8(key, k_scales_zeros[0], k_scales_zeros[1])
+        value = quant_int8(value, v_scales_zeros[0], v_scales_zeros[1])
+
+    key_cache_reshaped = key_cache.view(block_total, head, dim)
+    value_cache_reshaped = value_cache.view(block_total, head, dim)
+    torch.ops.npu.npu_scatter_nd_update_(key_cache_reshaped, kv_indices, key)
+    torch.ops.npu.npu_scatter_nd_update_(value_cache_reshaped, kv_indices, value)
+    return key_cache, value_cache
+
+
+# atb._npu_reshape_and_cache has a performace advantage of about 3% compared to npu.npu_scatter_nd_update_,
+# but when slot_indices is an empty tensor will report an error.
+"""
+@register_ops(vendor_ops_registry)
+def fill_kv_cache(
+    key: Tensor,
+    value: Tensor,
+    key_cache: Tensor,
+    value_cache: Tensor,
+    kv_indices: Tensor,
+    k_scales_zeros: Sequence[Optional[Tensor]],
+    v_scales_zeros: Sequence[Optional[Tensor]],
+    quant_bits: int,
+) -> Tuple[Tensor, Tensor]:
     # only support contiguous k,v
     key = key.contiguous()
     value = value.contiguous()
@@ -193,6 +233,7 @@ def fill_kv_cache(
         slot_indices=kv_indices.to(torch.int32),
     )
     return key_cache, value_cache
+"""
 
 
 @register_ops(vendor_ops_registry)
@@ -234,57 +275,56 @@ def paged_decode_attention(
     if isinstance(block_table, torch.Tensor) and block_table.dtype != torch.int32:
         block_table = block_table.to(torch.int32)
 
-    bs, _, dim = query.shape
-    block_num = key_cache.size(0)
     query = query.contiguous()
     attn_output = attn_output.contiguous()
-    query = query.view(bs, 1, num_q_heads * dim)
-    key_cache = key_cache.view(block_num, block_size, -1)
-    value_cache = value_cache.view(block_num, block_size, -1)
-    scale_value = softmax_scale if softmax_scale else 1.0 / math.sqrt(dim)
-
-    attn_output, _ = torch.ops.npu.npu_fused_infer_attention_score(
-        query,
-        key_cache,
-        value_cache,
-        pse_shift=None,
-        atten_mask=None,
-        actual_seq_lengths=None,
-        actual_seq_lengths_kv=kv_seq_len,
-        dequant_scale1=None,
-        quant_scale1=None,
-        dequant_scale2=None,
-        quant_scale2=None,
-        quant_offset2=None,
-        antiquant_scale=kv_scales,
-        antiquant_offset=kv_zeros,
-        block_table=block_table,
-        query_padding_size=None,
-        kv_padding_size=None,
-        key_antiquant_scale=None,
-        key_antiquant_offset=None,
-        value_antiquant_scale=None,
-        value_antiquant_offset=None,
-        key_shared_prefix=None,
-        value_shared_prefix=None,
-        actual_shared_prefix_len=None,
-        query_rope=None,
-        key_rope=None,
-        key_rope_antiquant_scale=None,
-        num_heads=num_q_heads,
-        scale=scale_value,
-        pre_tokens=2147483647,
-        next_tokens=2147483647,
-        input_layout="BSH",
-        num_key_value_heads=num_kv_heads,
-        sparse_mode=0,
-        inner_precise=1,
-        block_size=block_size,
-        antiquant_mode=0,
-        softmax_lse_flag=False,
-        key_antiquant_mode=0,
-        value_antiquant_mode=0,
-    )
+    scale_value = softmax_scale if softmax_scale else 1.0 / math.sqrt(query.shape[-1])
+    if AscendGraphRunner.capturing:
+        graph_params = get_graph_params()
+        num_tokens = query.shape[0]
+        stream = torch.npu.current_stream()
+        event = torch.npu.ExternalEvent()
+        event.wait(stream)
+        event.reset(stream)
+        graph_params.events[num_tokens].append(event)
+        graph_params.attn_params[num_tokens].append(
+            (
+                query,
+                key_cache,
+                value_cache,
+                num_kv_heads,
+                num_q_heads,
+                scale_value,
+                block_table,
+                kv_seq_len,
+                attn_output,
+            )
+        )
+        torch.npu.graph_task_group_begin(stream)
+        torch.ops.atb._npu_paged_attention(
+            query=query,
+            key_cache=key_cache,
+            value_cache=value_cache,
+            num_kv_heads=num_kv_heads,
+            num_heads=num_q_heads,
+            scale_value=scale_value,
+            block_table=block_table,
+            context_lens=kv_seq_len,
+            out=attn_output,
+        )
+        handle = torch.npu.graph_task_group_end(stream)
+        graph_params.handles[num_tokens].append(handle)
+    else:
+        torch.ops.atb._npu_paged_attention(
+            query=query,
+            key_cache=key_cache,
+            value_cache=value_cache,
+            num_kv_heads=num_kv_heads,
+            num_heads=num_q_heads,
+            scale_value=scale_value,
+            block_table=block_table,
+            context_lens=kv_seq_len,
+            out=attn_output,
+        )
     return attn_output
 
 
