@@ -356,7 +356,8 @@ def paged_prefill_attention(
         )
         return output[..., :512]
 
-    value_cache = value_cache.permute(0, 1, 3, 2)
+    value_cache = value_cache.permute(0, 2, 3, 1)
+    key_cache = key_cache.permute(0, 2, 3, 1)
     context_attention_fwd(
         query,
         key,
@@ -436,7 +437,6 @@ def silu_and_mul(x: Tensor, dim: int = -1) -> Tensor:
     output_shape = x.shape[:-1] + (d,)
     out = torch.empty(output_shape, dtype=x.dtype, device=x.device)
     torch.ops._C.silu_and_mul(out, x)
-    #ops.silu_and_mul(out, x)
     return out
 
 
