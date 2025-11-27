@@ -282,6 +282,8 @@ def paged_decode_attention(
     if attn_output is None:
         raise RuntimeError("attn_output must be provided in graph mode")
 
+    # This is performed in place; `query` is effectively the same buffer as `attn_output`.
+    attn_output = query[..., :value_cache.size(-1)]
     # Direct call to _npu_paged_attention without workspace for eager execution
     torch_npu._npu_paged_attention(
         query=query,

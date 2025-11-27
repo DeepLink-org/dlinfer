@@ -324,8 +324,9 @@ class AscendPiecewiseGraphWrapper(torch.nn.Module):
         entry = self.cache.pop(cache_key)
         self.cache[cache_key] = entry
 
-        self._validate_input_buffers(entry, cache_key)
-        self._copy_input_data(entry, args, cache_key)
+        if self.acl_debug:
+            self._validate_input_buffers(entry, cache_key)
+            self._copy_input_data(entry, args, cache_key)
 
         entry.acl_graph.replay()
         return entry.output
