@@ -255,11 +255,21 @@ def moe_align_block_size(
     num_tokens_post_pad = torch.empty((1), dtype=torch.int32, device=topk_ids.device)
     if USE_MCOPLIB_OPS:
         torch.ops._moe_C.moe_align_block_size(
-            topk_ids, num_experts, block_size, sorted_ids, expert_ids, num_tokens_post_pad
+            topk_ids,
+            num_experts,
+            block_size,
+            sorted_ids,
+            expert_ids,
+            num_tokens_post_pad,
         )
     else:
         maca_ext_ops.moe_align_block_size(
-            topk_ids, num_experts, block_size, sorted_ids, expert_ids, num_tokens_post_pad
+            topk_ids,
+            num_experts,
+            block_size,
+            sorted_ids,
+            expert_ids,
+            num_tokens_post_pad,
         )
 
     return sorted_ids, expert_ids, num_tokens_post_pad
@@ -814,7 +824,9 @@ def fused_experts_impl(
                 intermediate_cache2, intermediate_cache1.view(-1, N)
             )
         else:
-            maca_ext_ops.silu_and_mul(intermediate_cache2, intermediate_cache1.view(-1, N))
+            maca_ext_ops.silu_and_mul(
+                intermediate_cache2, intermediate_cache1.view(-1, N)
+            )
 
         invoke_fused_moe_kernel(
             intermediate_cache2,

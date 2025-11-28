@@ -30,7 +30,9 @@ else:
     ops_name = "maca_ext_ops"
 
 # Print environment variable value and selected ops library
-print(f"[DLInfer] MACA_LMDEPLOY_MCOPLIB_OPS environment variable: {env_value} USE_MCOPLIB_OPS:{USE_MCOPLIB_OPS}")
+print(
+    f"[DLInfer] MACA_LMDEPLOY_MCOPLIB_OPS environment variable: {env_value} USE_MCOPLIB_OPS:{USE_MCOPLIB_OPS}"
+)
 print(f"[DLInfer] Using ops library: {ops_name}")
 
 __all__ = [
@@ -100,7 +102,7 @@ def apply_rotary_pos_emb(
     key = key.flatten(-2, -1)
     rot_dim = cos.size(-1)
     if USE_MCOPLIB_OPS:
-       ops.lmdeploy_rotary_embedding(
+        ops.lmdeploy_rotary_embedding(
             position_ids_1d,
             query,
             key,
@@ -108,7 +110,7 @@ def apply_rotary_pos_emb(
             cos.view(-1, rot_dim),
             sin.view(-1, rot_dim),
             True,
-            )
+        )
     else:
         ops.rotary_embedding(
             position_ids_1d,
@@ -118,7 +120,7 @@ def apply_rotary_pos_emb(
             cos.view(-1, rot_dim),
             sin.view(-1, rot_dim),
             True,
-            )
+        )
 
     return query, key
 
@@ -198,8 +200,10 @@ def prefill_attention(
     # for qwen vl part.
     if q_start_loc.shape[0] == q_seq_len.shape[0]:
         causal = False
-        q_start_loc = torch.cat([q_start_loc, q_seq_len.sum().to(torch.int32).unsqueeze(0)])
-    
+        q_start_loc = torch.cat(
+            [q_start_loc, q_seq_len.sum().to(torch.int32).unsqueeze(0)]
+        )
+
     output = flash_attn_varlen_func(
         query,
         key,
@@ -242,9 +246,11 @@ def fill_kv_cache(
     kv_indices = kv_indices.squeeze(-1)
     k_scale = torch.tensor(1.0)
     v_scale = torch.tensor(1.0)
-    
+
     if USE_MCOPLIB_OPS:
-        torch.ops._C_cache_ops.reshape_and_cache_flash(key, value, key_cache, value_cache, kv_indices, "auto", k_scale, v_scale)
+        torch.ops._C_cache_ops.reshape_and_cache_flash(
+            key, value, key_cache, value_cache, kv_indices, "auto", k_scale, v_scale
+        )
     else:
         ops.reshape_and_cache_flash(
             key, value, key_cache, value_cache, kv_indices, "auto", k_scale, v_scale
@@ -386,7 +392,7 @@ def rms_norm(
     weight = weight.to(torch.float32)
     output = torch.empty_like(hidden_states)
     if USE_MCOPLIB_OPS:
-       op_origin.rms_norm(output, hidden_states, weight, epsilon, None, None,False)
+        op_origin.rms_norm(output, hidden_states, weight, epsilon, None, None, False)
     else:
         ops.rms_norm(output, hidden_states, weight, epsilon)
     return output.to(input_dtype)
@@ -408,11 +414,8 @@ def moe_gating_topk_softmax(
 
     if USE_MCOPLIB_OPS:
         torch.ops._moe_C.topk_softmax(
-            topk_weights,
-            topk_ids,
-            token_expert_indicies,
-            router_logits.float()
-            )
+            topk_weights, topk_ids, token_expert_indicies, router_logits.float()
+        )
     else:
         ops.topk_softmax(
             topk_weights,
