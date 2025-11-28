@@ -263,9 +263,26 @@ class AscendSingleGraphRunner:
         output = self.meta.output_buffers["logits"][:, :num_tokens]
         return output
 
+    def reset(self):
+        """Reset NPU graph and release its buffers."""
+        if self._graph is not None:
+            try:
+                if hasattr(self._graph, "reset"):
+                    self._graph.reset()
+            finally:
+                self._graph = None
+
+        if hasattr(self.meta, "output_buffers") and isinstance(
+            self.meta.output_buffers, dict
+        ):
+            self.meta.output_buffers.clear()
+
     def __del__(self):
-        """del."""
-        del self._graph
+        """Best-effort cleanup when runner is GC-ed."""
+        try:
+            self.reset()
+        except Exception:
+            pass
 
 
 class AscendGraphRunner(GraphRunner):
@@ -371,8 +388,23 @@ class AscendGraphRunner(GraphRunner):
         )
 
     def reset(self):
-        """Remove all graphs to prevent hanging on exit."""
+        """Remove all graphs and related resources to prevent hanging on exit."""
+        for _, runner in self._runner_map.items():
+            try:
+                runner.reset()
+            except Exception as e:
+                logger.warning(f"AscendGraphRunner.reset: runner.reset error: {e!r}")
         self._runner_map.clear()
+        clear_graph_params()
+        self.graph_pool_handle = None
+        torch.npu.empty_cache()
+
+    def __del__(self):
+        """Best-effort cleanup when graph runner is GC-ed."""
+        try:
+            self.reset()
+        except Exception:
+            pass
 
     def update_inputs(self, inputs):
         """Update inputs."""
@@ -420,6 +452,25 @@ def set_graph_params(aclgraph_capture_sizes: set[int]):
 
 def get_graph_params():
     return _graph_params
+
+
+def clear_graph_params():
+    """Clear global graph params and release references to KV cache tensors."""
+    global _graph_params
+    if _graph_params is None:
+        return
+
+    try:
+        for k in list(_graph_params.attn_params.keys()):
+            _graph_params.attn_params[k].clear()
+        for k in list(_graph_params.handles.keys()):
+            _graph_params.handles[k].clear()
+        for k in list(_graph_params.events.keys()):
+            _graph_params.events[k].clear()
+
+        _graph_params.workspaces.clear()
+    finally:
+        _graph_params = None
 
 
 def update_attn_params(update_stream, forward_meta, runtime_size):
