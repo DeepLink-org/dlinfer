@@ -164,11 +164,13 @@ def fill_kv_cache(
     value = value.contiguous()
     kv_indices = kv_indices.view(-1, 1)
     if quant_bits == 8:
+
         def quant_int8(x, x_scale, x_offset):
             quantized = (
                 ((x / x_scale) - x_offset).round().clamp(-128, 127).to(torch.int8)
             )
             return quantized
+
         key = quant_int8(key, k_scales_zeros[0], k_scales_zeros[1])
         value = quant_int8(value, v_scales_zeros[0], v_scales_zeros[1])
     key_cache_reshaped = key_cache.view(block_total, head, dim)
@@ -283,7 +285,7 @@ def paged_decode_attention(
         raise RuntimeError("attn_output must be provided in graph mode")
 
     # This is performed in place; `query` is effectively the same buffer as `attn_output`.
-    attn_output = query[..., :value_cache.size(-1)]
+    attn_output = query[..., : value_cache.size(-1)]
     # Direct call to _npu_paged_attention without workspace for eager execution
     torch_npu._npu_paged_attention(
         query=query,

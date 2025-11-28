@@ -66,7 +66,9 @@ class AscendPiecewiseAttentionBuffer:
         return cls.class_attention_output[:batch_size]
 
 
-def _as_tensor_on_device(value: Any, dtype: torch.dtype, device: torch.device) -> Tensor:
+def _as_tensor_on_device(
+    value: Any, dtype: torch.dtype, device: torch.device
+) -> Tensor:
     """Convert value to tensor on the desired device/dtype without reallocating."""
     if torch.is_tensor(value):
         if value.dtype != dtype or value.device != device:
@@ -224,6 +226,7 @@ def _materialize_argument(
 
     return value
 
+
 @record_function("ascend_piecewise_fill_buffers")
 def fill_buffers_cudagraph(
     graph_meta: CudaGraphMeta,
@@ -263,7 +266,6 @@ def fill_buffers_cudagraph(
     block_offsets_buf[:batch_size, :num_blocks].copy_(block_offsets)
     if batch_size < padded_batch_size:
         block_offsets_buf[batch_size:padded_batch_size, :num_blocks].zero_()
-
 
     kv_seqlens_buffer = input_buffers["kv_seqlens"]
     kv_seqlens_buffer[:batch_size].copy_(kv_seqlens.cpu())
@@ -614,7 +616,8 @@ class GraphCaptureSession:
             "capture_time_total_ms": self._profiler.capture_time_total * 1000,
             "replay_time_total_ms": self._profiler.replay_time_total * 1000,
             "stage_totals_ms": {
-                name: total * 1000 for name, total in self._profiler.stage_totals.items()
+                name: total * 1000
+                for name, total in self._profiler.stage_totals.items()
             },
         }
 
