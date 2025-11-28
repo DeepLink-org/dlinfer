@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import time
 import logging
 from collections import defaultdict
@@ -10,29 +9,147 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import torch
-from torch import Tensor
 from torch.profiler import record_function
 
 from lmdeploy.pytorch.config import ModelConfig
 from lmdeploy.pytorch.models.utils.cudagraph import CudaGraphMeta
 from lmdeploy.utils import get_logger
 
-from .utils import is_debug_enabled
+from .utils import is_debug_enabled, PiecewiseEnvConfig
 from .piecewise_backend import create_backend, get_ascend_compatible_size
 
 
 logger = get_logger("dlinfer.ascend.capture")
-if os.environ.get("DLINFER_ASCEND_DEBUG_CAPTURE", "0") == "1":
+if PiecewiseEnvConfig.get_debug_capture():
     logger.setLevel(logging.INFO)
 
-BuffType = Dict[str, Tensor]
+BuffType = Dict[str, torch.Tensor]
+
+
+class BufferFiller:
+    """Buffer filling utilities."""
+
+    @staticmethod
+    def fill_token_buffers(
+        input_buffers: Dict[str, torch.Tensor],
+        input_ids: torch.Tensor,
+        position_ids: torch.Tensor,
+        num_tokens: int,
+        padded_batch_size: int,
+    ) -> None:
+        """Fill token-related buffers."""
+        input_ids_buf = input_buffers["input_ids"]
+        # Handle 2D tensor copying for input_ids
+        if input_ids.dim() == 2 and input_ids_buf.dim() == 2:
+            input_ids_buf[0, :num_tokens].copy_(input_ids[0])
+        else:
+            # Simple copy and pad
+            input_ids_buf[:1].copy_(input_ids)
+            if 1 < padded_batch_size:
+                input_ids_buf[1:padded_batch_size].zero_()
+
+        # Zero remaining tokens if needed
+        if num_tokens < padded_batch_size:
+            input_ids_buf[0, num_tokens:padded_batch_size].zero_()
+
+        position_ids_buf = input_buffers["position_ids"]
+        # Handle 2D tensor copying for position_ids
+        if position_ids.dim() == 2 and position_ids_buf.dim() == 2:
+            position_ids_buf[0, :num_tokens].copy_(position_ids[0])
+        else:
+            # Simple copy and pad
+            position_ids_buf[:1].copy_(position_ids)
+            if 1 < padded_batch_size:
+                position_ids_buf[1:padded_batch_size].zero_()
+
+        # Zero remaining positions if needed
+        if num_tokens < padded_batch_size:
+            position_ids_buf[0, num_tokens:padded_batch_size].zero_()
+
+    @staticmethod
+    def fill_attention_metadata(
+        input_buffers: Dict[str, Tensor],
+        block_offsets: Tensor,
+        kv_seqlens: Tensor,
+        kv_start_indices: Tensor,
+        batch_size: int,
+        num_blocks: int,
+        padded_batch_size: int,
+    ) -> None:
+        """Fill attention metadata buffers."""
+        block_offsets_buf = input_buffers["block_offsets"]
+        # Use precise slicing for 2D tensors
+        block_offsets_buf[:batch_size, : block_offsets.size(1)].copy_(block_offsets)
+        if batch_size < padded_batch_size:
+            block_offsets_buf[batch_size:padded_batch_size, :num_blocks].zero_()
+
+        kv_seqlens_buffer = input_buffers["kv_seqlens"]
+        kv_seqlens_buffer[:batch_size].copy_(kv_seqlens.cpu())
+        if batch_size < padded_batch_size:
+            kv_seqlens_buffer[batch_size:padded_batch_size].zero_()
+
+        kv_start_buffer = input_buffers["kv_start_indices"]
+        kv_start_indices_tensor = kv_start_indices.to(
+            device=kv_start_buffer.device, dtype=kv_start_buffer.dtype
+        )
+        kv_start_buffer[:batch_size].copy_(kv_start_indices_tensor)
+        if batch_size < padded_batch_size:
+            kv_start_buffer[batch_size:padded_batch_size].zero_()
+
+    @staticmethod
+    def fill_embeddings_buffer(
+        input_buffers: Dict[str, Tensor],
+        inputs_embeds: Tensor,
+        num_tokens: int,
+        padded_batch_size: int,
+    ) -> None:
+        """Fill embeddings buffer."""
+        if inputs_embeds is None:
+            return
+
+        emb_size = inputs_embeds.size(-1)
+        if "inputs_embeds" not in input_buffers:
+            max_num_tokens = input_buffers["input_ids"].size(-1)
+            input_buffers["inputs_embeds"] = inputs_embeds.new_zeros(
+                1, max_num_tokens, emb_size
+            )
+
+        inputs_embed_buf = input_buffers["inputs_embeds"]
+        # Handle 3D tensor copying for embeddings
+        if inputs_embeds.dim() == 3 and inputs_embed_buf.dim() == 3:
+            inputs_embed_buf[0, :num_tokens, :].copy_(inputs_embeds[0])
+        else:
+            # Simple copy and pad
+            inputs_embed_buf[:1].copy_(inputs_embeds)
+            if 1 < padded_batch_size:
+                inputs_embed_buf[1:padded_batch_size].zero_()
+
+        if num_tokens < padded_batch_size:
+            inputs_embed_buf[0, num_tokens:padded_batch_size, :].zero_()
+
+    @staticmethod
+    def update_attention_metadata(
+        attn_metadata: Any,
+        input_buffers: Dict[str, Tensor],
+        output_buffers: Dict[str, Tensor],
+        padded_batch_size: int,
+    ) -> None:
+        """Update attention metadata references."""
+        attn_metadata.block_offsets = input_buffers["block_offsets"][:padded_batch_size]
+        attn_metadata.kv_seqlens = input_buffers["kv_seqlens"][:padded_batch_size]
+        attn_metadata.kv_start_indices = input_buffers["kv_start_indices"][
+            :padded_batch_size
+        ]
+        attn_metadata.attn_output_buffer = output_buffers["attention_output"][
+            :padded_batch_size
+        ]
 
 
 @dataclass
 class AscendPiecewiseGraphMeta(CudaGraphMeta):
     """Metadata for piecewise graph optimization."""
 
-    max_batchs: int
+    max_batchs: int  # Keep original name for lmdeploy compatibility
     max_tokens: int
     num_blocks: int
     is_decoding: int
@@ -40,6 +157,11 @@ class AscendPiecewiseGraphMeta(CudaGraphMeta):
     head_dim: int = 0
     num_attention_heads: int = 0
     dtype: torch.dtype = torch.float16
+
+    @property
+    def max_batches(self) -> int:
+        """Backward compatible property accessor."""
+        return self.max_batchs
 
 
 class AscendPiecewiseAttentionBuffer:
@@ -66,18 +188,9 @@ class AscendPiecewiseAttentionBuffer:
         return cls.class_attention_output[:batch_size]
 
 
-def _as_tensor_on_device(
-    value: Any, dtype: torch.dtype, device: torch.device
-) -> Tensor:
-    """Convert value to tensor on the desired device/dtype without reallocating."""
-    if torch.is_tensor(value):
-        if value.dtype != dtype or value.device != device:
-            return value.to(device=device, dtype=dtype)
-        return value
-    return torch.as_tensor(value, dtype=dtype, device=device)
-
-
-def make_buffers_cudagraph(graph_meta: CudaGraphMeta, *args, **kwargs) -> BuffType:
+def make_buffers_cudagraph(
+    graph_meta: CudaGraphMeta, *args: Any, **kwargs: Any
+) -> BuffType:
     max_batches = graph_meta.max_batchs
     max_tokens = graph_meta.max_tokens
     num_blocks = graph_meta.num_blocks
@@ -127,119 +240,21 @@ def make_buffers_cudagraph(graph_meta: CudaGraphMeta, *args, **kwargs) -> BuffTy
     return input_buffers, output_buffers
 
 
-def _root_key_from_path(path: str) -> str:
-    root = path.split(".", 1)[0]
-    root = root.split("[", 1)[0]
-    return root
-
-
-@record_function("ascend_piecewise_ensure_tensor_view")
-def _ensure_tensor_view(
-    graph_meta: CudaGraphMeta,
-    name: str,
-    tensor: torch.Tensor,
-    target_first_dim: Optional[int] = None,
-) -> torch.Tensor:
-    total_shape = list(tensor.shape)
-    if tensor.dim() > 0:
-        desired = target_first_dim if target_first_dim is not None else total_shape[0]
-        desired = max(desired, total_shape[0])
-        total_shape[0] = desired
-
-    target_shape = tuple(total_shape)
-    input_buffers = graph_meta.input_buffers
-    buffer = input_buffers.get(name)
-
-    if (
-        buffer is None
-        or buffer.shape != target_shape
-        or buffer.dtype != tensor.dtype
-        or buffer.device != tensor.device
-    ):
-        buffer = torch.empty(target_shape, dtype=tensor.dtype, device=tensor.device)
-        input_buffers[name] = buffer
-
-    if tensor.dim() == 0:
-        buffer.copy_(tensor)
-        return buffer
-
-    active_dim0 = tensor.shape[0]
-    slices_active = [slice(0, active_dim0)] + [slice(None)] * (tensor.dim() - 1)
-    buffer.zero_()
-    buffer[tuple(slices_active)].copy_(tensor)
-
-    first_dim = target_shape[0]
-    view_slices = [slice(0, first_dim)] + [slice(0, s) for s in tensor.shape[1:]]
-    view = buffer[tuple(view_slices)]
-
-    return view
-
-
-@record_function("ascend_piecewise_materialize_argument")
-def _materialize_argument(
-    graph_meta: CudaGraphMeta,
-    key_path: str,
-    value: Any,
-    pad_dim: Optional[int],
-) -> Any:
-    root_key = _root_key_from_path(key_path)
-    if root_key in {"past_key_values", "attn_metadata"}:
-        return value
-
-    if torch.is_tensor(value):
-        return _ensure_tensor_view(
-            graph_meta,
-            f"kw:{key_path}",
-            value,
-            target_first_dim=pad_dim if value.dim() > 0 else None,
-        )
-
-    if isinstance(value, Mapping):
-        updated = {}
-        changed = False
-        for sub_key, sub_val in value.items():
-            new_val = _materialize_argument(
-                graph_meta,
-                f"{key_path}.{sub_key}",
-                sub_val,
-                pad_dim,
-            )
-            updated[sub_key] = new_val
-            changed = changed or new_val is not sub_val
-        return updated if changed else value
-
-    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
-        new_items = []
-        changed = False
-        for idx, item in enumerate(value):
-            new_item = _materialize_argument(
-                graph_meta,
-                f"{key_path}[{idx}]",
-                item,
-                pad_dim,
-            )
-            new_items.append(new_item)
-            changed = changed or new_item is not item
-        if not changed:
-            return value
-        return type(value)(new_items)
-
-    return value
-
-
 @record_function("ascend_piecewise_fill_buffers")
 def fill_buffers_cudagraph(
     graph_meta: CudaGraphMeta,
-    input_ids: Tensor,
-    position_ids: Tensor,
+    input_ids: torch.Tensor,
+    position_ids: torch.Tensor,
     past_key_values: List,
     attn_metadata: Any,
-    inputs_embeds: Tensor,
+    inputs_embeds: torch.Tensor,
     **kwargs,
-) -> Dict[str, Tensor]:
-    block_offsets: Tensor = attn_metadata.block_offsets
-    kv_seqlens: Tensor = attn_metadata.kv_seqlens
-    kv_start_indices: Tensor = attn_metadata.kv_start_indices
+) -> Dict[str, torch.Tensor]:
+    """Simplified buffer filling function using BufferFiller utilities."""
+    # Extract metadata
+    block_offsets: torch.Tensor = attn_metadata.block_offsets
+    kv_seqlens: torch.Tensor = attn_metadata.kv_seqlens
+    kv_start_indices: torch.Tensor = attn_metadata.kv_start_indices
 
     input_buffers: BuffType = graph_meta.input_buffers
     output_buffers: BuffType = graph_meta.output_buffers
@@ -247,107 +262,50 @@ def fill_buffers_cudagraph(
     batch_size, num_blocks = block_offsets.size()
     num_tokens = input_ids.size(-1)
 
+    # Calculate padded batch size
     if graph_meta.is_decoding:
         padded_batch_size = max(graph_meta.max_batchs, batch_size)
     else:
         padded_batch_size = get_ascend_compatible_size(batch_size)
 
-    input_ids_buf = input_buffers["input_ids"]
-    input_ids_buf[:, :num_tokens].copy_(input_ids)
-    if num_tokens < padded_batch_size:
-        input_ids_buf[:, num_tokens:padded_batch_size].zero_()
+    # Use BufferFiller for buffer operations
+    BufferFiller.fill_token_buffers(
+        input_buffers, input_ids, position_ids, num_tokens, padded_batch_size
+    )
 
-    position_ids_buf = input_buffers["position_ids"]
-    position_ids_buf[:, :num_tokens].copy_(position_ids)
-    if num_tokens < padded_batch_size:
-        position_ids_buf[:, num_tokens:padded_batch_size].zero_()
-
-    block_offsets_buf = input_buffers["block_offsets"]
-    block_offsets_buf[:batch_size, :num_blocks].copy_(block_offsets)
-    if batch_size < padded_batch_size:
-        block_offsets_buf[batch_size:padded_batch_size, :num_blocks].zero_()
-
-    kv_seqlens_buffer = input_buffers["kv_seqlens"]
-    kv_seqlens_buffer[:batch_size].copy_(kv_seqlens.cpu())
-    if batch_size < padded_batch_size:
-        kv_seqlens_buffer[batch_size:padded_batch_size].zero_()
-
-    kv_start_buffer = input_buffers["kv_start_indices"]
-    kv_start_indices_tensor = _as_tensor_on_device(
+    BufferFiller.fill_attention_metadata(
+        input_buffers,
+        block_offsets,
+        kv_seqlens,
         kv_start_indices,
-        dtype=kv_start_buffer.dtype,
-        device=kv_start_buffer.device,
-    )
-    kv_start_buffer[:batch_size].copy_(kv_start_indices_tensor)
-    if batch_size < padded_batch_size:
-        kv_start_buffer[batch_size:padded_batch_size].zero_()
-
-    if inputs_embeds is not None:
-        emb_size = inputs_embeds.size(-1)
-        if "inputs_embeds" not in input_buffers:
-            max_num_tokens = input_buffers["input_ids"].size(-1)
-            input_buffers["inputs_embeds"] = inputs_embeds.new_zeros(
-                1, max_num_tokens, emb_size
-            )
-        inputs_embed_buf = input_buffers["inputs_embeds"]
-        inputs_embed_buf[:, :num_tokens].copy_(inputs_embeds)
-        if num_tokens < padded_batch_size:
-            inputs_embed_buf[:, num_tokens:padded_batch_size].zero_()
-
-    attn_metadata.block_offsets = input_buffers["block_offsets"][:padded_batch_size]
-    attn_metadata.kv_seqlens = input_buffers["kv_seqlens"][:padded_batch_size]
-    attn_metadata.kv_start_indices = input_buffers["kv_start_indices"][
-        :padded_batch_size
-    ]
-    attn_metadata.attn_output_buffer = output_buffers["attention_output"][
-        :padded_batch_size
-    ]
-
-    q_seqlens_tensor = getattr(attn_metadata, "q_seqlens", None)
-    if q_seqlens_tensor is not None:
-        attn_metadata.q_seqlens = _ensure_tensor_view(
-            graph_meta,
-            "q_seqlens",
-            q_seqlens_tensor,
-            target_first_dim=padded_batch_size,
-        )
-
-    q_start_loc_tensor = getattr(attn_metadata, "q_start_loc", None)
-    if q_start_loc_tensor is not None:
-        pad_dim = (
-            padded_batch_size
-            if q_start_loc_tensor.dim() == 0
-            else max(padded_batch_size + 1, q_start_loc_tensor.shape[0])
-        )
-        attn_metadata.q_start_loc = _ensure_tensor_view(
-            graph_meta,
-            "q_start_loc",
-            q_start_loc_tensor,
-            target_first_dim=pad_dim,
-        )
-
-    fill_seqlens_tensor = getattr(attn_metadata, "fill_seqlens", None)
-    if fill_seqlens_tensor is not None:
-        attn_metadata.fill_seqlens = _ensure_tensor_view(
-            graph_meta,
-            "fill_seqlens",
-            fill_seqlens_tensor,
-            target_first_dim=padded_batch_size,
-        )
-
-    new_inputs = dict(
-        past_key_values=past_key_values,
-        attn_metadata=attn_metadata,
+        batch_size,
+        num_blocks,
+        padded_batch_size,
     )
 
-    new_inputs["input_ids"] = input_buffers["input_ids"][:, :padded_batch_size]
-    new_inputs["position_ids"] = input_buffers["position_ids"][:, :padded_batch_size]
+    BufferFiller.fill_embeddings_buffer(
+        input_buffers, inputs_embeds, num_tokens, padded_batch_size
+    )
+
+    # Update attention metadata references
+    BufferFiller.update_attention_metadata(
+        attn_metadata, input_buffers, output_buffers, padded_batch_size
+    )
+
+    # Build new input dictionary
+    new_inputs = {
+        "past_key_values": past_key_values,
+        "attn_metadata": attn_metadata,
+        "input_ids": input_buffers["input_ids"][:, :padded_batch_size],
+        "position_ids": input_buffers["position_ids"][:, :padded_batch_size],
+    }
 
     if inputs_embeds is not None:
         new_inputs["inputs_embeds"] = input_buffers["inputs_embeds"][
             :, :padded_batch_size
         ]
 
+    # Handle extra kwargs - currently only processing standard keys
     handled_keys = {
         "input_ids",
         "position_ids",
@@ -355,20 +313,6 @@ def fill_buffers_cudagraph(
         "attn_metadata",
         "past_key_values",
     }
-
-    extra_kwargs: Dict[str, Any] = {}
-    for key, value in kwargs.items():
-        if key in handled_keys:
-            continue
-        materialized = _materialize_argument(
-            graph_meta,
-            key,
-            value,
-            pad_dim=padded_batch_size,
-        )
-        extra_kwargs[key] = materialized
-
-    new_inputs.update(extra_kwargs)
 
     return new_inputs
 
@@ -383,77 +327,8 @@ def update_context_cudagraph(graph_meta, context):
     context.kv_start_indices = input_buffers["kv_start_indices"]
 
 
-class SessionProfiler:
-    """Utility that tracks capture/replay timing and optional logging."""
-
-    def __init__(self) -> None:
-        self.enabled = os.environ.get("DLINFER_ASCEND_PROFILE", "0") == "1"
-        interval_env = os.environ.get("DLINFER_ASCEND_PROFILE_INTERVAL")
-        try:
-            self.interval = max(1, int(interval_env)) if interval_env else 100
-        except ValueError:
-            logger.warning(
-                "Invalid DLINFER_ASCEND_PROFILE_INTERVAL=%s, using default 100",
-                interval_env,
-            )
-            self.interval = 100
-
-        self.capture_count = 0
-        self.replay_count = 0
-        self.capture_time_total = 0.0
-        self.replay_time_total = 0.0
-        self.stage_totals: Dict[str, float] = defaultdict(float)
-
-    def stage_timer(self, name: str):
-        """Context manager that accumulates timing for an individual stage."""
-
-        class _StageCtx:
-            def __enter__(ctx_inner):
-                ctx_inner._start = time.perf_counter()
-
-            def __exit__(ctx_inner, exc_type, exc, tb):
-                elapsed = time.perf_counter() - ctx_inner._start
-                self.stage_totals[name] += elapsed
-
-        return _StageCtx()
-
-    def record_capture(self, elapsed: float, padded_batch: int) -> None:
-        """Record capture timing and optionally log."""
-        self.capture_count += 1
-        self.capture_time_total += elapsed
-        if self.enabled and self.capture_count % self.interval == 0:
-            logger.info(
-                "[CaptureProfile] count=%s padded_batch=%s total=%.3fms fill_ms=%.3f model_ms=%.3f",
-                self.capture_count,
-                padded_batch,
-                elapsed * 1000,
-                self._avg_stage("capture.fill_buffers", self.capture_count),
-                self._avg_stage("capture.compiled_model", self.capture_count),
-            )
-
-    def record_replay(self, elapsed: float, padded_batch: int) -> None:
-        """Record replay timing and optionally log."""
-        self.replay_count += 1
-        self.replay_time_total += elapsed
-        if self.enabled and self.replay_count % self.interval == 0:
-            logger.info(
-                "[ForwardProfile] reuse=%s padded_batch=%s total=%.3fms fill_ms=%.3f model_ms=%.3f",
-                self.replay_count,
-                padded_batch,
-                elapsed * 1000,
-                self._avg_stage("forward.fill_buffers", self.replay_count),
-                self._avg_stage("forward.compiled_model", self.replay_count),
-            )
-
-    def _avg_stage(self, name: str, denom: int) -> float:
-        if denom == 0:
-            return 0.0
-        total = self.stage_totals.get(name, 0.0)
-        return (total * 1000) / denom
-
-
 class GraphCaptureSession:
-    """Encapsulates capture/replay buffers and compiled model."""
+    """Graph capture session."""
 
     def __init__(
         self,
@@ -469,10 +344,13 @@ class GraphCaptureSession:
         self.model = model
         self.model_config = model_config
         self.ctx_mgr = model.ctx_mgr
+        self.device = device
+
+        # State management
         self._compile_miss_count = 0
         self._last_padded_batch: Optional[int] = None
-        self._profiler = SessionProfiler()
 
+        # Graph metadata
         self.meta = AscendPiecewiseGraphMeta(
             max_batchs=max_batches,
             max_tokens=max_tokens,
@@ -487,68 +365,94 @@ class GraphCaptureSession:
             vocab_size=self.model_config.vocab_size,
         )
 
-        self.device = device
+        # Compilation state
         self._compiled_model = None
         self._backend = None
 
     @record_function("ascend_piecewise_capture")
     def capture(self, **kwargs):
         """Compile and capture graph for the first time."""
-        if is_debug_enabled():
-            logger.info("Capturing graph with meta: %s", self.meta)
-
         t_start = time.perf_counter()
         num_tokens = kwargs["input_ids"].size(-1)
+
+        # Initialize backend and buffers
         self._ensure_backend()
         self.meta.input_buffers, self.meta.output_buffers = make_buffers_cudagraph(
             self.meta, **kwargs
         )
 
-        with self._profiler.stage_timer("capture.fill_buffers"):
-            padded_kwargs = fill_buffers_cudagraph(self.meta, **kwargs)
-            if os.environ.get("DLINFER_ASCEND_DEBUG_CAPTURE", "0") == "1":
-                input_ids = padded_kwargs.get("input_ids")
-                attn_metadata = padded_kwargs.get("attn_metadata")
-                meta = getattr(attn_metadata, "kv_seqlens", None)
-                logger.info(
-                    "[CaptureDebug] padded input_ids=%s kv_seqlens=%s q_seqlens=%s",
-                    tuple(input_ids.shape) if input_ids is not None else None,
-                    tuple(meta.shape) if meta is not None else None,
-                    getattr(attn_metadata, "q_seqlens", None),
-                )
-            context = self.ctx_mgr.current_context()
+        # Fill buffers
+        padded_kwargs = fill_buffers_cudagraph(self.meta, **kwargs)
+
+        # Debug info handling
+        if PiecewiseEnvConfig.get_debug_capture():
+            input_ids = padded_kwargs.get("input_ids")
+            attn_metadata = padded_kwargs.get("attn_metadata")
+            meta = getattr(attn_metadata, "kv_seqlens", None)
+            debug_info = (
+                f"padded input_ids={tuple(input_ids.shape) if input_ids is not None else None} "
+                f"kv_seqlens={tuple(meta.shape) if meta is not None else None} "
+                f"q_seqlens={getattr(attn_metadata, 'q_seqlens', None)}"
+            )
+            self._last_capture_debug_info = debug_info
+
+        context = self.ctx_mgr.current_context()
         update_context_cudagraph(self.meta, context)
         self._last_padded_batch = context.block_offsets.shape[0]
 
+        # Compile and execute model
         compiled_model = self._compile_model()
-        with self._profiler.stage_timer("capture.compiled_model"):
-            output = compiled_model(**padded_kwargs)
+        output = compiled_model(**padded_kwargs)
+
+        # Handle output buffer
+        logits_buffer = self._ensure_logits_buffer(output)
+        logits_buffer.copy_(output)
+
+        return logits_buffer[:, :num_tokens]
+
+    def _ensure_logits_buffer(self, output: torch.Tensor) -> torch.Tensor:
+        """Ensure logits buffer exists and has correct shape."""
         logits_buffer = self.meta.output_buffers.get("logits")
         if logits_buffer is None or logits_buffer.shape != output.shape:
             logits_buffer = torch.empty_like(output, device=output.device)
             self.meta.output_buffers["logits"] = logits_buffer
-        logits_buffer.copy_(output)
-        elapsed = time.perf_counter() - t_start
-        self._profiler.record_capture(elapsed, self._last_padded_batch or 0)
-
-        return logits_buffer[:, :num_tokens]
+        return logits_buffer
 
     @record_function("ascend_piecewise_forward")
     def forward(self, **kwargs):
         """Replay captured graph."""
+        # Defensive checks
         if self._compile_miss_count and self._compiled_model is None:
-            # shouldn't happen, but defensive
             logger.warning("GraphCaptureSession compile miss despite recorded misses.")
         if self._compiled_model is None:
             return self.capture(**kwargs)
 
         t_start = time.perf_counter()
         num_tokens = kwargs["input_ids"].size(-1)
-        with self._profiler.stage_timer("forward.fill_buffers"):
-            new_inputs = fill_buffers_cudagraph(self.meta, **kwargs)
+
+        # Fill buffers
+        new_inputs = fill_buffers_cudagraph(self.meta, **kwargs)
+
+        # Update context
         context = self.ctx_mgr.current_context()
         update_context_cudagraph(self.meta, context)
         padded_batch = context.block_offsets.shape[0]
+
+        # Check batch size change
+        self._check_batch_size_change(padded_batch)
+
+        # Execute compiled model
+        compiled_out = self._compiled_model(**new_inputs)
+
+        # Handle output
+        logits_buffer = self.meta.output_buffers["logits"]
+        if compiled_out.data_ptr() != logits_buffer.data_ptr():
+            logits_buffer.copy_(compiled_out)
+
+        return logits_buffer[:, :num_tokens]
+
+    def _check_batch_size_change(self, padded_batch: int) -> None:
+        """Check and log batch size changes."""
         if (
             self._last_padded_batch is not None
             and padded_batch != self._last_padded_batch
@@ -561,15 +465,6 @@ class GraphCaptureSession:
                 self.meta.is_decoding,
             )
             self._last_padded_batch = padded_batch
-        with self._profiler.stage_timer("forward.compiled_model"):
-            compiled_out = self._compiled_model(**new_inputs)
-
-        logits_buffer = self.meta.output_buffers["logits"]
-        if compiled_out.data_ptr() != logits_buffer.data_ptr():
-            logits_buffer.copy_(compiled_out)
-        elapsed = time.perf_counter() - t_start
-        self._profiler.record_replay(elapsed, padded_batch)
-        return logits_buffer[:, :num_tokens]
 
     def _ensure_backend(self) -> None:
         if self._backend is None:
@@ -608,17 +503,9 @@ class GraphCaptureSession:
     def stats(self) -> Dict[str, Any]:
         """Return capture/replay statistics for debugging."""
         return {
-            "capture_count": self._profiler.capture_count,
-            "replay_count": self._profiler.replay_count,
             "compile_miss_count": self._compile_miss_count,
             "last_padded_batch": self._last_padded_batch,
             "is_decoding": self.meta.is_decoding,
-            "capture_time_total_ms": self._profiler.capture_time_total * 1000,
-            "replay_time_total_ms": self._profiler.replay_time_total * 1000,
-            "stage_totals_ms": {
-                name: total * 1000
-                for name, total in self._profiler.stage_totals.items()
-            },
         }
 
 
@@ -626,7 +513,4 @@ __all__ = [
     "GraphCaptureSession",
     "AscendPiecewiseGraphMeta",
     "AscendPiecewiseAttentionBuffer",
-    "make_buffers_cudagraph",
-    "fill_buffers_cudagraph",
-    "update_context_cudagraph",
 ]

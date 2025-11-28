@@ -67,7 +67,7 @@ def split_graph(
             continue
 
         module = getattr(split_gm, name)
-        graph_id = int(name.replace("submod_", ""))
+        graph_id = int(name.lstrip("submod_"))
 
         outputs.append(
             SplitItem(

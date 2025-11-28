@@ -214,6 +214,77 @@ def debug_compilation_summary(
     logger.info("=" * 80)
 
 
+class PiecewiseEnvConfig:
+    """Centralized environment variable configuration for piecewise graph."""
+
+    # Debug flags
+    DEBUG_CAPTURE = "DLINFER_ASCEND_DEBUG_CAPTURE"
+    PIECEWISE_GRAPH_DEBUG = "DLINFER_ASCEND_PIECEWISE_GRAPH_DEBUG"
+    ACL_GRAPH_DEBUG = "DLINFER_ASCEND_ACL_GRAPH_DEBUG"
+
+    # Capture configuration
+    CAPTURE_SIZES = "DLINFER_ASCEND_CAPTURE_SIZES"
+    MAX_CAPTURE_GRAPHS = "DLINFER_ASCEND_MAX_CAPTURE_GRAPHS"
+    GRAPH_CAPTURE_SIZES = "DLINFER_ASCEND_GRAPH_CAPTURE_SIZES"
+
+    # Hardware and system configuration
+    MULTISTREAM_SHARED_EXPERT = "DLINFER_ASCEND_MULTISTREAM_SHARED_EXPERT"
+    HCCL_OP_EXPANSION_MODE = "HCCL_OP_EXPANSION_MODE"
+
+    @staticmethod
+    def get_debug_capture() -> bool:
+        """Get debug capture flag."""
+        return os.environ.get(PiecewiseEnvConfig.DEBUG_CAPTURE, "0") == "1"
+
+    @staticmethod
+    def get_capture_sizes() -> Optional[List[int]]:
+        """Get capture sizes from environment variable."""
+        env_str = os.getenv(PiecewiseEnvConfig.CAPTURE_SIZES)
+        if not env_str:
+            return None
+        try:
+            return sorted({
+                int(item.strip())
+                for item in env_str.split(",")
+                if item.strip() and int(item.strip()) > 0
+            })
+        except ValueError:
+            return None
+
+    @staticmethod
+    def get_max_capture_graphs() -> Optional[int]:
+        """Get max capture graphs from environment variable."""
+        env_str = os.getenv(PiecewiseEnvConfig.MAX_CAPTURE_GRAPHS)
+        if not env_str:
+            return None
+        try:
+            return int(env_str)
+        except ValueError:
+            return None
+
+    @staticmethod
+    def get_graph_capture_sizes() -> Optional[str]:
+        """Get graph capture sizes from environment variable."""
+        return os.getenv(PiecewiseEnvConfig.GRAPH_CAPTURE_SIZES, "")
+
+    @staticmethod
+    def get_shared_expert_overlap() -> bool:
+        """Get shared expert overlap flag."""
+        env = os.getenv(PiecewiseEnvConfig.MULTISTREAM_SHARED_EXPERT)
+        if not env:
+            return False
+        try:
+            return bool(int(env))
+        except ValueError:
+            lowered = env.strip().lower()
+            return lowered in {"true", "on", "yes"}
+
+    @staticmethod
+    def get_hccl_mode() -> str:
+        """Get HCCL operation expansion mode."""
+        return os.getenv(PiecewiseEnvConfig.HCCL_OP_EXPANSION_MODE, "").upper()
+
+
 __all__ = [
     "is_debug_enabled",
     "is_acl_graph_debug_enabled",
@@ -223,4 +294,5 @@ __all__ = [
     "debug_graph_splitting",
     "debug_submodule_wrapping",
     "debug_compilation_summary",
+    "PiecewiseEnvConfig",
 ]

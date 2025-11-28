@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import math
-import os
 from typing import Iterable, List, Optional, Sequence
 
 from lmdeploy.pytorch.config import CacheConfig, ModelConfig
 from lmdeploy.utils import get_logger
+from .utils import PiecewiseEnvConfig
 
 
 _LOGGER = get_logger("dlinfer.ascend.bucket")
@@ -15,7 +15,6 @@ _LOGGER = get_logger("dlinfer.ascend.bucket")
 # Default limit from vLLM-Ascend: 2048 hardware streams minus a safety buffer.
 DEFAULT_MAX_CAPTURE_GRAPHS = 1800
 COMM_STREAM_BUFFER = 40
-_SHARED_EXPERT_ENV = "DLINFER_ASCEND_MULTISTREAM_SHARED_EXPERT"
 
 
 def _collect_positive(values: Iterable[int]) -> List[int]:
@@ -91,14 +90,7 @@ def _get_architecture_name(model_config: Optional[ModelConfig]) -> str:
 
 
 def _shared_expert_overlap_enabled() -> bool:
-    env = os.getenv(_SHARED_EXPERT_ENV)
-    if not env:
-        return False
-    try:
-        return bool(int(env))
-    except ValueError:
-        lowered = env.strip().lower()
-        return lowered in {"true", "on", "yes"}
+    return PiecewiseEnvConfig.get_shared_expert_overlap()
 
 
 def _parallel_config(dist_config) -> tuple[int, int, bool]:
@@ -142,7 +134,7 @@ def limit_capture_buckets(
     dp, tp, enable_expert_parallel = _parallel_config(dist_config)
     num_comm_groups = sum(size > 1 for size in (dp, tp))
     resources_per_graph = num_layers + 1
-    hccl_mode = os.getenv("HCCL_OP_EXPANSION_MODE", "").upper()
+    hccl_mode = PiecewiseEnvConfig.get_hccl_mode()
     is_moe = _is_moe_model(model_config)
     shared_overlap = _shared_expert_overlap_enabled()
 
@@ -254,7 +246,7 @@ def adjust_capture_batch_sizes(
 ) -> List[int]:
     local_logger = logger_ or _LOGGER
 
-    env_sizes_str = os.getenv("DLINFER_ASCEND_GRAPH_CAPTURE_SIZES", "")
+    env_sizes_str = PiecewiseEnvConfig.get_graph_capture_sizes()
     if env_sizes_str:
         try:
             env_sizes = [int(x.strip()) for x in env_sizes_str.split(",") if x.strip()]
@@ -297,10 +289,7 @@ def adjust_capture_batch_sizes(
     return limited
 
 
-limit_capture_bucket_list = limit_capture_buckets
-
 __all__ = [
     "adjust_capture_batch_sizes",
     "limit_capture_buckets",
-    "limit_capture_bucket_list",
 ]
