@@ -207,7 +207,7 @@ def AscendMergedAwqLinear_weight_loader(
         param_w = param.data.split(quanted_out_feats, 1)[shard_idx]
 
     if not self.replicate[shard_idx]:
-        weight = _chunk_align(loaded_weight, world_size, -1, align)[rank]
+        weight = chunk_aligned(loaded_weight, world_size, -1, align)[rank]
     param_w.copy_(weight)
 
 

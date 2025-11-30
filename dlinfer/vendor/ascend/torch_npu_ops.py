@@ -158,6 +158,9 @@ def incre_flash_attention(
     return attn_output
 
 
+# atb._npu_reshape_and_cache has a performace advantage of about 3% compared to npu.npu_scatter_nd_update_,
+# but atb._npu_reshape_and_cache will report an error when slot_indices is an empty tensor.
+"""
 @register_ops(vendor_ops_registry)
 def fill_kv_cache(
     key: Tensor,
@@ -194,11 +197,9 @@ def fill_kv_cache(
     torch.ops.npu.npu_scatter_nd_update_(key_cache_reshaped, kv_indices, key)
     torch.ops.npu.npu_scatter_nd_update_(value_cache_reshaped, kv_indices, value)
     return key_cache, value_cache
-
-
-# atb._npu_reshape_and_cache has a performace advantage of about 3% compared to npu.npu_scatter_nd_update_,
-# but when slot_indices is an empty tensor will report an error.
 """
+
+
 @register_ops(vendor_ops_registry)
 def fill_kv_cache(
     key: Tensor,
@@ -233,7 +234,6 @@ def fill_kv_cache(
         slot_indices=kv_indices.to(torch.int32),
     )
     return key_cache, value_cache
-"""
 
 
 @register_ops(vendor_ops_registry)
