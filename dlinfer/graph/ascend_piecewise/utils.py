@@ -35,16 +35,13 @@ def _debug_section_footer() -> None:
 @lru_cache(maxsize=1)
 def is_debug_enabled() -> bool:
     """Return True when verbose debugging for piecewise graph mode is on."""
-    return os.environ.get("DLINFER_ASCEND_PIECEWISE_GRAPH_DEBUG", "0") == "1"
+    return PiecewiseEnvConfig.get_piecewise_graph_debug()
 
 
 @lru_cache(maxsize=1)
 def is_acl_graph_debug_enabled() -> bool:
     """Dedicated flag for ACL graph level debugging."""
-    env = os.environ.get("DLINFER_ASCEND_ACL_GRAPH_DEBUG")
-    if env is not None:
-        return env == "1"
-    return is_debug_enabled()
+    return PiecewiseEnvConfig.get_acl_graph_debug()
 
 
 def is_fx_graph_debug_enabled() -> bool:
@@ -244,59 +241,138 @@ class PiecewiseEnvConfig:
     HCCL_OP_EXPANSION_MODE = "HCCL_OP_EXPANSION_MODE"
 
     @staticmethod
+    @lru_cache()
     def get_debug_capture() -> bool:
         """Get debug capture flag."""
         return os.environ.get(PiecewiseEnvConfig.DEBUG_CAPTURE, "0") == "1"
 
     @staticmethod
+    @lru_cache()
     def get_capture_sizes() -> Optional[List[int]]:
-        """Get capture sizes from environment variable."""
+        """Get capture sizes from environment variable with enhanced validation."""
         env_str = os.getenv(PiecewiseEnvConfig.CAPTURE_SIZES)
         if not env_str:
             return None
+
         try:
-            return sorted(
-                {
-                    int(item.strip())
-                    for item in env_str.split(",")
-                    if item.strip() and int(item.strip()) > 0
-                }
+            sizes = []
+            for item in env_str.split(","):
+                item = item.strip()
+                if not item:
+                    continue
+                try:
+                    size = int(item)
+                    if size <= 0:
+                        logger.warning(
+                            f"Invalid capture size '{item}' in {PiecewiseEnvConfig.CAPTURE_SIZES}: "
+                            f"must be positive integer, skipping"
+                        )
+                        continue
+                    sizes.append(size)
+                except ValueError:
+                    logger.warning(
+                        f"Invalid capture size '{item}' in {PiecewiseEnvConfig.CAPTURE_SIZES}: "
+                        f"not a valid integer, skipping"
+                    )
+                    continue
+
+            if not sizes:
+                logger.warning(
+                    f"No valid capture sizes found in {PiecewiseEnvConfig.CAPTURE_SIZES}={env_str}"
+                )
+                return None
+
+            return sorted(list(set(sizes)))  # Remove duplicates and sort
+        except Exception as e:
+            logger.error(
+                f"Unexpected error parsing {PiecewiseEnvConfig.CAPTURE_SIZES}={env_str}: {e}"
             )
-        except ValueError:
             return None
 
     @staticmethod
+    @lru_cache()
     def get_max_capture_graphs() -> Optional[int]:
-        """Get max capture graphs from environment variable."""
+        """Get max capture graphs from environment variable with validation."""
         env_str = os.getenv(PiecewiseEnvConfig.MAX_CAPTURE_GRAPHS)
         if not env_str:
             return None
+
         try:
-            return int(env_str)
+            value = int(env_str)
+            if value <= 0:
+                logger.warning(
+                    f"Invalid max capture graphs '{env_str}': must be positive integer, using default"
+                )
+                return None
+            return value
         except ValueError:
+            logger.warning(
+                f"Invalid max capture graphs '{env_str}': not a valid integer, using default"
+            )
             return None
 
     @staticmethod
+    @lru_cache()
     def get_graph_capture_sizes() -> Optional[str]:
         """Get graph capture sizes from environment variable."""
         return os.getenv(PiecewiseEnvConfig.GRAPH_CAPTURE_SIZES, "")
 
     @staticmethod
+    @lru_cache()
     def get_shared_expert_overlap() -> bool:
-        """Get shared expert overlap flag."""
+        """Get shared expert overlap flag with enhanced validation."""
         env = os.getenv(PiecewiseEnvConfig.MULTISTREAM_SHARED_EXPERT)
         if not env:
             return False
+
+        env = env.strip()
+        if not env:
+            return False
+
+        # Try integer conversion first (0/1)
         try:
             return bool(int(env))
         except ValueError:
-            lowered = env.strip().lower()
-            return lowered in {"true", "on", "yes"}
+            # Try string values (true/false, on/off, yes/no)
+            lowered = env.lower()
+            if lowered in {"true", "on", "yes", "1"}:
+                return True
+            elif lowered in {"false", "off", "no", "0"}:
+                return False
+            else:
+                logger.warning(
+                    f"Invalid shared expert overlap value '{env}': "
+                    f"expected 0/1, true/false, on/off, or yes/no, using False"
+                )
+                return False
 
     @staticmethod
+    @lru_cache()
     def get_hccl_mode() -> str:
-        """Get HCCL operation expansion mode."""
-        return os.getenv(PiecewiseEnvConfig.HCCL_OP_EXPANSION_MODE, "").upper()
+        """Get HCCL operation expansion mode with validation."""
+        env = os.getenv(PiecewiseEnvConfig.HCCL_OP_EXPANSION_MODE, "")
+        if not env:
+            return ""
+
+        mode = env.strip().upper()
+        # Add validation for known modes if needed in the future
+        # For now, just return the uppercase version
+        return mode
+
+    @staticmethod
+    @lru_cache()
+    def get_piecewise_graph_debug() -> bool:
+        """Get piecewise graph debug flag."""
+        return os.environ.get(PiecewiseEnvConfig.PIECEWISE_GRAPH_DEBUG, "0") == "1"
+
+    @staticmethod
+    @lru_cache()
+    def get_acl_graph_debug() -> bool:
+        """Get ACL graph debug flag."""
+        env = os.environ.get(PiecewiseEnvConfig.ACL_GRAPH_DEBUG)
+        if env is not None:
+            return env == "1"
+        return PiecewiseEnvConfig.get_piecewise_graph_debug()
 
 
 __all__ = [
