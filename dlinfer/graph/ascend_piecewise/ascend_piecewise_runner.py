@@ -43,6 +43,7 @@ class RunnerEnvironmentConfig:
         # Set logger level based on debug configuration
         if debug_capture:
             import logging
+
             logger.setLevel(logging.DEBUG)
 
         # Get capture sizes with validation
@@ -66,7 +67,6 @@ class RunnerEnvironmentConfig:
 def _false(*args, **kwargs):
     """Default value of not support cuda graph."""
     return False
-
 
 
 class CaptureSizeProcessor:
@@ -194,9 +194,7 @@ class RunnerCache:
     def __init__(self) -> None:
         self._entries: "OrderedDict[Any, Any]" = OrderedDict()
 
-    def get_or_create(
-        self, key: Any, factory: Callable[[], Any]
-    ) -> Tuple[Any, bool]:
+    def get_or_create(self, key: Any, factory: Callable[[], Any]) -> Tuple[Any, bool]:
         entry = self._entries.get(key)
         if entry is None:
             runner = factory()
@@ -261,7 +259,6 @@ class AscendPiecewiseGraphRunner(GraphRunner):
             adjusted_sizes, self.model_config, self.env_config
         )
 
-    
     def check_enable_graph(self) -> Callable:
         """Check enable graph."""
         if self.backend_config.eager_mode:
@@ -341,9 +338,7 @@ class AscendPiecewiseGraphRunner(GraphRunner):
 
         return self._runner_cache.get_or_create(graph_key, _factory)
 
-    def _handle_new_runner_creation(
-        self, runner: Any, **kwargs
-    ) -> Any:
+    def _handle_new_runner_creation(self, runner: Any, **kwargs) -> Any:
         """Handle first-time graph capture for new runner."""
         from dlinfer.graph import config
 
@@ -356,9 +351,7 @@ class AscendPiecewiseGraphRunner(GraphRunner):
         finally:
             config.is_capturing = original_is_capturing
 
-    def _handle_existing_runner_reuse(
-        self, runner: Any, **kwargs
-    ) -> Any:
+    def _handle_existing_runner_reuse(self, runner: Any, **kwargs) -> Any:
         """Handle graph reuse for existing runner."""
         return runner.forward(**kwargs)
 

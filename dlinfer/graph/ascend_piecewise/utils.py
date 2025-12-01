@@ -243,11 +243,13 @@ class PiecewiseEnvConfig:
         if not env_str:
             return None
         try:
-            return sorted({
-                int(item.strip())
-                for item in env_str.split(",")
-                if item.strip() and int(item.strip()) > 0
-            })
+            return sorted(
+                {
+                    int(item.strip())
+                    for item in env_str.split(",")
+                    if item.strip() and int(item.strip()) > 0
+                }
+            )
         except ValueError:
             return None
 
