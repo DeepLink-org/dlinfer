@@ -15,6 +15,22 @@ if TYPE_CHECKING:  # pragma: no cover - type hints only
 
 logger = get_logger("dlinfer.debug")
 
+# Constants for graph types
+ATTENTION_GRAPH = "ATTENTION"
+COMPUTE_GRAPH = "COMPUTE"
+
+
+def _debug_section_header(title: str) -> None:
+    """Print a formatted debug section header."""
+    logger.info("=" * 80)
+    logger.info(f"{title}")
+    logger.info("=" * 80)
+
+
+def _debug_section_footer() -> None:
+    """Print a formatted debug section footer."""
+    logger.info("=" * 80)
+
 
 @lru_cache(maxsize=1)
 def is_debug_enabled() -> bool:
@@ -41,9 +57,7 @@ def debug_fx_graph_structure(gm: fx.GraphModule, title: str = "FX Graph") -> Non
     Debug utility to print comprehensive FX graph structure.
     """
 
-    logger.info("=" * 80)
-    logger.info(f"{title} - Structure Analysis")
-    logger.info("=" * 80)
+    _debug_section_header(f"{title} - Structure Analysis")
 
     total_nodes = len(list(gm.graph.nodes))
     node_ops = [node.op for node in gm.graph.nodes]
@@ -67,7 +81,7 @@ def debug_fx_graph_structure(gm: fx.GraphModule, title: str = "FX Graph") -> Non
         for i, node in enumerate(placeholders):
             logger.info("  [%s] %s: %s", i, node.name, node.meta)
 
-    logger.info("=" * 80)
+    _debug_section_footer()
 
 
 def debug_fx_graph_nodes(
@@ -79,9 +93,7 @@ def debug_fx_graph_nodes(
     Debug utility to print detailed node information.
     """
 
-    logger.info("=" * 80)
-    logger.info(f"{title} - Detailed Node Analysis")
-    logger.info("=" * 80)
+    _debug_section_header(f"{title} - Detailed Node Analysis")
 
     node_count = 0
     for node in gm.graph.nodes:
@@ -109,7 +121,7 @@ def debug_fx_graph_nodes(
         logger.info("  ---")
 
     logger.info("Total nodes analyzed: %s", node_count)
-    logger.info("=" * 80)
+    _debug_section_footer()
 
 
 def debug_graph_splitting(
@@ -133,7 +145,7 @@ def debug_graph_splitting(
 
     logger.info("\nSubmodule Details:")
     for item in split_items:
-        module_type = "ATTENTION" if item.is_splitting_graph else "COMPUTE"
+        module_type = ATTENTION_GRAPH if item.is_splitting_graph else COMPUTE_GRAPH
         module = getattr(split_gm, item.submod_name)
         node_count = len(list(module.graph.nodes))
         logger.info(
@@ -208,7 +220,7 @@ def debug_compilation_summary(
             "  [%s] %s -> %s",
             item.graph_id,
             item.submod_name,
-            "ATTN" if item.is_splitting_graph else "COMPUTE",
+            ATTENTION_GRAPH if item.is_splitting_graph else COMPUTE_GRAPH,
         )
 
     logger.info("=" * 80)
