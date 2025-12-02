@@ -367,6 +367,7 @@ class AscendGraphRunner(GraphRunner):
             )
             AscendGraphRunner.capturing = True
             runner.capture(**kwargs)
+            AscendGraphRunner.capturing = False
             self._runner_map[graph_key] = runner
         else:
             runner = self._runner_map[graph_key]
