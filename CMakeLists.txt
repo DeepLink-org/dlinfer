@@ -27,4 +27,4 @@ endif()
 add_subdirectory(dlinfer/vendor/${DEVICE})
 add_subdirectory(dlinfer/graph/dicp/vendor)
 
-install(CODE "message(STATUS \"Install completed for device: ${DEVICE}\")")  
+install(CODE "message(STATUS \"Install completed for device: ${DEVICE}\")")
