@@ -95,15 +95,17 @@ def prefill_attention(
     value = value.contiguous()
     scale_value = softmax_scale if softmax_scale else 1.0 / math.sqrt(query.shape[-1])
     if len(attn_mask):
-        mask = attn_mask[0].to(query.dtype)
+        mask = attn_mask[0]
     else:
-        mask = torch.logical_not(
-            torch.tril(
-                torch.ones(
-                    max_q_seq_len, max_q_seq_len, dtype=torch.bool, device=query.device
-                )
+        mask = torch.triu(
+            torch.ones(
+                max_q_seq_len,
+                max_q_seq_len,
+                dtype=query.dtype,
+                device=query.device,
+                diagonal=1,
             )
-        ).to(query.dtype)
+        )
         q_seq_len = q_seq_len.cpu()
     if SocVersion.is_Ascend910():
         torch.ops.atb._npu_flash_attention(
@@ -231,7 +233,7 @@ def fill_kv_cache(
         value=value,
         key_cache=key_cache,
         value_cache=value_cache,
-        slot_indices=kv_indices.to(torch.int32),
+        slot_indices=kv_indices,
     )
     return key_cache, value_cache
 
@@ -272,8 +274,6 @@ def paged_decode_attention(
         raise RuntimeError(
             "paged_decode_attention does not " "support alibi_slopes yet"
         )
-    if isinstance(block_table, torch.Tensor) and block_table.dtype != torch.int32:
-        block_table = block_table.to(torch.int32)
 
     query = query.contiguous()
     attn_output = attn_output.contiguous()
@@ -358,9 +358,6 @@ def paged_prefill_attention(
             "paged_decode_attention does not " "support alibi_slopes yet"
         )
 
-    if block_table.dtype != torch.int32:
-        block_table = block_table.to(torch.int32)
-
     scale_value = softmax_scale if softmax_scale else 1.0 / math.sqrt(query.shape[-1])
     query = query.contiguous().view(query.shape[0], 1, -1)
     block_num = key_cache.size(0)
@@ -371,7 +368,7 @@ def paged_prefill_attention(
         query=query,
         key=key_cache,
         value=value_cache,
-        atten_mask=attn_mask,
+        atten_mask=attn_mask[0],
         block_table=block_table,
         input_layout="BSH",
         block_size=block_size,

@@ -55,7 +55,7 @@ def AscendCudaGraphMixin_make_buffers_cudagraph(
     )
 
     input_buffers["kv_start_indices"] = -torch.ones(
-        (max_batches), dtype=torch.int64, device=device
+        (max_batches), dtype=torch.int32, device=device
     )
     return input_buffers
 
