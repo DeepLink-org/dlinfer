@@ -162,6 +162,7 @@ def prefill_attention(
     query = query.contiguous()
     key = key.contiguous()
     value = value.contiguous()
+    attn_output = attn_output.contiguous()
     scale_value = softmax_scale if softmax_scale else 1.0 / math.sqrt(query.shape[-1])
     if len(attn_mask):
         mask = attn_mask[0]
@@ -282,6 +283,8 @@ def fill_kv_cache(
     # only support contiguous k,v
     key = key.contiguous()
     value = value.contiguous()
+    key_cache = key_cache.contiguous()
+    value_cache = value_cache.contiguous()
 
     if quant_bits == 8:
 
@@ -344,7 +347,6 @@ def paged_decode_attention(
     query = query.contiguous()
     attn_output = attn_output.contiguous()
     scale_value = softmax_scale if softmax_scale else 1.0 / math.sqrt(query.shape[-1])
-    is_mla = key_cache.shape[-1] != value_cache.shape[-1]
     if AscendGraphRunner.capturing:
         graph_params = get_graph_params()
         num_tokens = query.shape[0]
