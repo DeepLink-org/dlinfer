@@ -103,6 +103,6 @@ def DeepseekV2Attention_forward(
 
 
 qwen2_vl._apply_mrope_selection = _apply_mrope_selection
-# deepseek_v2.DeepseekV2BMM.forward = DeepseekV2BMM_forward
-# deepseek_v2.DeepseekV2Attention._kv_proj = DeepseekV2Attention__kv_proj
-# deepseek_v2.DeepseekV2Attention.forward = DeepseekV2Attention_forward
+deepseek_v2.DeepseekV2BMM.forward = DeepseekV2BMM_forward
+deepseek_v2.DeepseekV2Attention._kv_proj = DeepseekV2Attention__kv_proj
+deepseek_v2.DeepseekV2Attention.forward = DeepseekV2Attention_forward
