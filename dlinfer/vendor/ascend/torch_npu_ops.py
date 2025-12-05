@@ -327,31 +327,17 @@ def get_cache_len(cache: Tensor):
 
 
 @register_ops(vendor_ops_registry)
-def paged_decode_attention(
+def decode_attention(
     query: Tensor,
     key_cache: Tensor,
     value_cache: Tensor,
-    block_table: Optional[Tensor],
-    block_size: int,
-    kv_seq_len: Tensor,
-    max_kv_seq_len: int,
-    num_q_heads: int,
     num_kv_heads: int,
-    softmax_scale: Optional[float],
-    alibi_slopes: Optional[Sequence[float]],
-    attn_output: Optional[Tensor],
-    kv_scales: Optional[Tensor],
-    kv_zeros: Optional[Tensor],
-    quant_bits: Optional[int],
-) -> Tensor:
-    if alibi_slopes is not None:
-        raise RuntimeError(
-            "paged_decode_attention does not " "support alibi_slopes yet"
-        )
-
-    query = query.contiguous()
-    attn_output = attn_output.contiguous()
-    scale_value = softmax_scale if softmax_scale else 1.0 / math.sqrt(query.shape[-1])
+    num_q_heads: int,
+    scale_value: float,
+    block_table: Tensor,
+    kv_seq_len: Tensor,
+    attn_output: Tensor,
+):
     if AscendGraphRunner.capturing:
         graph_params = get_graph_params()
         num_tokens = query.shape[0]
@@ -373,6 +359,7 @@ def paged_decode_attention(
                 attn_output,
             )
         )
+        graph_params.is_mla = False
         torch.npu.graph_task_group_begin(stream)
         torch.ops.atb._npu_paged_attention(
             query=query,
@@ -400,6 +387,124 @@ def paged_decode_attention(
             out=attn_output,
         )
     return attn_output
+
+
+@register_ops(vendor_ops_registry)
+def decode_attention_mla(
+    query: Tensor,
+    key_cache: Tensor,
+    num_kv_heads: int,
+    num_q_heads: int,
+    scale_value: float,
+    block_table: Tensor,
+    kv_seq_len: Tensor,
+    mla_vheadsize: int,
+    attn_output: Tensor,
+):
+    if AscendGraphRunner.capturing:
+        graph_params = get_graph_params()
+        num_tokens = query.shape[0]
+        stream = torch.npu.current_stream()
+        event = torch.npu.ExternalEvent()
+        event.wait(stream)
+        event.reset(stream)
+        graph_params.events[num_tokens].append(event)
+        graph_params.attn_params[num_tokens].append(
+            (
+                query,
+                key_cache,
+                num_kv_heads,
+                num_q_heads,
+                scale_value,
+                block_table,
+                kv_seq_len,
+                mla_vheadsize,
+                attn_output,
+            )
+        )
+        graph_params.is_mla = True
+        torch.npu.graph_task_group_begin(stream)
+        torch.ops.atb._npu_paged_attention_mla(
+            query=query,
+            key_cache=key_cache,
+            num_kv_heads=num_kv_heads,
+            num_heads=num_q_heads,
+            scale_value=scale_value,
+            block_table=block_table,
+            context_lens=kv_seq_len,
+            mla_vheadsize=mla_vheadsize,
+            out=attn_output,
+        )
+        handle = torch.npu.graph_task_group_end(stream)
+        graph_params.handles[num_tokens].append(handle)
+    else:
+        torch.ops.atb._npu_paged_attention_mla(
+            query=query,
+            key_cache=key_cache,
+            num_kv_heads=num_kv_heads,
+            num_heads=num_q_heads,
+            scale_value=scale_value,
+            block_table=block_table,
+            context_lens=kv_seq_len,
+            mla_vheadsize=mla_vheadsize,
+            out=attn_output,
+        )
+    return attn_output
+
+
+@register_ops(vendor_ops_registry)
+def paged_decode_attention(
+    query: Tensor,
+    key_cache: Tensor,
+    value_cache: Tensor,
+    block_table: Optional[Tensor],
+    block_size: int,
+    kv_seq_len: Tensor,
+    max_kv_seq_len: int,
+    num_q_heads: int,
+    num_kv_heads: int,
+    softmax_scale: Optional[float],
+    alibi_slopes: Optional[Sequence[float]],
+    attn_output: Optional[Tensor],
+    kv_scales: Optional[Tensor],
+    kv_zeros: Optional[Tensor],
+    quant_bits: Optional[int],
+) -> Tensor:
+    if alibi_slopes is not None:
+        raise RuntimeError(
+            "paged_decode_attention does not " "support alibi_slopes yet"
+        )
+    if isinstance(block_table, torch.Tensor) and block_table.dtype != torch.int32:
+        block_table = block_table.to(torch.int32)
+
+    query = query.contiguous()
+    attn_output = attn_output.contiguous()
+    scale_value = softmax_scale if softmax_scale else 1.0 / math.sqrt(query.shape[-1])
+    key_headsize, value_headsize = key_cache.shape[-1], value_cache.shape[-1]
+    if key_headsize == value_headsize:
+        return decode_attention(
+            query=query,
+            key_cache=key_cache,
+            value_cache=value_cache,
+            num_kv_heads=num_kv_heads,
+            num_q_heads=num_q_heads,
+            scale_value=scale_value,
+            block_table=block_table,
+            kv_seq_len=kv_seq_len,
+            attn_output=attn_output,
+        )
+    else:
+        return decode_attention_mla(
+            query=query,
+            key_cache=key_cache,
+            num_kv_heads=num_kv_heads,
+            num_q_heads=num_q_heads,
+            scale_value=scale_value,
+            block_table=block_table,
+            kv_seq_len=kv_seq_len,
+            mla_vheadsize=value_headsize,
+            attn_output=attn_output,
+        )
 
 
 @register_ops(vendor_ops_registry)

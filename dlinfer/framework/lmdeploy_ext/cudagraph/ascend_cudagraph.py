@@ -430,6 +430,7 @@ class GraphParams:
     workspaces: dict[int, torch.Tensor]
     handles: dict[int, list[torch_npu._C._NPUTaskGroupHandle]]
     attn_params: dict[int, list[tuple]]
+    is_mla: bool
 
 
 _graph_params: Optional[GraphParams] = None
@@ -444,6 +445,7 @@ def set_graph_params(aclgraph_capture_sizes: set[int]):
         {size: None for size in aclgraph_capture_sizes},
         {size: [] for size in aclgraph_capture_sizes},
         {size: [] for size in aclgraph_capture_sizes},
+        False,
     )
 
 
@@ -464,6 +466,7 @@ def clear_graph_params():
             _graph_params.handles[k].clear()
         for k in list(_graph_params.events.keys()):
             _graph_params.events[k].clear()
+        _graph_params.is_mla = None
 
         _graph_params.workspaces.clear()
     finally:
@@ -477,30 +480,73 @@ def update_attn_params(update_stream, forward_meta, runtime_size):
         graph_params.handles[runtime_size],
         graph_params.events[runtime_size],
     ):
-        (
-            query,
-            key_cache,
-            value_cache,
-            num_kv_heads,
-            num_heads,
-            scale,
-            block_table,
-            seq_lens,
-            output,
-        ) = param
-        seq_lens = forward_meta.input_buffers["kv_seqlens"]
-        with torch.npu.stream(update_stream):
-            torch.npu.graph_task_update_begin(update_stream, handle)
-            torch.ops.atb._npu_paged_attention(
-                query=query,
-                key_cache=key_cache,
-                value_cache=value_cache,
-                num_kv_heads=num_kv_heads,
-                num_heads=num_heads,
-                scale_value=scale,
-                block_table=block_table,
-                context_lens=seq_lens,
-                out=output,
+        if graph_params.is_mla:
+            update_decode_attention_mla_params(
+                update_stream, forward_meta, param, handle, event
             )
-            torch.npu.graph_task_update_end(update_stream)
-            event.record(update_stream)
+        else:
+            update_decode_attention_params(
+                update_stream, forward_meta, param, handle, event
+            )
+
+
+def update_decode_attention_params(update_stream, forward_meta, param, handle, event):
+    (
+        query,
+        key_cache,
+        value_cache,
+        num_kv_heads,
+        num_heads,
+        scale,
+        block_table,
+        kv_seq_len,
+        output,
+    ) = param
+    kv_seq_len = forward_meta.input_buffers["kv_seqlens"]
+    with torch.npu.stream(update_stream):
+        torch.npu.graph_task_update_begin(update_stream, handle)
+        torch.ops.atb._npu_paged_attention(
+            query=query,
+            key_cache=key_cache,
+            value_cache=value_cache,
+            num_kv_heads=num_kv_heads,
+            num_heads=num_heads,
+            scale_value=scale,
+            block_table=block_table,
+            context_lens=kv_seq_len,
+            out=output,
+        )
+        torch.npu.graph_task_update_end(update_stream)
+        event.record(update_stream)
+
+
+def update_decode_attention_mla_params(
+    update_stream, forward_meta, param, handle, event
+):
+    (
+        query,
+        key_cache,
+        num_kv_heads,
+        num_q_heads,
+        scale_value,
+        block_table,
+        kv_seq_len,
+        mla_vheadsize,
+        attn_output,
+    ) = param
+    kv_seq_len = forward_meta.input_buffers["kv_seqlens"]
+    with torch.npu.stream(update_stream):
+        torch.npu.graph_task_update_begin(update_stream, handle)
+        torch.ops.atb._npu_paged_attention_mla(
+            query=query,
+            key_cache=key_cache,
+            num_kv_heads=num_kv_heads,
+            num_heads=num_q_heads,
+            scale_value=scale_value,
+            block_table=block_table,
+            context_lens=kv_seq_len,
+            mla_vheadsize=mla_vheadsize,
+            out=attn_output,
+        )
+        torch.npu.graph_task_update_end(update_stream)
+        event.record(update_stream)
