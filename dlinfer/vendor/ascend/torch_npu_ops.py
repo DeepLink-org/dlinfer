@@ -93,6 +93,7 @@ def prefill_attention(
     query = query.contiguous()
     key = key.contiguous()
     value = value.contiguous()
+    attn_output = attn_output.contiguous()
     scale_value = softmax_scale if softmax_scale else 1.0 / math.sqrt(query.shape[-1])
     if len(attn_mask):
         mask = attn_mask[0].to(query.dtype)
@@ -192,10 +193,15 @@ def fill_kv_cache(
         key = quant_int8(key, k_scales_zeros[0], k_scales_zeros[1])
         value = quant_int8(value, v_scales_zeros[0], v_scales_zeros[1])
 
-    key_cache_reshaped = key_cache.view(block_total, head, dim)
-    value_cache_reshaped = value_cache.view(block_total, head, dim)
-    torch.ops.npu.npu_scatter_nd_update_(key_cache_reshaped, kv_indices, key)
-    torch.ops.npu.npu_scatter_nd_update_(value_cache_reshaped, kv_indices, value)
+    is_mla = key.shape[-1] != value.shape[-1]
+    if is_mla:
+        key_cache_reshaped = key_cache.view(block_total, head, dim)
+        torch.ops.npu.npu_scatter_nd_update_(key_cache_reshaped, kv_indices, key)
+    else:
+        key_cache_reshaped = key_cache.view(block_total, head, dim)
+        value_cache_reshaped = value_cache.view(block_total, head, dim)
+        torch.ops.npu.npu_scatter_nd_update_(key_cache_reshaped, kv_indices, key)
+        torch.ops.npu.npu_scatter_nd_update_(value_cache_reshaped, kv_indices, value)
     return key_cache, value_cache
 """
 
@@ -226,13 +232,20 @@ def fill_kv_cache(
         key = quant_int8(key, k_scales_zeros[0], k_scales_zeros[1])
         value = quant_int8(value, v_scales_zeros[0], v_scales_zeros[1])
 
-    torch.ops.atb._npu_reshape_and_cache(
-        key=key,
-        value=value,
-        key_cache=key_cache,
-        value_cache=value_cache,
-        slot_indices=kv_indices.to(torch.int32),
-    )
+    is_mla = key.shape[-1] != value.shape[-1]
+    if is_mla:
+        assert len(key_cache.shape) == 4
+        key_cache_reshaped = torch.flatten(key_cache, start_dim=0, end_dim=1)
+        kv_indices = kv_indices.view(-1, 1)
+        torch.ops.npu.npu_scatter_nd_update_(key_cache_reshaped, kv_indices, key)
+    else:
+        torch.ops.atb._npu_reshape_and_cache(
+            key=key,
+            value=value,
+            key_cache=key_cache,
+            value_cache=value_cache,
+            slot_indices=kv_indices,
+        )
     return key_cache, value_cache
 
 
@@ -248,6 +261,132 @@ def fill_contiguous_kvcache(
 @register_ops(vendor_ops_registry)
 def get_cache_len(cache: Tensor):
     return cache.shape[1]
+
+
+@register_ops(vendor_ops_registry)
+def decode_attention(
+    query: Tensor,
+    key_cache: Tensor,
+    value_cache: Tensor,
+    num_kv_heads: int,
+    num_q_heads: int,
+    scale_value: float,
+    block_table: Tensor,
+    kv_seq_len: Tensor,
+    attn_output: Tensor,
+):
+    if AscendGraphRunner.capturing:
+        graph_params = get_graph_params()
+        num_tokens = query.shape[0]
+        stream = torch.npu.current_stream()
+        event = torch.npu.ExternalEvent()
+        event.wait(stream)
+        event.reset(stream)
+        graph_params.events[num_tokens].append(event)
+        graph_params.attn_params[num_tokens].append(
+            (
+                query,
+                key_cache,
+                value_cache,
+                num_kv_heads,
+                num_q_heads,
+                scale_value,
+                block_table,
+                kv_seq_len,
+                attn_output,
+            )
+        )
+        graph_params.is_mla = False
+        torch.npu.graph_task_group_begin(stream)
+        torch.ops.atb._npu_paged_attention(
+            query=query,
+            key_cache=key_cache,
+            value_cache=value_cache,
+            num_kv_heads=num_kv_heads,
+            num_heads=num_q_heads,
+            scale_value=scale_value,
+            block_table=block_table,
+            context_lens=kv_seq_len,
+            out=attn_output,
+        )
+        handle = torch.npu.graph_task_group_end(stream)
+        graph_params.handles[num_tokens].append(handle)
+    else:
+        torch.ops.atb._npu_paged_attention(
+            query=query,
+            key_cache=key_cache,
+            value_cache=value_cache,
+            num_kv_heads=num_kv_heads,
+            num_heads=num_q_heads,
+            scale_value=scale_value,
+            block_table=block_table,
+            context_lens=kv_seq_len,
+            out=attn_output,
+        )
+    return attn_output
+
+
+@register_ops(vendor_ops_registry)
+def decode_attention_mla(
+    query: Tensor,
+    key_cache: Tensor,
+    num_kv_heads: int,
+    num_q_heads: int,
+    scale_value: float,
+    block_table: Tensor,
+    kv_seq_len: Tensor,
+    mla_vheadsize: int,
+    attn_output: Tensor,
+):
+    if AscendGraphRunner.capturing:
+        graph_params = get_graph_params()
+        num_tokens = query.shape[0]
+        stream = torch.npu.current_stream()
+        event = torch.npu.ExternalEvent()
+        event.wait(stream)
+        event.reset(stream)
+        graph_params.events[num_tokens].append(event)
+        graph_params.attn_params[num_tokens].append(
+            (
+                query,
+                key_cache,
+                num_kv_heads,
+                num_q_heads,
+                scale_value,
+                block_table,
+                kv_seq_len,
+                mla_vheadsize,
+                attn_output,
+            )
+        )
+        graph_params.is_mla = True
+        torch.npu.graph_task_group_begin(stream)
+        torch.ops.atb._npu_paged_attention_mla(
+            query=query,
+            key_cache=key_cache,
+            num_kv_heads=num_kv_heads,
+            num_heads=num_q_heads,
+            scale_value=scale_value,
+            block_table=block_table,
+            context_lens=kv_seq_len,
+            mla_vheadsize=mla_vheadsize,
+            out=attn_output,
+        )
+        handle = torch.npu.graph_task_group_end(stream)
+        graph_params.handles[num_tokens].append(handle)
+    else:
+        torch.ops.atb._npu_paged_attention_mla(
+            query=query,
+            key_cache=key_cache,
+            num_kv_heads=num_kv_heads,
+            num_heads=num_q_heads,
+            scale_value=scale_value,
+            block_table=block_table,
+            context_lens=kv_seq_len,
+            mla_vheadsize=mla_vheadsize,
+            out=attn_output,
+        )
+    return attn_output
 
 
 @register_ops(vendor_ops_registry)
@@ -278,54 +417,31 @@ def paged_decode_attention(
     query = query.contiguous()
     attn_output = attn_output.contiguous()
     scale_value = softmax_scale if softmax_scale else 1.0 / math.sqrt(query.shape[-1])
-    if AscendGraphRunner.capturing:
-        graph_params = get_graph_params()
-        num_tokens = query.shape[0]
-        stream = torch.npu.current_stream()
-        event = torch.npu.ExternalEvent()
-        event.wait(stream)
-        event.reset(stream)
-        graph_params.events[num_tokens].append(event)
-        graph_params.attn_params[num_tokens].append(
-            (
-                query,
-                key_cache,
-                value_cache,
-                num_kv_heads,
-                num_q_heads,
-                scale_value,
-                block_table,
-                kv_seq_len,
-                attn_output,
-            )
-        )
-        torch.npu.graph_task_group_begin(stream)
-        torch.ops.atb._npu_paged_attention(
+    key_headsize, value_headsize = key_cache.shape[-1], value_cache.shape[-1]
+    if key_headsize == value_headsize:
+        return decode_attention(
             query=query,
             key_cache=key_cache,
             value_cache=value_cache,
             num_kv_heads=num_kv_heads,
-            num_heads=num_q_heads,
+            num_q_heads=num_q_heads,
             scale_value=scale_value,
             block_table=block_table,
-            context_lens=kv_seq_len,
-            out=attn_output,
+            kv_seq_len=kv_seq_len,
+            attn_output=attn_output,
         )
-        handle = torch.npu.graph_task_group_end(stream)
-        graph_params.handles[num_tokens].append(handle)
     else:
-        torch.ops.atb._npu_paged_attention(
+        return decode_attention_mla(
             query=query,
             key_cache=key_cache,
-            value_cache=value_cache,
             num_kv_heads=num_kv_heads,
-            num_heads=num_q_heads,
+            num_q_heads=num_q_heads,
             scale_value=scale_value,
             block_table=block_table,
-            context_lens=kv_seq_len,
-            out=attn_output,
+            kv_seq_len=kv_seq_len,
+            mla_vheadsize=value_headsize,
+            attn_output=attn_output,
         )
-    return attn_output
 
 
 @register_ops(vendor_ops_registry)
