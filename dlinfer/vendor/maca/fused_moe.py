@@ -8,12 +8,7 @@ import torch
 import triton
 import triton.language as tl
 
-from .maca_extension import ops as maca_ext_ops
-
 import logging
-
-env_value = os.getenv("MACA_LMDEPLOY_MCOPLIB_OPS", "yes")
-USE_MCOPLIB_OPS = env_value.lower() in ("true", "1", "yes", "on")
 
 logger = logging.getLogger(__name__)
 
@@ -253,24 +248,14 @@ def moe_align_block_size(
         (max_num_m_blocks,), dtype=torch.int32, device=topk_ids.device
     )
     num_tokens_post_pad = torch.empty((1), dtype=torch.int32, device=topk_ids.device)
-    if USE_MCOPLIB_OPS:
-        torch.ops._moe_C.moe_align_block_size(
-            topk_ids,
-            num_experts,
-            block_size,
-            sorted_ids,
-            expert_ids,
-            num_tokens_post_pad,
-        )
-    else:
-        maca_ext_ops.moe_align_block_size(
-            topk_ids,
-            num_experts,
-            block_size,
-            sorted_ids,
-            expert_ids,
-            num_tokens_post_pad,
-        )
+    torch.ops._moe_C.moe_align_block_size(
+        topk_ids,
+        num_experts,
+        block_size,
+        sorted_ids,
+        expert_ids,
+        num_tokens_post_pad,
+    )
 
     return sorted_ids, expert_ids, num_tokens_post_pad
 
@@ -476,20 +461,12 @@ def fused_topk(
     token_expert_indicies = torch.empty(
         M, topk, dtype=torch.int32, device=hidden_states.device
     )
-    if USE_MCOPLIB_OPS:
-        torch.ops._moe_C.topk_softmax(
-            topk_weights,
-            topk_ids,
-            token_expert_indicies,
-            gating_output.float(),  # TODO(woosuk): Optimize this.
-        )
-    else:
-        maca_ext_ops.topk_softmax(
-            topk_weights,
-            topk_ids,
-            token_expert_indicies,
-            gating_output.float(),  # TODO(woosuk): Optimize this.
-        )
+    torch.ops._moe_C.topk_softmax(
+        topk_weights,
+        topk_ids,
+        token_expert_indicies,
+        gating_output.float(),  # TODO(woosuk): Optimize this.
+    )
     del token_expert_indicies  # Not used. Will be used in the future.
 
     if renormalize:
@@ -819,14 +796,7 @@ def fused_experts_impl(
             use_int8_w8a16=use_int8_w8a16,
             block_shape=block_shape,
         )
-        if USE_MCOPLIB_OPS:
-            torch.ops._C.silu_and_mul(
-                intermediate_cache2, intermediate_cache1.view(-1, N)
-            )
-        else:
-            maca_ext_ops.silu_and_mul(
-                intermediate_cache2, intermediate_cache1.view(-1, N)
-            )
+        torch.ops._C.silu_and_mul(intermediate_cache2, intermediate_cache1.view(-1, N))
 
         invoke_fused_moe_kernel(
             intermediate_cache2,
@@ -847,16 +817,10 @@ def fused_experts_impl(
             use_int8_w8a16=use_int8_w8a16,
             block_shape=block_shape,
         )
-        if USE_MCOPLIB_OPS:
-            torch.ops._moe_C.moe_sum(
-                intermediate_cache3.view(*intermediate_cache3.shape),
-                out_hidden_states[begin_chunk_idx:end_chunk_idx],
-            )
-        else:
-            maca_ext_ops.moe_sum(
-                intermediate_cache3.view(*intermediate_cache3.shape),
-                out_hidden_states[begin_chunk_idx:end_chunk_idx],
-            )
+        torch.ops._moe_C.moe_sum(
+            intermediate_cache3.view(*intermediate_cache3.shape),
+            out_hidden_states[begin_chunk_idx:end_chunk_idx],
+        )
 
     return out_hidden_states
 

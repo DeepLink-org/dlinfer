@@ -11,29 +11,10 @@ from dlinfer.utils.registry import register_ops
 from dlinfer.utils.type_annotation import Tensor, Optional, Sequence, Tuple
 
 from .fused_moe import fused_experts
-from .maca_extension import ops as maca_ext_ops
-from mcoplib import lmdeploy as mcoplib_ops
+from mcoplib import lmdeploy as ops
 from mcoplib import op as op_origin
 import mcoplib._C
 import mcoplib._moe_C
-
-env_value = os.getenv("MACA_LMDEPLOY_MCOPLIB_OPS", "true")
-USE_MCOPLIB_OPS = env_value.lower() in ("true", "1", "yes", "on")
-
-# Select the ops library based on environment variable
-if USE_MCOPLIB_OPS:
-    print(f"====>{USE_MCOPLIB_OPS}")
-    ops = mcoplib_ops
-    ops_name = "mcoplib_ops"
-else:
-    ops = maca_ext_ops
-    ops_name = "maca_ext_ops"
-
-# Print environment variable value and selected ops library
-print(
-    f"[DLInfer] MACA_LMDEPLOY_MCOPLIB_OPS environment variable: {env_value} USE_MCOPLIB_OPS:{USE_MCOPLIB_OPS}"
-)
-print(f"[DLInfer] Using ops library: {ops_name}")
 
 __all__ = [
     "add_rms_norm",
@@ -80,10 +61,7 @@ def add_rms_norm(
     weight: Tensor,
     epsilon: float,
 ) -> Tuple[Tensor, Tensor]:
-    if USE_MCOPLIB_OPS:
-        torch.ops._C.fused_add_rms_norm(hidden_states, residual, weight, epsilon)
-    else:
-        ops.fused_add_rms_norm(hidden_states, residual, weight, epsilon)
+    torch.ops._C.fused_add_rms_norm(hidden_states, residual, weight, epsilon)
     return hidden_states, residual
 
 
@@ -101,26 +79,15 @@ def apply_rotary_pos_emb(
     query = query.flatten(-2, -1)
     key = key.flatten(-2, -1)
     rot_dim = cos.size(-1)
-    if USE_MCOPLIB_OPS:
-        ops.lmdeploy_rotary_embedding(
-            position_ids_1d,
-            query,
-            key,
-            head_size,
-            cos.view(-1, rot_dim),
-            sin.view(-1, rot_dim),
-            True,
-        )
-    else:
-        ops.rotary_embedding(
-            position_ids_1d,
-            query,
-            key,
-            head_size,
-            cos.view(-1, rot_dim),
-            sin.view(-1, rot_dim),
-            True,
-        )
+    ops.lmdeploy_rotary_embedding(
+        position_ids_1d,
+        query,
+        key,
+        head_size,
+        cos.view(-1, rot_dim),
+        sin.view(-1, rot_dim),
+        True,
+    )
 
     return query, key
 
@@ -247,14 +214,9 @@ def fill_kv_cache(
     k_scale = torch.tensor(1.0)
     v_scale = torch.tensor(1.0)
 
-    if USE_MCOPLIB_OPS:
-        torch.ops._C_cache_ops.reshape_and_cache_flash(
-            key, value, key_cache, value_cache, kv_indices, "auto", k_scale, v_scale
-        )
-    else:
-        ops.reshape_and_cache_flash(
-            key, value, key_cache, value_cache, kv_indices, "auto", k_scale, v_scale
-        )
+    torch.ops._C_cache_ops.reshape_and_cache_flash(
+        key, value, key_cache, value_cache, kv_indices, "auto", k_scale, v_scale
+    )
     return key_cache, value_cache
 
 
@@ -391,10 +353,7 @@ def rms_norm(
     hidden_states = hidden_states.to(torch.float32)
     weight = weight.to(torch.float32)
     output = torch.empty_like(hidden_states)
-    if USE_MCOPLIB_OPS:
-        op_origin.rms_norm(output, hidden_states, weight, epsilon, None, None, False)
-    else:
-        ops.rms_norm(output, hidden_states, weight, epsilon)
+    op_origin.rms_norm(output, hidden_states, weight, epsilon, None, None, False)
     return output.to(input_dtype)
 
 
@@ -412,18 +371,9 @@ def moe_gating_topk_softmax(
 
     token_expert_indicies = torch.empty_like(topk_ids)
 
-    if USE_MCOPLIB_OPS:
-        torch.ops._moe_C.topk_softmax(
-            topk_weights, topk_ids, token_expert_indicies, router_logits.float()
-        )
-    else:
-        ops.topk_softmax(
-            topk_weights,
-            topk_ids,
-            token_expert_indicies,
-            router_logits.float(),
-        )
-
+    torch.ops._moe_C.topk_softmax(
+        topk_weights, topk_ids, token_expert_indicies, router_logits.float()
+    )
     del token_expert_indicies  # Not used. Will be used in the future.
 
     if renormalize:
