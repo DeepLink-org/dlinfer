@@ -35,6 +35,7 @@ ExternalProject_Add(${MACA_SUB_MODULE}
                     BUILD_ALWAYS ON
                     USES_TERMINAL_BUILD ON
                     USES_TERMINAL_INSTALL ON
+                    INSTALL_COMMAND ""
                     CMAKE_ARGS
                       "-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}"
                       "-DCMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}"
