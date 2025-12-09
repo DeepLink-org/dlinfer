@@ -14,7 +14,6 @@ from lmdeploy.pytorch.models.utils.cudagraph import CudaGraphMixin
 from lmdeploy.pytorch.config import BackendConfig, CacheConfig, ModelConfig
 from lmdeploy.pytorch.model_inputs import StepContext, get_step_ctx_manager
 from lmdeploy.pytorch.backends.graph_runner import GraphRunner
-from lmdeploy.pytorch.backends.cuda import graph_runner
 
 from lmdeploy.utils import get_logger
 
@@ -423,9 +422,6 @@ class AscendGraphRunner(GraphRunner):
     def get_capture_batch_sizes(self) -> List[int]:
         """Capture batch sizes."""
         return _get_capture_batch_size_impl(self.cache_config.max_batches)
-
-
-graph_runner.CUDAGraphRunner = AscendGraphRunner
 
 
 @dataclass
