@@ -1,5 +1,6 @@
 # Copyright (c) 2024, DeepLink. All rights reserved.
 import torch
+from typing import List
 from dlinfer.vendor import vendor_ops_registry
 from dlinfer.utils.type_annotation import Tensor, Optional, Sequence, Tuple
 from dlinfer.graph.custom_op import register_custom_op
@@ -585,7 +586,7 @@ def weight_quant_matmul(
     )
 
 
-@register_custom_op("dlinfer::fused_moe", ["hidden_states"])
+# @register_custom_op("dlinfer::fused_moe", ["hidden_states"])
 def fused_moe(
     hidden_states: Tensor,
     gate_up_weights: Tensor,
@@ -594,6 +595,9 @@ def fused_moe(
     topk_ids: Tensor,
     topk: int,
     renormalize: bool,
+    ep_size: int,
+    ep_group: torch.distributed.ProcessGroup = None,
+    expert_list: List[int] = None,
 ) -> Tensor:
     """
     Implement the Fused Mixture of Experts (MoE) model.
@@ -619,6 +623,9 @@ def fused_moe(
         topk_ids,
         topk,
         renormalize,
+        ep_size,
+        ep_group,
+        expert_list,
     )
 
 
