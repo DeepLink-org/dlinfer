@@ -26,7 +26,78 @@ __all__ = [
     "weight_quant_matmul",
     "fused_moe",
     "linear",
+    "rms_norm_w8a8",
+    "add_rms_norm_w8a8",
+    "dynamic_quant",
+    "linear_w8a8",
 ]
+
+
+@register_ops(vendor_ops_registry)
+def rms_norm_w8a8(
+    hidden_states: Tensor, weight: Tensor, epsilon: float, quant_dtype: torch.dtype
+) -> Tuple[Tensor, Tensor]:
+    hidden_states = hidden_states.contiguous()
+    output = torch.ops.npu.npu_rms_norm(hidden_states, weight, epsilon)[0]
+    x, scale = torch.ops.npu.npu_dynamic_quant(output, dst_type=quant_dtype)
+    return x, scale
+
+
+@register_ops(vendor_ops_registry)
+def add_rms_norm_w8a8(
+    hidden_states: Tensor,
+    residual: Tensor,
+    weight: Tensor,
+    epsilon: float,
+    quant_dtype: torch.dtype,
+) -> Tuple[Tensor, Tensor, Tensor]:
+    hidden_states = hidden_states.contiguous()
+    normed_hidden_states, _, added_hidden_states = torch.ops.npu.npu_add_rms_norm(
+        hidden_states, residual, weight, epsilon
+    )
+    x, scale = torch.ops.npu.npu_dynamic_quant(
+        normed_hidden_states, dst_type=quant_dtype
+    )
+    return x, scale, added_hidden_states
+
+
+@register_ops(vendor_ops_registry)
+def dynamic_quant(
+    hidden_states: Tensor, quant_dtype: torch.dtype, quant_granularity: str
+) -> Tuple[Tensor, Tensor]:
+    assert quant_granularity == "PER_TOKEN"
+    x, scale = torch.ops.npu.npu_dynamic_quant(hidden_states, dst_type=quant_dtype)
+    return x, scale
+
+
+@register_ops(vendor_ops_registry)
+def linear_w8a8(
+    hidden_states: Tensor,
+    weight: Tensor,
+    rms_scale: torch.Tensor,
+    linear_scale: torch.Tensor,
+    out_dtype: torch.dtype,
+    quant_dtype: torch.dtype,
+    bias: Tensor,
+) -> Tensor:
+
+    out_dtype = torch.bfloat16 if out_dtype == torch.float16 else out_dtype
+    hidden_states = hidden_states.squeeze(0)
+    linear_scale = linear_scale.squeeze()
+    rms_scale = rms_scale.squeeze(0)
+    weight = weight.transpose(0, 1).contiguous()
+
+    output = torch.ops.npu.npu_quant_matmul(
+        hidden_states,
+        weight,
+        linear_scale,
+        pertoken_scale=rms_scale,
+        bias=bias,
+        output_dtype=out_dtype,
+    )
+    weight = weight.transpose(0, 1).contiguous()
+    output = output.unsqueeze(0)
+    return output
 
 
 @register_ops(vendor_ops_registry)
