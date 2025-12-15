@@ -25,3 +25,5 @@ elseif(NOT DEVICE IN_LIST SUPPORTED_DEVICE)
 endif()
 
 add_subdirectory(dlinfer/graph/dicp/vendor)
+
+install(CODE "message(STATUS \"Install completed for device: ${DEVICE}\")")
