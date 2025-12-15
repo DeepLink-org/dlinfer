@@ -156,6 +156,12 @@ def prefill_attention(
     alibi_slopes: Optional[Sequence[float]],
     attn_output: Optional[Tensor],
 ) -> Tensor:
+    from lmdeploy.utils import get_logger
+
+    logger = get_logger(__file__)
+    logger.error(
+        f"###### prefill_attn {query.shape=} {torch.distributed.get_rank()=} ######"
+    )
     if alibi_slopes is not None:
         raise RuntimeError(
             "paged_decode_attention does not " "support alibi_slopes yet"
@@ -472,6 +478,10 @@ def paged_decode_attention(
     kv_zeros: Optional[Tensor],
     quant_bits: Optional[int],
 ) -> Tensor:
+    from lmdeploy.utils import get_logger
+
+    logger = get_logger(__file__)
+    logger.error(f"###### paged_decode_attn {query.shape=} ######")
     if alibi_slopes is not None:
         raise RuntimeError(
             "paged_decode_attention does not " "support alibi_slopes yet"
@@ -884,6 +894,12 @@ def fused_moe(
     ep_group: torch.distributed.ProcessGroup = None,
     expert_list: List[int] = None,
 ) -> Tensor:
+    from lmdeploy.utils import get_logger
+
+    logger = get_logger(__file__)
+    logger.error(
+        f"###### fused_moe {hidden_states.shape=} {gate_up_weights.shape=} {ep_size=} {torch.distributed.get_rank()=}######"
+    )
     num_experts = gate_up_weights.size(0)
     active_num = hidden_states.size(0) * topk
     num_tokens = hidden_states.size(0)
@@ -915,7 +931,7 @@ def fused_moe(
         group_list_type = 1
     else:
         quant_mode = 0
-        moe_expert_num = ep_size * num_experts
+        moe_expert_num = num_experts  # temp fix bug
         kwargs_mc2 = {
             "x": hidden_states,
             "expert_ids": topk_ids,
@@ -925,6 +941,9 @@ def fused_moe(
             "global_bs": 0,
             "expert_token_nums_type": 0,
         }
+        logger.error(
+            f"###### fused_moe mc2 stage0 kwargs: {kwargs_mc2['x'].shape=} {kwargs_mc2['expert_ids'].shape=} {moe_expert_num=} {ep_group.rank()=} {ep_group.name()} ######"
+        )
         stage1_kwargs = {
             "scales": None,
             "quant_mode": quant_mode,
@@ -933,7 +952,10 @@ def fused_moe(
             "ep_rank_id": ep_group.rank(),
         }
         kwargs_mc2.update(stage1_kwargs)
-        distributed_moe_init_outputs = torch.ops.npu.npu_moe_distribute_dispatch(
+        logger.error(
+            f"###### fused_moe mc2 stage1 kwargs: {stage1_kwargs=} {ep_group.rank()=} ######"
+        )
+        distributed_moe_init_outputs = torch.ops.npu.npu_moe_distribute_dispatch_v2(
             **kwargs_mc2
         )
         (
@@ -995,10 +1017,10 @@ def fused_moe(
             "ep_world_size": ep_size,
             "ep_rank_id": ep_group.rank(),
             "expand_scales": expand_scales,
-            "expand_idx": assist_info_for_combine,
+            "assist_info_for_combine": assist_info_for_combine,
         }
         kwargs_mc2.update(stage3_kwargs)
-        moe_output = torch.ops.npu.npu_moe_distribute_combine(**kwargs_mc2)
+        moe_output = torch.ops.npu.npu_moe_distribute_combine_v2(**kwargs_mc2)
 
     return moe_output
 
