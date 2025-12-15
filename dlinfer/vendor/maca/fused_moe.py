@@ -4,12 +4,9 @@ import functools
 import json
 import os
 from typing import Any, Callable, Dict, List, Optional, Tuple
-
 import torch
 import triton
 import triton.language as tl
-
-from .maca_extension import ops as maca_ext_ops
 
 import logging
 
@@ -251,9 +248,13 @@ def moe_align_block_size(
         (max_num_m_blocks,), dtype=torch.int32, device=topk_ids.device
     )
     num_tokens_post_pad = torch.empty((1), dtype=torch.int32, device=topk_ids.device)
-
-    maca_ext_ops.moe_align_block_size(
-        topk_ids, num_experts, block_size, sorted_ids, expert_ids, num_tokens_post_pad
+    torch.ops._moe_C.moe_align_block_size(
+        topk_ids,
+        num_experts,
+        block_size,
+        sorted_ids,
+        expert_ids,
+        num_tokens_post_pad,
     )
 
     return sorted_ids, expert_ids, num_tokens_post_pad
@@ -460,8 +461,7 @@ def fused_topk(
     token_expert_indicies = torch.empty(
         M, topk, dtype=torch.int32, device=hidden_states.device
     )
-
-    maca_ext_ops.topk_softmax(
+    torch.ops._moe_C.topk_softmax(
         topk_weights,
         topk_ids,
         token_expert_indicies,
@@ -796,8 +796,7 @@ def fused_experts_impl(
             use_int8_w8a16=use_int8_w8a16,
             block_shape=block_shape,
         )
-
-        maca_ext_ops.silu_and_mul(intermediate_cache2, intermediate_cache1.view(-1, N))
+        torch.ops._C.silu_and_mul(intermediate_cache2, intermediate_cache1.view(-1, N))
 
         invoke_fused_moe_kernel(
             intermediate_cache2,
@@ -818,8 +817,7 @@ def fused_experts_impl(
             use_int8_w8a16=use_int8_w8a16,
             block_shape=block_shape,
         )
-
-        maca_ext_ops.moe_sum(
+        torch.ops._moe_C.moe_sum(
             intermediate_cache3.view(*intermediate_cache3.shape),
             out_hidden_states[begin_chunk_idx:end_chunk_idx],
         )

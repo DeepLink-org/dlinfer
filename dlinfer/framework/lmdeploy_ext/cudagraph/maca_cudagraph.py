@@ -19,11 +19,11 @@ def MacaCudaGraphMixin_make_buffers_cudagraph(
     num_blocks = graph_meta.num_blocks
     device = graph_meta.device
     input_buffers: BuffType = dict()
-    input_buffers["input_ids"] = torch.empty(
+    input_buffers["input_ids"] = torch.zeros(
         1, max_tokens, dtype=torch.int32, device=device
     )
 
-    input_buffers["position_ids"] = torch.empty(
+    input_buffers["position_ids"] = torch.zeros(
         (1, max_tokens), dtype=torch.int32, device=device
     )
 

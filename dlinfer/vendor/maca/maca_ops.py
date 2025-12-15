@@ -11,7 +11,10 @@ from dlinfer.utils.registry import register_ops
 from dlinfer.utils.type_annotation import Tensor, Optional, Sequence, Tuple
 
 from .fused_moe import fused_experts
-from .maca_extension import ops as maca_ext_ops
+from mcoplib import lmdeploy as ops
+from mcoplib import op as op_origin
+import mcoplib._C
+import mcoplib._moe_C
 
 __all__ = [
     "add_rms_norm",
@@ -58,7 +61,7 @@ def add_rms_norm(
     weight: Tensor,
     epsilon: float,
 ) -> Tuple[Tensor, Tensor]:
-    maca_ext_ops.fused_add_rms_norm(hidden_states, residual, weight, epsilon)
+    torch.ops._C.fused_add_rms_norm(hidden_states, residual, weight, epsilon)
     return hidden_states, residual
 
 
@@ -76,8 +79,7 @@ def apply_rotary_pos_emb(
     query = query.flatten(-2, -1)
     key = key.flatten(-2, -1)
     rot_dim = cos.size(-1)
-
-    maca_ext_ops.rotary_embedding(
+    ops.lmdeploy_rotary_embedding(
         position_ids_1d,
         query,
         key,
@@ -86,6 +88,7 @@ def apply_rotary_pos_emb(
         sin.view(-1, rot_dim),
         True,
     )
+
     return query, key
 
 
@@ -161,6 +164,13 @@ def prefill_attention(
         )
         softmax_scale = float(1 / math.sqrt(head_dim))
 
+    # for qwen vl part.
+    if q_start_loc.shape[0] == q_seq_len.shape[0]:
+        causal = False
+        q_start_loc = torch.cat(
+            [q_start_loc, q_seq_len.sum().to(torch.int32).unsqueeze(0)]
+        )
+
     output = flash_attn_varlen_func(
         query,
         key,
@@ -173,6 +183,7 @@ def prefill_attention(
         causal=causal,
         window_size=(-1, -1),
     )
+    attn_output.copy_(output)
     return output
 
 
@@ -200,15 +211,11 @@ def fill_kv_cache(
     quant_bits: int,
 ) -> Tuple[Tensor, Tensor]:
     kv_indices = kv_indices.squeeze(-1)
-    maca_ext_ops.reshape_and_cache_flash(
-        key,
-        value,
-        key_cache,
-        value_cache,
-        kv_indices,
-        "auto",
-        torch.tensor(1.0),
-        torch.tensor(1.0),
+    k_scale = torch.tensor(1.0)
+    v_scale = torch.tensor(1.0)
+
+    torch.ops._C_cache_ops.reshape_and_cache_flash(
+        key, value, key_cache, value_cache, kv_indices, "auto", k_scale, v_scale
     )
     return key_cache, value_cache
 
@@ -238,8 +245,6 @@ def paged_decode_attention(
 
     num_kv_heads = value_cache.size(1)
     block_size = value_cache.size(-2)
-    output = torch.empty_like(query)
-
     is_mla = query.size(-1) == 576
 
     if is_mla:
@@ -319,7 +324,8 @@ def paged_prefill_attention(
         )
         return output[..., :512]
 
-    value_cache = value_cache.permute(0, 1, 3, 2)
+    value_cache = value_cache.permute(0, 2, 3, 1)
+    key_cache = key_cache.permute(0, 2, 3, 1)
     context_attention_fwd(
         query,
         key,
@@ -347,8 +353,7 @@ def rms_norm(
     hidden_states = hidden_states.to(torch.float32)
     weight = weight.to(torch.float32)
     output = torch.empty_like(hidden_states)
-    maca_ext_ops.rms_norm(output, hidden_states, weight, epsilon)
-
+    op_origin.rms_norm(output, hidden_states, weight, epsilon, None, None, False)
     return output.to(input_dtype)
 
 
@@ -366,13 +371,9 @@ def moe_gating_topk_softmax(
 
     token_expert_indicies = torch.empty_like(topk_ids)
 
-    maca_ext_ops.topk_softmax(
-        topk_weights,
-        topk_ids,
-        token_expert_indicies,
-        router_logits.float(),
+    torch.ops._moe_C.topk_softmax(
+        topk_weights, topk_ids, token_expert_indicies, router_logits.float()
     )
-
     del token_expert_indicies  # Not used. Will be used in the future.
 
     if renormalize:
@@ -388,7 +389,7 @@ def silu_and_mul(x: Tensor, dim: int = -1) -> Tensor:
     d = x.shape[-1] // 2
     output_shape = x.shape[:-1] + (d,)
     out = torch.empty(output_shape, dtype=x.dtype, device=x.device)
-    maca_ext_ops.silu_and_mul(out, x)
+    torch.ops._C.silu_and_mul(out, x)
     return out
 
 
