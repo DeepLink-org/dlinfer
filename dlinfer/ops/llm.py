@@ -597,7 +597,6 @@ def fused_moe(
     renormalize: bool,
     ep_size: int,
     ep_group: torch.distributed.ProcessGroup = None,
-    expert_list: List[int] = None,
 ) -> Tensor:
     """
     Implement the Fused Mixture of Experts (MoE) model.
@@ -625,7 +624,6 @@ def fused_moe(
         renormalize,
         ep_size,
         ep_group,
-        expert_list,
     )
 
 

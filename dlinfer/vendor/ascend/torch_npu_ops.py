@@ -13,6 +13,7 @@ from dlinfer.framework.lmdeploy_ext.cudagraph.ascend_cudagraph import (
     AscendGraphRunner,
     get_graph_params,
 )
+from lmdeploy.pytorch.distributed import get_dist_manager
 
 __all__ = [
     "add_rms_norm",
@@ -156,12 +157,6 @@ def prefill_attention(
     alibi_slopes: Optional[Sequence[float]],
     attn_output: Optional[Tensor],
 ) -> Tensor:
-    from lmdeploy.utils import get_logger
-
-    logger = get_logger(__file__)
-    logger.error(
-        f"###### prefill_attn {query.shape=} {torch.distributed.get_rank()=} ######"
-    )
     if alibi_slopes is not None:
         raise RuntimeError(
             "paged_decode_attention does not " "support alibi_slopes yet"
@@ -478,10 +473,6 @@ def paged_decode_attention(
     kv_zeros: Optional[Tensor],
     quant_bits: Optional[int],
 ) -> Tensor:
-    from lmdeploy.utils import get_logger
-
-    logger = get_logger(__file__)
-    logger.error(f"###### paged_decode_attn {query.shape=} ######")
     if alibi_slopes is not None:
         raise RuntimeError(
             "paged_decode_attention does not " "support alibi_slopes yet"
@@ -591,6 +582,17 @@ def silu_and_mul(input_tensor: Tensor, dim: int) -> Tensor:
 
 @register_ops(vendor_ops_registry)
 def moe_gating_topk_softmax(router_logits: Tensor, topk: int) -> Tuple[Tensor, Tensor]:
+    dist_ctx = get_dist_manager().current_context()
+    if dist_ctx.dist_config.ep > 1 and dist_ctx.dist_config.tp > 1:
+        if router_logits.shape[0] % dist_ctx.dist_config.tp != 0:
+            pad_size = dist_ctx.dist_config.tp - (
+                router_logits.shape[0] % dist_ctx.dist_config.tp
+            )
+            router_logits = torch.nn.functional.pad(router_logits, (0, 0, 0, pad_size))
+        split_router_logits = torch.tensor_split(
+            router_logits, dist_ctx.dist_config.tp, dim=0
+        )
+        router_logits = split_router_logits[dist_ctx.rank]
     routing_weights, selected_idx, _ = torch.ops.npu.npu_moe_gating_top_k_softmax(
         router_logits, None, topk
     )
@@ -690,197 +692,6 @@ def weight_quant_matmul(
     )
 
 
-'''
-def gather_from_sequence_parallel_region(
-    input_,
-    group,
-    output_split_sizes=None,
-):
-    """Wrapper for autograd function: forward: AG, backward: RS <first dim>"""
-    return _gather_along_first_dim(input_, group, output_split_sizes)
-
-
-def _gather_along_first_dim(input_, group, output_split_sizes=None):
-    """Gather tensors and concatenate along the first dimension.
-
-    Args:
-        input_tensor (torch.Tensor):
-            A tensor to be gathered.
-        output_split_sizes (List[int], optional):
-            A list specifying the sizes of the output splits along the first dimension.
-            If None, equal splitting is assumed. Default: None.
-
-    Returns:
-        torch.Tensor: Gathered tensor.
-    """
-    world_size = torch.distributed.get_world_size(group)
-    # Bypass the function if we are using only 1 GPU.
-    if world_size == 1:
-        return input_
-
-    dim_size = list(input_.size())
-    if output_split_sizes is None:
-        dim_size[0] = dim_size[0] * world_size
-
-        output = torch.empty(
-            dim_size, dtype=input_.dtype, device=torch.npu.current_device()
-        )
-        torch.distributed.all_gather_into_tensor(
-            output, input_.contiguous(), group=group
-        )
-    else:
-        dim_size[0] = sum(output_split_sizes)
-        output = torch.empty(
-            dim_size, dtype=input_.dtype, device=torch.npu.current_device()
-        )
-        output_tensor_list = list(torch.split(output, output_split_sizes, dim=0))
-        torch.distributed.all_gather(output_tensor_list, input_, group=group)
-
-    return output
-
-
-def token_dispatch(
-    hidden_states: Tensor,
-    topk_ids: Tensor,
-    topk: int,
-    num_experts: int,
-    active_num: int,
-    ep_size: int,
-    ep_rank: int,
-    ep_group: torch.distributed.ProcessGroup,
-    expert_list: List[int],
-):
-    if ep_size <= 1:
-        expanded_hidden_states, expanded_row_idx, expert_tokens, _ = (
-            torch.ops.npu.npu_moe_init_routing_v2(
-                hidden_states,
-                topk_ids,
-                active_num=active_num,
-                expert_num=num_experts,
-                expert_tokens_num_type=1,
-                expert_tokens_num_flag=True,
-                active_expert_range=[0, num_experts],
-                quant_mode=-1,
-            )
-        )
-        return expanded_hidden_states, expanded_row_idx, expert_tokens
-    else:
-        num_tokens = hidden_states.size(0)
-        global_num_experts = num_experts
-        local_num_experts = len(expert_list)
-        row_idx_len = active_num
-        row_idx = (
-            torch.arange(
-                0, row_idx_len, dtype=torch.int32, device=torch.npu.current_device()
-            )
-            .view(topk, -1)
-            .permute(1, 0)
-            .contiguous()
-        )
-        hidden_states, expanded_row_idx, expanded_expert_idx = (
-            torch.ops.npu.npu_moe_init_routing(
-                hidden_states,
-                row_idx=row_idx,
-                expert_idx=topk_ids,
-                active_num=num_tokens,
-            )
-        )
-
-        global_expert_tokens = torch.bincount(
-            expanded_expert_idx, minlength=global_num_experts
-        )
-        scatter_sizes = global_expert_tokens.view(ep_size, -1).sum(-1)
-
-        gather_sizes = torch.empty_like(scatter_sizes)
-        dist.all_to_all_single(gather_sizes, scatter_sizes, group=ep_group.device_group)
-        scatter_size_list = scatter_sizes.cpu().tolist()
-        gather_size_list = gather_sizes.cpu().tolist()
-
-        expanded_expert_idx = expanded_expert_idx % local_num_experts
-        hidden_states = ep_group.all_to_all(
-            hidden_states, 0, 0, scatter_size_list, gather_size_list
-        )
-        local_expert_idx = ep_group.all_to_all(
-            expanded_expert_idx, 0, 0, scatter_size_list, gather_size_list
-        )
-
-        sorted_local_expert_idx, sorted_idx = torch.sort(local_expert_idx)
-
-        expert_tokens = torch.ops.npu.npu_moe_compute_expert_tokens(
-            sorted_local_expert_idx, local_num_experts
-        ).to(torch.int64)
-
-        hidden_states = hidden_states[sorted_idx]
-        # # token_dispatch preprocess
-        # num_local_tokens_per_expert = torch.histc(
-        #     topk_ids, bins=num_experts, min=0, max=num_experts
-        # )
-        # num_out_tokens = topk_ids.numel()
-        # num_local_experts = len(expert_list)
-        # input_splits = (
-        #     num_local_tokens_per_expert.reshape(ep_size, num_local_experts)
-        #     .sum(axis=1)
-        #     .to(torch.device("cpu"), non_blocking=True)
-        #     .numpy()
-        # )
-        # num_global_tokens_per_expert = gather_from_sequence_parallel_region(
-        #     num_local_tokens_per_expert, group=ep_group
-        # ).reshape(ep_size, num_experts)
-        # num_global_tokens_per_local_expert = num_global_tokens_per_expert[
-        #     :, expert_list[0] : expert_list[-1] + 1
-        # ]
-        # if num_global_tokens_per_local_expert is None:
-        #     raise ValueError(
-        #         "num_global_tokens_per_local_expert must be set before sum.")
-        # output_splits = (num_global_tokens_per_local_expert.sum(
-        #     axis=-1).to(torch.device("cpu"), non_blocking=True).numpy())
-        # num_tokens_per_local_expert = num_global_tokens_per_local_expert.sum(
-        #     axis=0)
-        # # ===================================================
-        # # num_global_tokens_per_expert: [ep_size, num_experts]
-        # # num_global_tokens_per_local_expert: [ep_size, num_local_experts]
-        # # num_tokens_per_local_expert: [num_local_experts]
-        # # ===================================================
-
-        # if num_local_experts > 1:
-        #     if num_global_tokens_per_local_expert is None:
-        #         raise ValueError(
-        #             "num_global_tokens_per_local_expert must be set before operations."
-        #         )
-        #     global_input_tokens_local_experts_indices = torch.repeat_interleave(
-        #         expert_ids_per_ep_rank,
-        #         num_global_tokens_per_local_expert.ravel())
-        # else:
-        #     # TODO: This full synchronization can be a performance bottleneck.
-        #     # A more granular sync (e.g., blocking D2H copies) should be investigated.
-        #     torch.npu.synchronize()
-
-        # # all_to_all
-        # ...
-        # # token_dispatch postprocess
-        # ...
-
-
-def token_combine(
-    permuted_tokens: Tensor, sorted_indices: Tensor, topk_weights: Tensor, ep_size: int
-):
-    if ep_size <= 1:
-        moe_output = torch.ops.npu.npu_moe_token_unpermute(
-            permuted_tokens=permuted_tokens,
-            sorted_indices=sorted_indices,
-            probs=topk_weights,
-        )
-        return moe_output
-    else:
-        # token_combine preprocess
-        ...
-        # all_to_all
-        ...
-        # token_combine postprocess
-        ...
-'''
-
-
 @register_ops(vendor_ops_registry)
 def fused_moe(
     hidden_states: Tensor,
@@ -892,17 +703,36 @@ def fused_moe(
     renormalize: bool,
     ep_size: int,
     ep_group: torch.distributed.ProcessGroup = None,
-    expert_list: List[int] = None,
 ) -> Tensor:
-    from lmdeploy.utils import get_logger
-
-    logger = get_logger(__file__)
-    logger.error(
-        f"###### fused_moe {hidden_states.shape=} {gate_up_weights.shape=} {ep_size=} {torch.distributed.get_rank()=}######"
-    )
+    dist_ctx = get_dist_manager().current_context()
+    if ep_size > 1:
+        num_tokens = hidden_states.size(0)
+        ep_group = dist_ctx.ep_gpu_group
+        local_rank = torch.distributed.get_rank(group=ep_group)
+        backend = ep_group._get_backend(torch.device("npu"))
+        moe_all_to_all_group_name = backend.get_hccl_comm_name(local_rank)
+        x_active_mask = torch.ones(
+            num_tokens, dtype=torch.bool, device=torch.npu.current_device()
+        )
+    if dist_ctx.dist_config.ep > 1 and dist_ctx.dist_config.tp > 1:
+        if hidden_states.shape[0] % dist_ctx.dist_config.tp != 0:
+            pad_size = dist_ctx.dist_config.tp - (
+                hidden_states.shape[0] % dist_ctx.dist_config.tp
+            )
+            hidden_states = torch.nn.functional.pad(hidden_states, (0, 0, 0, pad_size))
+            x_active_mask = torch.nn.functional.pad(
+                x_active_mask, (0, pad_size), value=False
+            )
+        split_hidden_states = torch.tensor_split(
+            hidden_states, dist_ctx.dist_config.tp, dim=0
+        )
+        split_x_active_mask = torch.tensor_split(
+            x_active_mask, dist_ctx.dist_config.tp, dim=0
+        )
+        hidden_states = split_hidden_states[dist_ctx.rank]
+        x_active_mask = split_x_active_mask[dist_ctx.rank]
     num_experts = gate_up_weights.size(0)
     active_num = hidden_states.size(0) * topk
-    num_tokens = hidden_states.size(0)
     topk_ids = topk_ids.to(torch.int32)
 
     if renormalize:
@@ -931,7 +761,7 @@ def fused_moe(
         group_list_type = 1
     else:
         quant_mode = 0
-        moe_expert_num = num_experts  # temp fix bug
+        moe_expert_num = num_experts * ep_size
         kwargs_mc2 = {
             "x": hidden_states,
             "expert_ids": topk_ids,
@@ -941,20 +771,26 @@ def fused_moe(
             "global_bs": 0,
             "expert_token_nums_type": 0,
         }
-        logger.error(
-            f"###### fused_moe mc2 stage0 kwargs: {kwargs_mc2['x'].shape=} {kwargs_mc2['expert_ids'].shape=} {moe_expert_num=} {ep_group.rank()=} {ep_group.name()} ######"
-        )
         stage1_kwargs = {
             "scales": None,
             "quant_mode": quant_mode,
-            "group_ep": ep_group.name(),
+            "group_ep": moe_all_to_all_group_name,
             "ep_world_size": ep_size,
             "ep_rank_id": ep_group.rank(),
         }
-        kwargs_mc2.update(stage1_kwargs)
-        logger.error(
-            f"###### fused_moe mc2 stage1 kwargs: {stage1_kwargs=} {ep_group.rank()=} ######"
+        stage1_kwargs.update(
+            {
+                "group_tp": moe_all_to_all_group_name,
+                "tp_world_size": 1,
+                "tp_rank_id": 0,
+            }
         )
+        stage1_kwargs.update(
+            {
+                "x_active_mask": x_active_mask,
+            }
+        )
+        kwargs_mc2.update(stage1_kwargs)
         distributed_moe_init_outputs = torch.ops.npu.npu_moe_distribute_dispatch_v2(
             **kwargs_mc2
         )
@@ -964,7 +800,7 @@ def fused_moe(
             assist_info_for_combine,
             expert_tokens,
             ep_recv_counts,
-            _,
+            tp_recv_counts,
             expand_scales,
         ) = distributed_moe_init_outputs[0:7]
         group_list_type = 0
@@ -1013,14 +849,31 @@ def fused_moe(
         }
         stage3_kwargs = {
             "ep_send_counts": ep_recv_counts,
-            "group_ep": ep_group.name(),
+            "group_ep": moe_all_to_all_group_name,
             "ep_world_size": ep_size,
             "ep_rank_id": ep_group.rank(),
             "expand_scales": expand_scales,
             "assist_info_for_combine": assist_info_for_combine,
         }
+        stage3_kwargs.update(
+            {
+                "tp_send_counts": tp_recv_counts,
+                "group_tp": moe_all_to_all_group_name,
+                "tp_world_size": 1,
+                "tp_rank_id": 0,
+            }
+        )
+        stage3_kwargs.update(
+            {
+                "x_active_mask": x_active_mask,
+            }
+        )
         kwargs_mc2.update(stage3_kwargs)
         moe_output = torch.ops.npu.npu_moe_distribute_combine_v2(**kwargs_mc2)
+        if dist_ctx.dist_config.tp > 1:
+            dist.all_gather(list(split_hidden_states), moe_output)
+            moe_output = torch.cat(split_hidden_states, dim=0)
+            moe_output = moe_output[:num_tokens, :]
 
     return moe_output
 
