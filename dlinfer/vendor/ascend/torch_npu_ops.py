@@ -85,17 +85,15 @@ def linear_w8a8(
     hidden_states = hidden_states.squeeze(0)
     linear_scale = linear_scale.squeeze()
     rms_scale = rms_scale.squeeze(0)
-    weight = weight.transpose(0, 1).contiguous()
 
     output = torch.ops.npu.npu_quant_matmul(
         hidden_states,
-        weight,
+        weight.t(),
         linear_scale,
         pertoken_scale=rms_scale,
         bias=bias,
         output_dtype=out_dtype,
     )
-    weight = weight.transpose(0, 1).contiguous()
     output = output.unsqueeze(0)
     return output
 
