@@ -14,7 +14,6 @@ from lmdeploy.pytorch.models.utils.cudagraph import CudaGraphMixin
 from lmdeploy.pytorch.config import BackendConfig, CacheConfig, ModelConfig
 from lmdeploy.pytorch.model_inputs import StepContext, get_step_ctx_manager
 from lmdeploy.pytorch.backends.graph_runner import GraphRunner
-from lmdeploy.pytorch.backends.cuda import graph_runner
 
 from lmdeploy.utils import get_logger
 
@@ -55,7 +54,7 @@ def AscendCudaGraphMixin_make_buffers_cudagraph(
     )
 
     input_buffers["kv_start_indices"] = -torch.ones(
-        (max_batches), dtype=torch.int64, device=device
+        (max_batches), dtype=torch.int32, device=device
     )
     return input_buffers
 
@@ -367,6 +366,7 @@ class AscendGraphRunner(GraphRunner):
             )
             AscendGraphRunner.capturing = True
             runner.capture(**kwargs)
+            AscendGraphRunner.capturing = False
             self._runner_map[graph_key] = runner
         else:
             runner = self._runner_map[graph_key]
@@ -422,9 +422,6 @@ class AscendGraphRunner(GraphRunner):
     def get_capture_batch_sizes(self) -> List[int]:
         """Capture batch sizes."""
         return _get_capture_batch_size_impl(self.cache_config.max_batches)
-
-
-graph_runner.CUDAGraphRunner = AscendGraphRunner
 
 
 @dataclass
