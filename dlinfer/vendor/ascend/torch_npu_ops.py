@@ -10,6 +10,7 @@ from .utils import SocVersion, get_vl_mask, get_cpu_seq_len
 from dlinfer.framework.lmdeploy_ext.cudagraph.ascend_cudagraph import (
     AscendGraphRunner,
     get_graph_params,
+    aclgraph_use_torch_npu_update,
 )
 
 __all__ = [
@@ -339,7 +340,7 @@ def paged_decode_attention(
     query = query.contiguous()
     attn_output = attn_output.contiguous()
     scale_value = softmax_scale if softmax_scale else 1.0 / math.sqrt(query.shape[-1])
-    if AscendGraphRunner.capturing:
+    if AscendGraphRunner.capturing and not aclgraph_use_torch_npu_update():
         graph_params = get_graph_params()
         num_tokens = query.shape[0]
         stream = torch.npu.current_stream()
@@ -374,6 +375,58 @@ def paged_decode_attention(
         )
         handle = torch.npu.graph_task_group_end(stream)
         graph_params.handles[num_tokens].append(handle)
+    elif AscendGraphRunner.capturing:
+        bs, _, dim = query.shape
+        block_num = key_cache.size(0)
+        query = query.contiguous()
+        attn_output = attn_output.contiguous()
+        query = query.view(bs, 1, num_q_heads * dim)
+        key_cache = key_cache.view(block_num, block_size, -1)
+        value_cache = value_cache.view(block_num, block_size, -1)
+        scale_value = softmax_scale if softmax_scale else 1.0 / math.sqrt(dim)
+
+        attn_output, _ = torch.ops.npu.npu_fused_infer_attention_score(
+            query,
+            key_cache,
+            value_cache,
+            pse_shift=None,
+            atten_mask=None,
+            actual_seq_lengths=None,
+            actual_seq_lengths_kv=kv_seq_len,
+            dequant_scale1=None,
+            quant_scale1=None,
+            dequant_scale2=None,
+            quant_scale2=None,
+            quant_offset2=None,
+            antiquant_scale=kv_scales,
+            antiquant_offset=kv_zeros,
+            block_table=block_table,
+            query_padding_size=None,
+            kv_padding_size=None,
+            key_antiquant_scale=None,
+            key_antiquant_offset=None,
+            value_antiquant_scale=None,
+            value_antiquant_offset=None,
+            key_shared_prefix=None,
+            value_shared_prefix=None,
+            actual_shared_prefix_len=None,
+            query_rope=None,
+            key_rope=None,
+            key_rope_antiquant_scale=None,
+            num_heads=num_q_heads,
+            scale=scale_value,
+            pre_tokens=2147483647,
+            next_tokens=2147483647,
+            input_layout="BSH",
+            num_key_value_heads=num_kv_heads,
+            sparse_mode=0,
+            inner_precise=1,
+            block_size=block_size,
+            antiquant_mode=0,
+            softmax_lse_flag=False,
+            key_antiquant_mode=0,
+            value_antiquant_mode=0,
+        )
     else:
         torch.ops.atb._npu_paged_attention(
             query=query,
