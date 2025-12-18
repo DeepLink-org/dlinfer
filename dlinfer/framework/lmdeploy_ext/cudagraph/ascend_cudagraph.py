@@ -395,17 +395,6 @@ class AscendGraphRunner(GraphRunner):
         output = runner.forward(**kwargs)
         return output
 
-    def _kv_contiguous(self, past_key_values: List[List[torch.Tensor]]) -> None:
-        """Convert key/value caches to ACL_FORMAT_ND format if needed."""
-        # Check format of first KV cache
-        if past_key_values[0][0].is_contiguous():
-            return
-
-        for idx, _ in enumerate(past_key_values):
-            past_key_values[idx][0] = past_key_values[idx][0].contiguous()
-            if len(past_key_values[idx]) > 1:
-                past_key_values[idx][1] = past_key_values[idx][1].contiguous()
-
     @record_function("prepare_inputs_for_generation")
     def prepare_inputs_for_generation(
         self,
@@ -414,7 +403,6 @@ class AscendGraphRunner(GraphRunner):
         context: StepContext = None,
     ):
         """Prepare inputs."""
-        self._kv_contiguous(past_key_values)
         return self.model.prepare_inputs_for_generation(
             past_key_values=past_key_values,
             inputs_embeds=inputs_embeds,
