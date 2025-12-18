@@ -99,12 +99,9 @@ def prefill_attention(
     else:
         mask = torch.triu(
             torch.ones(
-                max_q_seq_len,
-                max_q_seq_len,
-                dtype=query.dtype,
-                device=query.device,
-                diagonal=1,
-            )
+                [max_q_seq_len, max_q_seq_len], dtype=query.dtype, device=query.device
+            ),
+            diagonal=1,
         )
         q_seq_len = q_seq_len.cpu()
     if SocVersion.is_Ascend910():
