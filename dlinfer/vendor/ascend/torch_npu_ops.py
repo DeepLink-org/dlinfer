@@ -6,7 +6,7 @@ import torch
 from dlinfer.vendor import vendor_ops_registry
 from dlinfer.utils.registry import register_ops
 from dlinfer.utils.type_annotation import Tensor, Optional, Sequence, Tuple
-from .utils import SocVersion
+from .utils import SocVersion, get_vl_mask, get_cpu_seq_len
 from dlinfer.framework.lmdeploy_ext.cudagraph.ascend_cudagraph import (
     AscendGraphRunner,
     get_graph_params,
@@ -97,16 +97,8 @@ def prefill_attention(
     if len(attn_mask):
         mask = attn_mask[0]
     else:
-        mask = torch.triu(
-            torch.ones(
-                max_q_seq_len,
-                max_q_seq_len,
-                dtype=query.dtype,
-                device=query.device,
-                diagonal=1,
-            )
-        )
-        q_seq_len = q_seq_len.cpu()
+        mask = get_vl_mask(max_q_seq_len, query.dtype)
+        q_seq_len = get_cpu_seq_len(q_seq_len)
     if SocVersion.is_Ascend910():
         torch.ops.atb._npu_flash_attention(
             query=query,
