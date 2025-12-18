@@ -3,6 +3,7 @@ import functools
 import os
 import torch
 import weakref
+from typing import Callable, Dict, List, Optional, Any, Literal, Tuple
 
 from lmdeploy.pytorch.backends.dlinfer.moe import DlinferFusedMoEImpl
 from lmdeploy.pytorch.models.chatglm2 import SelfAttention
@@ -12,10 +13,26 @@ from dlinfer.vendor.ascend.utils import SocVersion
 
 # moe
 from lmdeploy.pytorch.nn.moe import base
-from typing import Callable, Dict, List, Optional, Any
 from lmdeploy.pytorch.distributed import get_dist_manager, get_tp_world_rank
 from lmdeploy.pytorch.model_inputs import get_step_ctx_manager
 import lmdeploy.pytorch.distributed as dist
+
+
+# cache engine
+from lmdeploy.pytorch.backends import get_backend
+from lmdeploy.pytorch.engine import cache_engine
+from lmdeploy.pytorch.config import ModelConfig, CacheConfig
+from lmdeploy.pytorch.disagg.conn.protocol import (
+    DistServeInitRequest,
+    DistServeKVTransferEndpointInfo,
+)
+from lmdeploy.pytorch.disagg.messages import (
+    AssignmentInstruct,
+    DistServeRegisterMRMessage,
+    MigrationAssignment,
+    MigrationExecutionBatch,
+)
+from lmdeploy.utils import get_logger
 
 
 def rl_update_weights(self, gate_up_weights: torch.Tensor, down_weights: torch.Tensor):
@@ -515,15 +532,9 @@ if SocVersion.is_Ascend310P():
 
 
 ##### patch cache engine #####
-from lmdeploy.pytorch.backends import get_backend
-from lmdeploy.pytorch.engine import cache_engine
-from lmdeploy.pytorch.config import ModelConfig, CacheConfig
-from typing import Dict, List, Literal, Optional, Tuple
-from lmdeploy.utils import get_logger
-from lmdeploy.pytorch.disagg.conn.protocol import DistServeInitRequest, DistServeKVTransferEndpointInfo
-from lmdeploy.pytorch.disagg.messages import (AssignmentInstruct, DistServeRegisterMRMessage, MigrationAssignment,
-                                              MigrationExecutionBatch)
-logger = get_logger('lmdeploy')
+logger = get_logger("lmdeploy")
+
+
 class AscendCacheEngine:
     """Host and Device memory maintainer.
 
@@ -556,12 +567,14 @@ class AscendCacheEngine:
         self.num_layers = model_config.num_layers
         self.kv_cache_dtype = model_config.dtype
         if cache_config.quant_policy > 0:
-            if self.cache_config.device_type in ['cuda']:
+            if self.cache_config.device_type in ["cuda"]:
                 self.kv_cache_dtype = torch.uint8
-            elif self.cache_config.device_type in ['ascend', 'npu']:
+            elif self.cache_config.device_type in ["ascend", "npu"]:
                 self.kv_cache_dtype = torch.int8
             else:
-                raise ValueError(f'unsupported device_type {self.cache_config.device_type}')
+                raise ValueError(
+                    f"unsupported device_type {self.cache_config.device_type}"
+                )
 
         # Initialize the cache.
         self.local_gpu_cache = self.allocate_gpu_cache()
@@ -575,8 +588,10 @@ class AscendCacheEngine:
         # Initialize the events for stream synchronization.
         self.events = torch.cuda.Event()
 
-        logger.debug(f'Initialize cache engine with {cache_config.num_gpu_blocks}'
-                     f' gpu blocks and {cache_config.num_cpu_blocks} cpu blocks.')
+        logger.debug(
+            f"Initialize cache engine with {cache_config.num_gpu_blocks}"
+            f" gpu blocks and {cache_config.num_cpu_blocks} cpu blocks."
+        )
 
     @property
     def cpu_cache(self):
@@ -599,46 +614,54 @@ class AscendCacheEngine:
         return self.cache_config.num_cpu_blocks
 
     @classmethod
-    def _get_key_block_shape_impl(cls,
-                                  model_config: ModelConfig,
-                                  block_size: int,
-                                  head_size: int,
-                                  world_size: int = 1,
-                                  quant_policy: Literal[0, 4, 8] = 0,
-                                  local: bool = True):
+    def _get_key_block_shape_impl(
+        cls,
+        model_config: ModelConfig,
+        block_size: int,
+        head_size: int,
+        world_size: int = 1,
+        quant_policy: Literal[0, 4, 8] = 0,
+        local: bool = True,
+    ):
         """Get single block shape."""
         attn_backend = get_backend()
         dtype = model_config.dtype
         num_heads = model_config.num_key_value_heads
         if local:
-            assert num_heads % world_size == 0, \
-                f'num_heads: {num_heads}, world_size: {world_size}'
+            assert (
+                num_heads % world_size == 0
+            ), f"num_heads: {num_heads}, world_size: {world_size}"
             num_heads = num_heads // world_size
         if quant_policy == 4:  # pack head_dim to uint8
-            assert head_size % 2 == 0, \
-                f'head_size: {head_size}, quant_policy: {quant_policy}'
+            assert (
+                head_size % 2 == 0
+            ), f"head_size: {head_size}, quant_policy: {quant_policy}"
             head_size = head_size // 2
         return attn_backend.get_k_block_shape(block_size, num_heads, head_size, dtype)
 
     @classmethod
-    def _get_value_block_shape_impl(cls,
-                                    model_config: ModelConfig,
-                                    block_size: int,
-                                    head_size: int,
-                                    world_size: int = 1,
-                                    quant_policy: Literal[0, 4, 8] = 0,
-                                    local: bool = True):
+    def _get_value_block_shape_impl(
+        cls,
+        model_config: ModelConfig,
+        block_size: int,
+        head_size: int,
+        world_size: int = 1,
+        quant_policy: Literal[0, 4, 8] = 0,
+        local: bool = True,
+    ):
         """Get single block shape."""
         attn_backend = get_backend()
         dtype = model_config.dtype
         num_heads = model_config.num_key_value_heads
         if local:
-            assert num_heads % world_size == 0, \
-                f'num_heads: {num_heads}, world_size: {world_size}'
+            assert (
+                num_heads % world_size == 0
+            ), f"num_heads: {num_heads}, world_size: {world_size}"
             num_heads = num_heads // world_size
         if quant_policy == 4:  # pack head_dim to uint8
-            assert head_size % 2 == 0, \
-                f'head_size: {head_size}, quant_policy: {quant_policy}'
+            assert (
+                head_size % 2 == 0
+            ), f"head_size: {head_size}, quant_policy: {quant_policy}"
             head_size = head_size // 2
 
         return attn_backend.get_v_block_shape(block_size, num_heads, head_size, dtype)
@@ -710,21 +733,26 @@ class AscendCacheEngine:
 
     def allocate_gpu_cache(self):
         """Allocate caches on GPU."""
-        caches = self._allocate_cache(self.num_gpu_blocks, 'cuda')
+        caches = self._allocate_cache(self.num_gpu_blocks, "cuda")
         self.full_gpu_cache = caches
         self.local_gpu_cache = list(zip(*caches))
         return self.local_gpu_cache
 
     def allocate_cpu_cache(self):
         """Allocate caches on Host."""
-        caches = self._allocate_cache(self.num_cpu_blocks, 'cpu')
+        caches = self._allocate_cache(self.num_cpu_blocks, "cpu")
 
         self.full_cpu_cache = caches
         self.local_cpu_cache = list(zip(*caches))
         return self.local_cpu_cache
 
     @torch.inference_mode()
-    def _swap(self, src: List[torch.Tensor], dst: List[torch.Tensor], src_to_dst: Dict[int, int]):
+    def _swap(
+        self,
+        src: List[torch.Tensor],
+        dst: List[torch.Tensor],
+        src_to_dst: Dict[int, int],
+    ):
         """Move caches from src memory to dst memory.
 
         Args:
@@ -740,8 +768,8 @@ class AscendCacheEngine:
         with torch.cuda.stream(self.cache_stream):
             for scache, dcache in zip(src, dst):
                 for idx in range(0, num_copy, BLOCKS_PER_COPY):
-                    sidx = src_idx[idx:idx + BLOCKS_PER_COPY]
-                    didx = dst_idx[idx:idx + BLOCKS_PER_COPY]
+                    sidx = src_idx[idx : idx + BLOCKS_PER_COPY]
+                    didx = dst_idx[idx : idx + BLOCKS_PER_COPY]
                     sdata = scache[:, sidx]
                     dcache.index_copy_(1, didx, sdata.to(dcache.device))
             self.events.record(stream=self.cache_stream)
@@ -763,11 +791,13 @@ class AscendCacheEngine:
         self._swap(self.full_gpu_cache, self.full_cpu_cache, src_to_dst)
 
     @classmethod
-    def get_cache_block_size(cls,
-                             block_size: int,
-                             model_config: ModelConfig,
-                             world_size: int = 1,
-                             quant_policy: int = 0) -> int:
+    def get_cache_block_size(
+        cls,
+        block_size: int,
+        model_config: ModelConfig,
+        world_size: int = 1,
+        quant_policy: int = 0,
+    ) -> int:
         """Get the required cache size of the model.
 
         Args:
@@ -802,50 +832,74 @@ class AscendCacheEngine:
         )
         if quant_policy == 0:
             dtype = model_config.dtype
-            key_block = torch.empty(key_shape, dtype=dtype, device='meta')
-            value_block = torch.empty(value_shape, dtype=dtype, device='meta')
+            key_block = torch.empty(key_shape, dtype=dtype, device="meta")
+            value_block = torch.empty(value_shape, dtype=dtype, device="meta")
             mem_key_block = key_block.numel() * key_block.element_size()
             mem_value_block = value_block.numel() * value_block.element_size()
         elif quant_policy in (4, 8):
-            key_block = torch.empty(key_shape, dtype=torch.uint8, device='meta')
-            value_block = torch.empty(value_shape, dtype=torch.uint8, device='meta')
-            key_scale_zero_block = torch.empty((*key_shape[:-1], 2), dtype=model_config.dtype, device='meta')
-            value_scale_zero_block = torch.empty((*value_shape[:-1], 2), dtype=model_config.dtype, device='meta')
-            mem_key_block = key_block.numel() * key_block.element_size() + key_scale_zero_block.numel(
-            ) * key_scale_zero_block.element_size()
-            mem_value_block = value_block.numel() * value_block.element_size() + value_scale_zero_block.numel(
-            ) * value_scale_zero_block.element_size()
+            key_block = torch.empty(key_shape, dtype=torch.uint8, device="meta")
+            value_block = torch.empty(value_shape, dtype=torch.uint8, device="meta")
+            key_scale_zero_block = torch.empty(
+                (*key_shape[:-1], 2), dtype=model_config.dtype, device="meta"
+            )
+            value_scale_zero_block = torch.empty(
+                (*value_shape[:-1], 2), dtype=model_config.dtype, device="meta"
+            )
+            mem_key_block = (
+                key_block.numel() * key_block.element_size()
+                + key_scale_zero_block.numel() * key_scale_zero_block.element_size()
+            )
+            mem_value_block = (
+                value_block.numel() * value_block.element_size()
+                + value_scale_zero_block.numel() * value_scale_zero_block.element_size()
+            )
         else:
-            raise ValueError(f'unsupported quant_policy {quant_policy}')
+            raise ValueError(f"unsupported quant_policy {quant_policy}")
 
         total = num_layers * (mem_key_block + mem_value_block)
         return total
 
     """ Metheds for PD Disaggregation Begin. """
 
-    def p2p_initialize(self, migration_init_request: DistServeInitRequest) -> DistServeKVTransferEndpointInfo:
+    def p2p_initialize(
+        self, migration_init_request: DistServeInitRequest
+    ) -> DistServeKVTransferEndpointInfo:
         if not self.migration_backend_impl:
-            self.migration_backend_impl = MIGRATION_BACKENDS.module_dict[self.cache_config.migration_backend.name]()
+            self.migration_backend_impl = MIGRATION_BACKENDS.module_dict[
+                self.cache_config.migration_backend.name
+            ]()
         migration_init_request.rank = self.rank
         self.migration_backend_impl.p2p_initialize(migration_init_request)
         for i, t in enumerate(self.full_gpu_cache):
             if t.numel() == 0:
                 continue
-            register_mr_request = DistServeRegisterMRMessage(protocol=migration_init_request.protocol,
-                                                             remote_engine_id=migration_init_request.remote_engine_id,
-                                                             mr_key=str(i),
-                                                             addr=t.data_ptr(),
-                                                             offset=t.storage_offset(),
-                                                             length=t.numel() * t.itemsize)
+            register_mr_request = DistServeRegisterMRMessage(
+                protocol=migration_init_request.protocol,
+                remote_engine_id=migration_init_request.remote_engine_id,
+                mr_key=str(i),
+                addr=t.data_ptr(),
+                offset=t.storage_offset(),
+                length=t.numel() * t.itemsize,
+            )
             self.migration_backend_impl.register_memory_region(register_mr_request)
-        return DistServeKVTransferEndpointInfo(protocol=migration_init_request.protocol,
-                                               endpoint_info=json.dumps(
-                                                   self.migration_backend_impl.endpoint_info(
-                                                       migration_init_request.remote_engine_id,
-                                                       migration_init_request.protocol)))
+        return DistServeKVTransferEndpointInfo(
+            protocol=migration_init_request.protocol,
+            endpoint_info=json.dumps(
+                self.migration_backend_impl.endpoint_info(
+                    migration_init_request.remote_engine_id,
+                    migration_init_request.protocol,
+                )
+            ),
+        )
 
-    def p2p_connect(self, remote_engine_id: str, migration_conn_request: List[DistServeKVTransferEndpointInfo]):
-        self.migration_backend_impl.p2p_connect(remote_engine_id, migration_conn_request[self.tp_rank])
+    def p2p_connect(
+        self,
+        remote_engine_id: str,
+        migration_conn_request: List[DistServeKVTransferEndpointInfo],
+    ):
+        self.migration_backend_impl.p2p_connect(
+            remote_engine_id, migration_conn_request[self.tp_rank]
+        )
 
     async def migrate(self, migration_execution_inputs: MigrationExecutionBatch):
 
@@ -858,34 +912,53 @@ class AscendCacheEngine:
         assignment_len = get_assignment_len()
         layer_stride = self.cache_config.num_gpu_blocks * assignment_len
 
-        def get_assignment_batch(mr_key, block_ids, assignment_len, layer_stride, remote_layer_stride):
+        def get_assignment_batch(
+            mr_key, block_ids, assignment_len, layer_stride, remote_layer_stride
+        ):
             return [
-                AssignmentInstruct(mr_key=mr_key,
-                                   target_offset=block_id[0] * assignment_len + layer * remote_layer_stride,
-                                   source_offset=block_id[1] * assignment_len + layer * layer_stride,
-                                   length=assignment_len) for layer in range(self.model_config.num_layers)
+                AssignmentInstruct(
+                    mr_key=mr_key,
+                    target_offset=block_id[0] * assignment_len
+                    + layer * remote_layer_stride,
+                    source_offset=block_id[1] * assignment_len + layer * layer_stride,
+                    length=assignment_len,
+                )
+                for layer in range(self.model_config.num_layers)
                 for block_id in block_ids
             ]
 
-        assignment_batch: List[Tuple[str, int, int, int]] = []  # mr_key, target, source, offset
+        assignment_batch: List[Tuple[str, int, int, int]] = (
+            []
+        )  # mr_key, target, source, offset
         for migration_exe_req in migration_execution_inputs.requests:
             remote_engine_id = migration_exe_req[0]
             blocks_to_migration = migration_exe_req[1]
-            remote_layer_stride = self.migration_backend_impl.links[
-                remote_engine_id].remote_engine_config.num_gpu_blocks * assignment_len
+            remote_layer_stride = (
+                self.migration_backend_impl.links[
+                    remote_engine_id
+                ].remote_engine_config.num_gpu_blocks
+                * assignment_len
+            )
 
             for i, t in enumerate(self.full_gpu_cache):
                 if t.numel() == 0:
                     continue
                 assignment_batch.extend(
-                    get_assignment_batch(str(i), blocks_to_migration, assignment_len, layer_stride,
-                                         remote_layer_stride))
+                    get_assignment_batch(
+                        str(i),
+                        blocks_to_migration,
+                        assignment_len,
+                        layer_stride,
+                        remote_layer_stride,
+                    )
+                )
         await self.migration_backend_impl.p2p_migrate(
             MigrationAssignment(
                 protocol=migration_execution_inputs.protocol,
                 remote_engine_id=remote_engine_id,
                 batch=assignment_batch,
-            ))
+            )
+        )
 
     """ Metheds for PD Disaggregation End. """
 
