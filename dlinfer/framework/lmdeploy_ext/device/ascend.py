@@ -1,5 +1,6 @@
 # Copyright (c) 2024, DeepLink. All rights reserved.
 import functools
+import math
 import os
 import torch
 import weakref
@@ -22,6 +23,8 @@ import lmdeploy.pytorch.distributed as dist
 from lmdeploy.pytorch.backends import get_backend
 from lmdeploy.pytorch.engine import cache_engine
 from lmdeploy.pytorch.config import ModelConfig, CacheConfig
+import lmdeploy.pytorch.engine.executor.base as executor_base  # noqa: E402
+import lmdeploy.pytorch.engine.model_agent as model_agent  # noqa: E402
 from lmdeploy.pytorch.disagg.conn.protocol import (
     DistServeInitRequest,
     DistServeKVTransferEndpointInfo,
@@ -793,27 +796,36 @@ class AscendCacheEngine:
     @classmethod
     def get_cache_block_size(
         cls,
-        block_size: int,
+        cache_config: CacheConfig,
         model_config: ModelConfig,
         world_size: int = 1,
-        quant_policy: int = 0,
     ) -> int:
         """Get the required cache size of the model.
 
         Args:
-            block_size (int): The token numbers of the block.
+            cache_config (CacheConfig): The config of the cache.
             model_config (ModelConfig): The config of the model.
+            world_size (int): The world size for tensor parallelism.
 
         Return:
             int: Required memory size in bytes.
         """
+
+        def _dtype_size(dtype: torch.dtype) -> int:
+            """Get element size without using meta device (torch_npu compatible)."""
+            return torch.tensor([], dtype=dtype).element_size()
+
+        block_size = cache_config.block_size
+        quant_policy = cache_config.quant_policy
         num_layers = model_config.num_layers
+
         key_head_size = model_config.k_head_dim
         value_head_size = model_config.v_head_dim
         if key_head_size is None:
             key_head_size = model_config.head_dim
         if value_head_size is None:
             value_head_size = model_config.head_dim
+
         key_shape = cls._get_key_block_shape_impl(
             model_config,
             block_size=block_size,
@@ -830,28 +842,29 @@ class AscendCacheEngine:
             quant_policy=quant_policy,
             local=True,
         )
+
         if quant_policy == 0:
-            dtype = model_config.dtype
-            key_block = torch.empty(key_shape, dtype=dtype, device="meta")
-            value_block = torch.empty(value_shape, dtype=dtype, device="meta")
-            mem_key_block = key_block.numel() * key_block.element_size()
-            mem_value_block = value_block.numel() * value_block.element_size()
+            dtype_size = _dtype_size(model_config.dtype)
+            mem_key_block = math.prod(key_shape) * dtype_size
+            mem_value_block = math.prod(value_shape) * dtype_size
         elif quant_policy in (4, 8):
-            key_block = torch.empty(key_shape, dtype=torch.uint8, device="meta")
-            value_block = torch.empty(value_shape, dtype=torch.uint8, device="meta")
-            key_scale_zero_block = torch.empty(
-                (*key_shape[:-1], 2), dtype=model_config.dtype, device="meta"
+            # KV cache uses uint8/int8, scale/zero uses model dtype
+            kv_dtype = (
+                torch.uint8 if cache_config.device_type in ["cuda"] else torch.int8
             )
-            value_scale_zero_block = torch.empty(
-                (*value_shape[:-1], 2), dtype=model_config.dtype, device="meta"
-            )
+            kv_dtype_size = _dtype_size(kv_dtype)
+            scale_dtype_size = _dtype_size(model_config.dtype)
+
+            key_scale_zero_shape = (*key_shape[:-1], 2)
+            val_scale_zero_shape = (*value_shape[:-1], 2)
+
             mem_key_block = (
-                key_block.numel() * key_block.element_size()
-                + key_scale_zero_block.numel() * key_scale_zero_block.element_size()
+                math.prod(key_shape) * kv_dtype_size
+                + math.prod(key_scale_zero_shape) * scale_dtype_size
             )
             mem_value_block = (
-                value_block.numel() * value_block.element_size()
-                + value_scale_zero_block.numel() * value_scale_zero_block.element_size()
+                math.prod(value_shape) * kv_dtype_size
+                + math.prod(val_scale_zero_shape) * scale_dtype_size
             )
         else:
             raise ValueError(f"unsupported quant_policy {quant_policy}")
@@ -963,4 +976,7 @@ class AscendCacheEngine:
     """ Metheds for PD Disaggregation End. """
 
 
+# Make sure all modules that already captured CacheEngine see the patched class.
 cache_engine.CacheEngine = AscendCacheEngine
+executor_base.CacheEngine = AscendCacheEngine
+model_agent.CacheEngine = AscendCacheEngine
