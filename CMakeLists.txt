@@ -24,6 +24,28 @@ elseif(NOT DEVICE IN_LIST SUPPORTED_DEVICE)
   message(FATAL_ERROR "Device ${DEVICE} is not supported! Supported devices: ${SUPPORTED_DEVICE}")
 endif()
 
-add_subdirectory(dlinfer/graph/dicp/vendor)
+#
+# Optional: build DICP vendor (e.g. AtbGraph runtime for ascend).
+# Default OFF. Turn on via env: DLINFER_BUILD_DICP=ON/1/TRUE/YES
+# or via cmake: -DDLINFER_BUILD_DICP=ON
+#
+option(DLINFER_BUILD_DICP "Build DICP vendor components" OFF)
+
+if(DEFINED ENV{DLINFER_BUILD_DICP} AND NOT "$ENV{DLINFER_BUILD_DICP}" STREQUAL "")
+  string(TOUPPER "$ENV{DLINFER_BUILD_DICP}" _DLINFER_BUILD_DICP_ENV)
+  if(_DLINFER_BUILD_DICP_ENV STREQUAL "1"
+     OR _DLINFER_BUILD_DICP_ENV STREQUAL "ON"
+     OR _DLINFER_BUILD_DICP_ENV STREQUAL "TRUE"
+     OR _DLINFER_BUILD_DICP_ENV STREQUAL "YES")
+    set(DLINFER_BUILD_DICP ON CACHE BOOL "Build DICP vendor components" FORCE)
+  endif()
+endif()
+
+if(DLINFER_BUILD_DICP)
+  message(STATUS "DLINFER_BUILD_DICP=ON: enabling DICP vendor build")
+  add_subdirectory(dlinfer/graph/dicp/vendor)
+else()
+  message(STATUS "DLINFER_BUILD_DICP=OFF: skipping DICP vendor build (set env DLINFER_BUILD_DICP=ON to enable)")
+endif()
 
 install(CODE "message(STATUS \"Install completed for device: ${DEVICE}\")")

@@ -76,7 +76,11 @@ pip install dlinfer-ascend
 
    ```shell
    cd /path_to_dlinfer
+   # 默认不编译 dicp/AtbGraph
    DEVICE=ascend python3 setup.py develop
+
+   # 若需要编译 dicp（例如使用 atbgraph 后端），请显式开启：
+   DLINFER_BUILD_DICP=ON DEVICE=ascend python3 setup.py develop
    ```
 
 ### 沐曦C500
