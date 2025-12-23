@@ -2,16 +2,15 @@
 import os
 import math
 import torch
+import torch.distributed as dist
 
+from typing import List
 from dlinfer.vendor import vendor_ops_registry
 from dlinfer.utils.registry import register_ops
 from dlinfer.utils.type_annotation import Tensor, Optional, Sequence, Tuple
 from .utils import SocVersion, get_cpu_seq_len
-from dlinfer.framework.lmdeploy_ext.cudagraph.ascend_cudagraph import (
-    AscendGraphRunner,
-    get_graph_params,
-    aclgraph_use_torch_npu_update,
-)
+from .attention import decode_attention, decode_attention_mla
+from lmdeploy.pytorch.distributed import get_dist_manager
 
 __all__ = [
     "add_rms_norm",
@@ -163,6 +162,7 @@ def prefill_attention(
     query = query.contiguous()
     key = key.contiguous()
     value = value.contiguous()
+    attn_output = attn_output.contiguous()
     scale_value = softmax_scale if softmax_scale else 1.0 / math.sqrt(query.shape[-1])
     if len(attn_mask):
         mask = attn_mask[0]
@@ -267,10 +267,15 @@ def fill_kv_cache(
         key = quant_int8(key, k_scales_zeros[0], k_scales_zeros[1])
         value = quant_int8(value, v_scales_zeros[0], v_scales_zeros[1])
 
-    key_cache_reshaped = key_cache.view(block_total, head, dim)
-    value_cache_reshaped = value_cache.view(block_total, head, dim)
-    torch.ops.npu.npu_scatter_nd_update_(key_cache_reshaped, kv_indices, key)
-    torch.ops.npu.npu_scatter_nd_update_(value_cache_reshaped, kv_indices, value)
+    is_mla = key.shape[-1] != value.shape[-1]
+    if is_mla:
+        key_cache_reshaped = key_cache.view(block_total, head, dim)
+        torch.ops.npu.npu_scatter_nd_update_(key_cache_reshaped, kv_indices, key)
+    else:
+        key_cache_reshaped = key_cache.view(block_total, head, dim)
+        value_cache_reshaped = value_cache.view(block_total, head, dim)
+        torch.ops.npu.npu_scatter_nd_update_(key_cache_reshaped, kv_indices, key)
+        torch.ops.npu.npu_scatter_nd_update_(value_cache_reshaped, kv_indices, value)
     return key_cache, value_cache
 """
 
@@ -301,13 +306,20 @@ def fill_kv_cache(
         key = quant_int8(key, k_scales_zeros[0], k_scales_zeros[1])
         value = quant_int8(value, v_scales_zeros[0], v_scales_zeros[1])
 
-    torch.ops.atb._npu_reshape_and_cache(
-        key=key,
-        value=value,
-        key_cache=key_cache,
-        value_cache=value_cache,
-        slot_indices=kv_indices,
-    )
+    is_mla = key.shape[-1] != value.shape[-1]
+    if is_mla:
+        assert len(key_cache.shape) == 4
+        key_cache_reshaped = torch.flatten(key_cache, start_dim=0, end_dim=1)
+        kv_indices = kv_indices.view(-1, 1)
+        torch.ops.npu.npu_scatter_nd_update_(key_cache_reshaped, kv_indices, key)
+    else:
+        torch.ops.atb._npu_reshape_and_cache(
+            key=key,
+            value=value,
+            key_cache=key_cache,
+            value_cache=value_cache,
+            slot_indices=kv_indices.to(torch.int32),
+        )
     return key_cache, value_cache
 
 
@@ -347,83 +359,39 @@ def paged_decode_attention(
         raise RuntimeError(
             "paged_decode_attention does not " "support alibi_slopes yet"
         )
+    if isinstance(block_table, torch.Tensor) and block_table.dtype != torch.int32:
+        block_table = block_table.to(torch.int32)
 
     query = query.contiguous()
     attn_output = attn_output.contiguous()
     scale_value = softmax_scale if softmax_scale else 1.0 / math.sqrt(query.shape[-1])
-    if AscendGraphRunner.capturing and not aclgraph_use_torch_npu_update():
-        graph_params = get_graph_params()
-        num_tokens = query.shape[0]
-        stream = torch.npu.current_stream()
-        event = torch.npu.ExternalEvent()
-        event.wait(stream)
-        event.reset(stream)
-        graph_params.events[num_tokens].append(event)
-        graph_params.attn_params[num_tokens].append(
-            (
-                query,
-                key_cache,
-                value_cache,
-                num_kv_heads,
-                num_q_heads,
-                scale_value,
-                block_table,
-                kv_seq_len,
-                attn_output,
-            )
-        )
-        torch.npu.graph_task_group_begin(stream)
-        torch.ops.atb._npu_paged_attention(
+    key_headsize, value_headsize = key_cache.shape[-1], value_cache.shape[-1]
+    if key_headsize == value_headsize:
+        return decode_attention(
             query=query,
             key_cache=key_cache,
             value_cache=value_cache,
+            num_q_heads=num_q_heads,
             num_kv_heads=num_kv_heads,
-            num_heads=num_q_heads,
             scale_value=scale_value,
             block_table=block_table,
-            context_lens=kv_seq_len,
-            out=attn_output,
-        )
-        handle = torch.npu.graph_task_group_end(stream)
-        graph_params.handles[num_tokens].append(handle)
-    elif AscendGraphRunner.capturing:
-        bs, _, dim = query.shape
-        block_num = key_cache.size(0)
-        query = query.contiguous()
-        attn_output = attn_output.contiguous()
-        query = query.view(bs, 1, num_q_heads * dim)
-        key_cache = key_cache.view(block_num, block_size, -1)
-        value_cache = value_cache.view(block_num, block_size, -1)
-        scale_value = softmax_scale if softmax_scale else 1.0 / math.sqrt(dim)
-
-        attn_output, _ = torch.ops.npu.npu_fused_infer_attention_score(
-            query=query,
-            key=key_cache,
-            value=value_cache,
-            atten_mask=None,
-            block_table=block_table,
-            input_layout="BSH",
             block_size=block_size,
-            actual_seq_lengths=None,
-            actual_seq_lengths_kv=kv_seq_len,
-            num_key_value_heads=num_kv_heads,
-            num_heads=num_q_heads,
-            scale=scale_value,
-            sparse_mode=0,
+            kv_seq_len=kv_seq_len,
+            softmax_scale=softmax_scale,
+            attn_output=attn_output,
         )
     else:
-        torch.ops.atb._npu_paged_attention(
+        return decode_attention_mla(
             query=query,
             key_cache=key_cache,
-            value_cache=value_cache,
             num_kv_heads=num_kv_heads,
-            num_heads=num_q_heads,
+            num_q_heads=num_q_heads,
             scale_value=scale_value,
             block_table=block_table,
-            context_lens=kv_seq_len,
-            out=attn_output,
+            kv_seq_len=kv_seq_len,
+            mla_vheadsize=value_headsize,
+            attn_output=attn_output,
         )
-    return attn_output
 
 
 @register_ops(vendor_ops_registry)
@@ -498,6 +466,17 @@ def silu_and_mul(input_tensor: Tensor, dim: int) -> Tensor:
 
 @register_ops(vendor_ops_registry)
 def moe_gating_topk_softmax(router_logits: Tensor, topk: int) -> Tuple[Tensor, Tensor]:
+    dist_ctx = get_dist_manager().current_context()
+    if dist_ctx.dist_config.ep > 1 and dist_ctx.dist_config.tp > 1:
+        if router_logits.shape[0] % dist_ctx.dist_config.tp != 0:
+            pad_size = dist_ctx.dist_config.tp - (
+                router_logits.shape[0] % dist_ctx.dist_config.tp
+            )
+            router_logits = torch.nn.functional.pad(router_logits, (0, 0, 0, pad_size))
+        split_router_logits = torch.tensor_split(
+            router_logits, dist_ctx.dist_config.tp, dim=0
+        )
+        router_logits = split_router_logits[dist_ctx.rank]
     routing_weights, selected_idx, _ = torch.ops.npu.npu_moe_gating_top_k_softmax(
         router_logits, None, topk
     )
@@ -606,7 +585,36 @@ def fused_moe(
     topk_ids: Tensor,
     topk: int,
     renormalize: bool,
+    ep_size: int,
+    ep_group: torch.distributed.ProcessGroup = None,
 ) -> Tensor:
+    dist_ctx = get_dist_manager().current_context()
+    if ep_size > 1:
+        num_tokens = hidden_states.size(0)
+        ep_group = dist_ctx.ep_gpu_group
+        local_rank = torch.distributed.get_rank(group=ep_group)
+        backend = ep_group._get_backend(torch.device("npu"))
+        moe_all_to_all_group_name = backend.get_hccl_comm_name(local_rank)
+        x_active_mask = torch.ones(
+            num_tokens, dtype=torch.bool, device=torch.npu.current_device()
+        )
+    if dist_ctx.dist_config.ep > 1 and dist_ctx.dist_config.tp > 1:
+        if hidden_states.shape[0] % dist_ctx.dist_config.tp != 0:
+            pad_size = dist_ctx.dist_config.tp - (
+                hidden_states.shape[0] % dist_ctx.dist_config.tp
+            )
+            hidden_states = torch.nn.functional.pad(hidden_states, (0, 0, 0, pad_size))
+            x_active_mask = torch.nn.functional.pad(
+                x_active_mask, (0, pad_size), value=False
+            )
+        split_hidden_states = torch.tensor_split(
+            hidden_states, dist_ctx.dist_config.tp, dim=0
+        )
+        split_x_active_mask = torch.tensor_split(
+            x_active_mask, dist_ctx.dist_config.tp, dim=0
+        )
+        hidden_states = split_hidden_states[dist_ctx.rank]
+        x_active_mask = split_x_active_mask[dist_ctx.rank]
     num_experts = gate_up_weights.size(0)
     active_num = hidden_states.size(0) * topk
     topk_ids = topk_ids.to(torch.int32)
@@ -621,18 +629,65 @@ def fused_moe(
         down_weights = down_weights.transpose(1, 2)
 
     # moe init routing
-    expanded_hidden_states, expanded_row_idx, expert_tokens, pertoken_scale = (
-        torch.ops.npu.npu_moe_init_routing_v2(
-            hidden_states,
-            topk_ids,
-            active_num=active_num,
-            expert_num=num_experts,
-            expert_tokens_num_type=1,
-            expert_tokens_num_flag=True,
-            active_expert_range=[0, num_experts],
-            quant_mode=-1,
+    if ep_size <= 1:
+        expanded_hidden_states, expanded_row_idx, expert_tokens, pertoken_scale = (
+            torch.ops.npu.npu_moe_init_routing_v2(
+                hidden_states,
+                topk_ids,
+                active_num=active_num,
+                expert_num=num_experts,
+                expert_tokens_num_type=1,
+                expert_tokens_num_flag=True,
+                active_expert_range=[0, num_experts],
+                quant_mode=-1,
+            )
         )
-    )
+        group_list_type = 1
+    else:
+        quant_mode = 0
+        moe_expert_num = num_experts * ep_size
+        kwargs_mc2 = {
+            "x": hidden_states,
+            "expert_ids": topk_ids,
+            "expert_shard_type": 0,
+            "shared_expert_rank_num": 0,
+            "moe_expert_num": moe_expert_num,
+            "global_bs": 0,
+            "expert_token_nums_type": 0,
+        }
+        stage1_kwargs = {
+            "scales": None,
+            "quant_mode": quant_mode,
+            "group_ep": moe_all_to_all_group_name,
+            "ep_world_size": ep_size,
+            "ep_rank_id": ep_group.rank(),
+        }
+        stage1_kwargs.update(
+            {
+                "group_tp": moe_all_to_all_group_name,
+                "tp_world_size": 1,
+                "tp_rank_id": 0,
+            }
+        )
+        stage1_kwargs.update(
+            {
+                "x_active_mask": x_active_mask,
+            }
+        )
+        kwargs_mc2.update(stage1_kwargs)
+        distributed_moe_init_outputs = torch.ops.npu.npu_moe_distribute_dispatch_v2(
+            **kwargs_mc2
+        )
+        (
+            expanded_hidden_states,
+            dynamic_scale,
+            assist_info_for_combine,
+            expert_tokens,
+            ep_recv_counts,
+            tp_recv_counts,
+            expand_scales,
+        ) = distributed_moe_init_outputs[0:7]
+        group_list_type = 0
 
     # up sample
     group_list = expert_tokens.to(torch.int64)
@@ -642,7 +697,7 @@ def fused_moe(
         group_list=group_list,
         split_item=2,
         group_type=0,
-        group_list_type=1,
+        group_list_type=group_list_type,
     )[0]
 
     # activation
@@ -655,13 +710,54 @@ def fused_moe(
         group_list=group_list,
         split_item=2,
         group_type=0,
-        group_list_type=1,
+        group_list_type=group_list_type,
     )[0]
 
     # moe finalize routing
-    moe_output = torch.ops.npu.npu_moe_token_unpermute(
-        permuted_tokens=down_proj, sorted_indices=expanded_row_idx, probs=topk_weights
-    )
+    if ep_size <= 1:
+        moe_output = torch.ops.npu.npu_moe_token_unpermute(
+            permuted_tokens=down_proj,
+            sorted_indices=expanded_row_idx,
+            probs=topk_weights,
+        )
+    else:
+        moe_expert_num = ep_size * num_experts
+        kwargs_mc2 = {
+            "expand_x": down_proj,
+            "expert_ids": topk_ids,
+            "expert_scales": topk_weights.to(torch.float32),
+            "expert_shard_type": 0,
+            "shared_expert_rank_num": 0,
+            "moe_expert_num": moe_expert_num,
+            "global_bs": 0,
+        }
+        stage3_kwargs = {
+            "ep_send_counts": ep_recv_counts,
+            "group_ep": moe_all_to_all_group_name,
+            "ep_world_size": ep_size,
+            "ep_rank_id": ep_group.rank(),
+            "expand_scales": expand_scales,
+            "assist_info_for_combine": assist_info_for_combine,
+        }
+        stage3_kwargs.update(
+            {
+                "tp_send_counts": tp_recv_counts,
+                "group_tp": moe_all_to_all_group_name,
+                "tp_world_size": 1,
+                "tp_rank_id": 0,
+            }
+        )
+        stage3_kwargs.update(
+            {
+                "x_active_mask": x_active_mask,
+            }
+        )
+        kwargs_mc2.update(stage3_kwargs)
+        moe_output = torch.ops.npu.npu_moe_distribute_combine_v2(**kwargs_mc2)
+        if dist_ctx.dist_config.tp > 1:
+            dist.all_gather(list(split_hidden_states), moe_output)
+            moe_output = torch.cat(split_hidden_states, dim=0)
+            moe_output = moe_output[:num_tokens, :]
 
     return moe_output
 
