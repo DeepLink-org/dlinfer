@@ -6,7 +6,7 @@ import torch
 from dlinfer.vendor import vendor_ops_registry
 from dlinfer.utils.registry import register_ops
 from dlinfer.utils.type_annotation import Tensor, Optional, Sequence, Tuple
-from .utils import SocVersion, get_vl_mask, get_cpu_seq_len
+from .utils import SocVersion, get_cpu_seq_len
 from dlinfer.framework.lmdeploy_ext.cudagraph.ascend_cudagraph import (
     AscendGraphRunner,
     get_graph_params,
@@ -167,8 +167,19 @@ def prefill_attention(
     if len(attn_mask):
         mask = attn_mask[0]
     else:
-        mask = get_vl_mask(max_q_seq_len, query.dtype)
+        # Handle qwenvl vision part flash-attention
         q_seq_len = get_cpu_seq_len(q_seq_len)
+        torch.ops.atb._npu_flash_attention_unpad(
+            query=query,
+            key=key,
+            value=value,
+            seq_len=q_seq_len,
+            scale_value=scale_value,
+            num_heads=num_q_heads,
+            num_kv_heads=num_kv_heads,
+            out=attn_output,
+        )
+        return attn_output
     if SocVersion.is_Ascend910():
         torch.ops.atb._npu_flash_attention(
             query=query,
