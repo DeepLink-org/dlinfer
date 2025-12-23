@@ -9,10 +9,7 @@ from dlinfer.vendor import vendor_ops_registry
 from dlinfer.utils.registry import register_ops
 from dlinfer.utils.type_annotation import Tensor, Optional, Sequence, Tuple
 from .utils import SocVersion, get_vl_mask, get_cpu_seq_len
-from dlinfer.framework.lmdeploy_ext.cudagraph.ascend_cudagraph import (
-    AscendGraphRunner,
-    get_graph_params,
-)
+from .attention import decode_attention, decode_attention_mla
 from lmdeploy.pytorch.distributed import get_dist_manager
 
 __all__ = [
@@ -330,132 +327,6 @@ def get_cache_len(cache: Tensor):
 
 
 @register_ops(vendor_ops_registry)
-def decode_attention(
-    query: Tensor,
-    key_cache: Tensor,
-    value_cache: Tensor,
-    num_kv_heads: int,
-    num_q_heads: int,
-    scale_value: float,
-    block_table: Tensor,
-    kv_seq_len: Tensor,
-    attn_output: Tensor,
-):
-    if AscendGraphRunner.capturing:
-        graph_params = get_graph_params()
-        num_tokens = query.shape[0]
-        stream = torch.npu.current_stream()
-        event = torch.npu.ExternalEvent()
-        event.wait(stream)
-        event.reset(stream)
-        graph_params.events[num_tokens].append(event)
-        graph_params.attn_params[num_tokens].append(
-            (
-                query,
-                key_cache,
-                value_cache,
-                num_kv_heads,
-                num_q_heads,
-                scale_value,
-                block_table,
-                kv_seq_len,
-                attn_output,
-            )
-        )
-        graph_params.is_mla = False
-        torch.npu.graph_task_group_begin(stream)
-        torch.ops.atb._npu_paged_attention(
-            query=query,
-            key_cache=key_cache,
-            value_cache=value_cache,
-            num_kv_heads=num_kv_heads,
-            num_heads=num_q_heads,
-            scale_value=scale_value,
-            block_table=block_table,
-            context_lens=kv_seq_len,
-            out=attn_output,
-        )
-        handle = torch.npu.graph_task_group_end(stream)
-        graph_params.handles[num_tokens].append(handle)
-    else:
-        torch.ops.atb._npu_paged_attention(
-            query=query,
-            key_cache=key_cache,
-            value_cache=value_cache,
-            num_kv_heads=num_kv_heads,
-            num_heads=num_q_heads,
-            scale_value=scale_value,
-            block_table=block_table,
-            context_lens=kv_seq_len,
-            out=attn_output,
-        )
-    return attn_output
-
-
-@register_ops(vendor_ops_registry)
-def decode_attention_mla(
-    query: Tensor,
-    key_cache: Tensor,
-    num_kv_heads: int,
-    num_q_heads: int,
-    scale_value: float,
-    block_table: Tensor,
-    kv_seq_len: Tensor,
-    mla_vheadsize: int,
-    attn_output: Tensor,
-):
-    if AscendGraphRunner.capturing:
-        graph_params = get_graph_params()
-        num_tokens = query.shape[0]
-        stream = torch.npu.current_stream()
-        event = torch.npu.ExternalEvent()
-        event.wait(stream)
-        event.reset(stream)
-        graph_params.events[num_tokens].append(event)
-        graph_params.attn_params[num_tokens].append(
-            (
-                query,
-                key_cache,
-                num_kv_heads,
-                num_q_heads,
-                scale_value,
-                block_table,
-                kv_seq_len,
-                mla_vheadsize,
-                attn_output,
-            )
-        )
-        graph_params.is_mla = True
-        torch.npu.graph_task_group_begin(stream)
-        torch.ops.atb._npu_paged_attention_mla(
-            query=query,
-            key_cache=key_cache,
-            num_kv_heads=num_kv_heads,
-            num_heads=num_q_heads,
-            scale_value=scale_value,
-            block_table=block_table,
-            context_lens=kv_seq_len,
-            mla_vheadsize=mla_vheadsize,
-            out=attn_output,
-        )
-        handle = torch.npu.graph_task_group_end(stream)
-        graph_params.handles[num_tokens].append(handle)
-    else:
-        torch.ops.atb._npu_paged_attention_mla(
-            query=query,
-            key_cache=key_cache,
-            num_kv_heads=num_kv_heads,
-            num_heads=num_q_heads,
-            scale_value=scale_value,
-            block_table=block_table,
-            context_lens=kv_seq_len,
-            mla_vheadsize=mla_vheadsize,
-            out=attn_output,
-        )
-    return attn_output
-
-
-@register_ops(vendor_ops_registry)
 def paged_decode_attention(
     query: Tensor,
     key_cache: Tensor,
@@ -489,11 +360,13 @@ def paged_decode_attention(
             query=query,
             key_cache=key_cache,
             value_cache=value_cache,
-            num_kv_heads=num_kv_heads,
             num_q_heads=num_q_heads,
+            num_kv_heads=num_kv_heads,
             scale_value=scale_value,
             block_table=block_table,
+            block_size=block_size,
             kv_seq_len=kv_seq_len,
+            softmax_scale=softmax_scale,
             attn_output=attn_output,
         )
     else:
