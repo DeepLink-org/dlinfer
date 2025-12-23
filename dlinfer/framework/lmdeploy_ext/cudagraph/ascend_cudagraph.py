@@ -4,6 +4,8 @@ import functools
 from typing import Any, Dict, List, Optional
 from dataclasses import dataclass
 from contextlib import ExitStack
+from packaging.version import InvalidVersion, Version
+
 import torch
 import torch_npu
 from torch import Tensor
@@ -19,6 +21,18 @@ from lmdeploy.utils import get_logger
 
 logger = get_logger("dlinfer")
 BuffType = Dict[str, Tensor]
+
+
+@functools.lru_cache()
+def aclgraph_use_torch_npu_update():
+    min_valid_version = Version("2.8.0.post1")
+
+    try:
+        current_version = Version(torch_npu.__version__)
+    except InvalidVersion:
+        return False
+
+    return current_version >= min_valid_version
 
 
 # AscendCudaGraphMixin methods for cudagraph buffer management.
@@ -257,8 +271,16 @@ class AscendSingleGraphRunner:
         self.model.fill_buffers_cudagraph(self.meta, **kwargs)
         context = self.ctx_mgr.current_context()
         self.model.update_context_cudagraph(self.meta, context)
-        update_attn_params(self.update_stream, self.meta, self.max_tokens)
-        self._graph.replay()
+        if aclgraph_use_torch_npu_update():
+            self._graph.replay()
+            self._graph.update(
+                cpu_update_input=[
+                    {"actual_seq_lengths_kv": self.meta.input_buffers["kv_seqlens"]}
+                ]
+            )
+        else:
+            update_attn_params(self.update_stream, self.meta, self.max_tokens)
+            self._graph.replay()
         output = self.meta.output_buffers["logits"][:, :num_tokens]
         return output
 

@@ -21,18 +21,5 @@ class SocVersion:
 
 
 @lru_cache(maxsize=1)
-def get_vl_mask(max_q_seq_len, dtype):
-    mask = torch.triu(
-        torch.ones(
-            [max_q_seq_len, max_q_seq_len],
-            dtype=dtype,
-            device=torch.npu.current_device(),
-        ),
-        diagonal=1,
-    )
-    return mask
-
-
-@lru_cache(maxsize=1)
 def get_cpu_seq_len(seq_len):
     return seq_len.cpu()
