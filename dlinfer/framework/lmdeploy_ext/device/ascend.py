@@ -991,7 +991,7 @@ from lmdeploy.pytorch.engine.request import EventType
 
 def _schedule_prefill_ascend(self, prealloc_size: int = 0):
     """Schedule prefill for Ascend devices.
-    
+
     This patched version adds logic to handle prefill with kv-cache optimization.
     It ensures that prefill sequences are properly scheduled while respecting
     batch size and token count limits.
