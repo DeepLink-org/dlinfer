@@ -980,3 +980,104 @@ class AscendCacheEngine:
 cache_engine.CacheEngine = AscendCacheEngine
 executor_base.CacheEngine = AscendCacheEngine
 model_agent.CacheEngine = AscendCacheEngine
+
+
+##### patch scheduler #####
+##### workaround for uncompleted prefill_attention_with_kvcache #####
+from lmdeploy.pytorch.paging.scheduler import Scheduler
+from lmdeploy.pytorch.messages import MessageStatus
+from lmdeploy.messages import EventType
+
+
+def _schedule_prefill_ascend(self, prealloc_size: int = 0):
+    """Schedule prefill for Ascend devices with kv-cache constraints.
+
+    This function patches :meth:`Scheduler._schedule_prefill` to add extra
+    restrictions when batching requests that use the Ascend
+    ``prefill_attention_with_kvcache`` kernel. The original CUDA-based
+    implementation can freely mix plain prefill (``num_new_tokens == 0``) and
+    decode (``num_new_tokens > 0``) requests in the same batch and allows
+    multiple sequences that rely on kv-cache optimizations to be scheduled
+    together.
+
+    On Ascend, ``prefill_attention_with_kvcache`` is currently not
+    feature-complete: mixing multiple kv-cache-optimized prefill/decode
+    requests in a single step may corrupt kv-cache state or exceed hardware
+    limitations. To work around this, the ``prefill_with_kvcache`` state and
+    the associated early-return conditions in this method enforce that:
+
+    * the original token-count and batch-size admission logic is preserved;
+    * at most one sequence that requires kv-cache-optimized prefill or decode
+      is admitted in a scheduling step; and
+    * once such a sequence is admitted, additional prefill/decode requests are
+      not mixed into the same step.
+
+    This workaround should be removed, and the upstream
+    :meth:`Scheduler._schedule_prefill` used as-is, once the Ascend
+    implementation of ``prefill_attention_with_kvcache`` supports fully mixed
+    prefill and decode batching without these constraints.
+    """
+    running = self.running
+    swap_in_map = dict()
+    swap_out_map = dict()
+    copy_map = dict()
+    token_count = sum([seq.num_token_ids for seq in running])
+    max_batches = self.cache_config.max_batches
+
+    def _reorder_waiting():
+        """Reorder waiting sequences."""
+        return self.seq_manager.get_sequences(MessageStatus.WAITING)
+
+    def __evict_for_seq(seq, waiting):
+        """Evict blocks for sequence."""
+        while not self.block_manager.can_allocate(seq, prealloc_size):
+            if not self._evict(running, waiting):
+                return False
+        return True
+
+    def _to_running(seq):
+        """Move sequence to running state."""
+        running.append(seq)
+        self.seq_manager.update_message_status(seq.msg_id, MessageStatus.RUNNING)
+        nonlocal token_count
+        token_count += seq.num_token_ids
+
+    num_waiting = self.seq_manager.num_sequences(MessageStatus.WAITING)
+    if len(running) >= max_batches or num_waiting == 0:
+        return running, swap_in_map, swap_out_map, copy_map
+
+    waiting = _reorder_waiting()
+    prefill_with_kvcache = True
+    while len(waiting) > 0 and len(running) < max_batches:
+        seq = waiting.pop(0)
+        if not prefill_with_kvcache and seq.num_new_tokens > 0:
+            break
+        prefill_with_kvcache = False if seq.num_new_tokens == 0 else True
+
+        if (
+            len(running) > 0
+            and token_count + seq.num_token_ids
+            > self.cache_config.max_prefill_token_num
+        ):
+            break
+
+        self.block_trie.match(seq)
+
+        if not __evict_for_seq(seq, waiting):
+            break
+
+        # allocate session memory
+        self.block_manager.allocate(seq, prealloc_size)
+        self.block_trie.allocate(seq)
+        if self.is_ssm:
+            self.state_manager.allocate(seq)
+        _to_running(seq)
+
+        seq.record_event(EventType.SCHEDULED)
+        if prefill_with_kvcache:
+            break
+
+    return running, swap_in_map, swap_out_map, copy_map
+
+
+Scheduler._schedule_prefill = _schedule_prefill_ascend
