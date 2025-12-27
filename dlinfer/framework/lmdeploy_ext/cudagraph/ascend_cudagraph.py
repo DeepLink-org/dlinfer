@@ -175,7 +175,7 @@ def _get_capture_batch_size_impl(max_batches: int):
     """Capture batch size."""
     ret = []
     batch_size = 1
-    
+
     # Generate batch sizes and apply get_ascend_compatible_size
     while batch_size <= max_batches:
         compatible_size = get_ascend_compatible_size(batch_size)
