@@ -983,6 +983,7 @@ model_agent.CacheEngine = AscendCacheEngine
 
 
 ##### patch scheduler #####
+##### workaround for uncompleted prefill_attention_with_kvcache #####
 from lmdeploy.pytorch.paging.scheduler import Scheduler
 from lmdeploy.pytorch.messages import MessageStatus
 from lmdeploy.pytorch.engine.request import EventType
