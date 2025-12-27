@@ -185,7 +185,9 @@ def _get_capture_batch_size_impl(max_batches: int):
             ret.append(compatible_size)
         batch_size = compatible_size + 1
 
-    # ensure max_batches in ret
+    # Ensure we can handle max_batches by including its compatible size
+    # Note: If max_batches is not a compatible size (e.g., 513),
+    # we must include the next compatible size (e.g., 768) to handle it
     max_batches_compatible = get_ascend_compatible_size(max_batches)
     if max_batches_compatible not in ret:
         ret.append(max_batches_compatible)
