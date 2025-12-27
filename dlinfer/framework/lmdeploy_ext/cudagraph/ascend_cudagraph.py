@@ -141,41 +141,9 @@ def AscendCudaGraphMixin_update_context_cudagraph(self, graph_meta, context):
     context.kv_start_indices = input_buffers["kv_start_indices"]
 
 
-def AscendCudaGraphMixin_make_output_buffers(
-    self, output: Union[torch.Tensor, Dict[str, torch.Tensor]]
-) -> Dict[str, torch.Tensor]:
-    """Make output buffers."""
-    if isinstance(output, torch.Tensor):
-        output_buffers = dict(hidden_states=output)
-    else:
-        assert isinstance(
-            output, Dict
-        ), f"Expected output to be torch.Tensor or Dict, got {type(output)}"
-        output_buffers = output
-    return output_buffers
-
-
-def AscendCudaGraphMixin_get_outputs_cudagraph(
-    self, output_buffers: Dict[str, Tensor], input_ids: Tensor, **kwargs
-) -> Dict[str, Tensor]:
-    """Get outputs from buffers."""
-    num_tokens = input_ids.size(-1)
-    outputs = dict()
-    outputs["hidden_states"] = output_buffers["hidden_states"][:, :num_tokens]
-    if "all_routed_experts" in output_buffers:
-        # Use ellipsis to preserve all dimensions after token dimension
-        # Shape can vary: [num_tokens, num_experts] or [num_tokens, top_k, ...]
-        outputs["all_routed_experts"] = output_buffers["all_routed_experts"][
-            :num_tokens, ...
-        ].clone()
-    return outputs
-
-
 CudaGraphMixin.make_buffers_cudagraph = AscendCudaGraphMixin_make_buffers_cudagraph
 CudaGraphMixin.fill_buffers_cudagraph = AscendCudaGraphMixin_fill_buffers_cudagraph
 CudaGraphMixin.update_context_cudagraph = AscendCudaGraphMixin_update_context_cudagraph
-CudaGraphMixin.make_output_buffers = AscendCudaGraphMixin_make_output_buffers
-CudaGraphMixin.get_outputs_cudagraph = AscendCudaGraphMixin_get_outputs_cudagraph
 
 
 def next_power_of_2(n: int):
