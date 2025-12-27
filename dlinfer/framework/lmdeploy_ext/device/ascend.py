@@ -1050,7 +1050,7 @@ def _schedule_prefill_ascend(self, prealloc_size: int = 0):
     prefill_with_kvcache = True
     while len(waiting) > 0 and len(running) < max_batches:
         seq = waiting.pop(0)
-        if prefill_with_kvcache == False and seq.num_new_tokens > 0:
+        if not prefill_with_kvcache and seq.num_new_tokens > 0:
             break
         prefill_with_kvcache = False if seq.num_new_tokens == 0 else True
 
@@ -1074,7 +1074,7 @@ def _schedule_prefill_ascend(self, prealloc_size: int = 0):
         _to_running(seq)
 
         seq.record_event(EventType.SCHEDULED)
-        if prefill_with_kvcache == True:
+        if prefill_with_kvcache:
             break
 
     return running, swap_in_map, swap_out_map, copy_map
