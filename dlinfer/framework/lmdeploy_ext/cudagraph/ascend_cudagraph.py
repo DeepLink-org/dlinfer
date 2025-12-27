@@ -159,6 +159,8 @@ def AscendCudaGraphMixin_get_outputs_cudagraph(
     outputs = dict()
     outputs["hidden_states"] = output_buffers["hidden_states"][:, :num_tokens]
     if output_buffers.get("all_routed_experts", None) is not None:
+        # Use ellipsis to preserve all dimensions after token dimension
+        # Shape can vary: [num_tokens, num_experts] or [num_tokens, top_k, ...]
         outputs["all_routed_experts"] = output_buffers["all_routed_experts"][
             :num_tokens, ...
         ].clone()
