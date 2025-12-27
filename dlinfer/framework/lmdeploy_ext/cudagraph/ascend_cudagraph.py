@@ -1,7 +1,7 @@
 # Copyright (c) 2024, OpenMMLab and DeepLink. All rights reserved.
 # this file implements the cudagraph for ascend backend.
 import functools
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 from dataclasses import dataclass
 from contextlib import ExitStack
 from packaging.version import InvalidVersion, Version
@@ -141,7 +141,9 @@ def AscendCudaGraphMixin_update_context_cudagraph(self, graph_meta, context):
     context.kv_start_indices = input_buffers["kv_start_indices"]
 
 
-def AscendCudaGraphMixin_make_output_buffers(self, output):
+def AscendCudaGraphMixin_make_output_buffers(
+    self, output: Union[torch.Tensor, Dict[str, torch.Tensor]]
+) -> Dict[str, torch.Tensor]:
     """Make output buffers."""
     if isinstance(output, torch.Tensor):
         output_buffers = dict(hidden_states=output)
@@ -153,7 +155,7 @@ def AscendCudaGraphMixin_make_output_buffers(self, output):
 
 def AscendCudaGraphMixin_get_outputs_cudagraph(
     self, output_buffers: Dict[str, Tensor], input_ids: Tensor, **kwargs
-):
+) -> Dict[str, Tensor]:
     """Get outputs from buffers."""
     num_tokens = input_ids.size(-1)
     outputs = dict()
