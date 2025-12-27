@@ -423,7 +423,7 @@ class AscendGraphRunner(GraphRunner):
             output = runner.capture(**kwargs)
             AscendGraphRunner.capturing = False
             self._runner_map[graph_key] = runner
-            # SSM would update the state in capture(warmup), replay the graph will lead to unexpected state update.
+            # SSM would update the state in capture(warmup), replaying the graph would lead to unexpected state update.
             return output
         else:
             runner = self._runner_map[graph_key]
