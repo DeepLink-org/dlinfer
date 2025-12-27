@@ -141,9 +141,35 @@ def AscendCudaGraphMixin_update_context_cudagraph(self, graph_meta, context):
     context.kv_start_indices = input_buffers["kv_start_indices"]
 
 
+def AscendCudaGraphMixin_make_output_buffers(self, output):
+    """Make output buffers."""
+    if isinstance(output, torch.Tensor):
+        output_buffers = dict(hidden_states=output)
+    else:
+        assert isinstance(output, Dict)
+        output_buffers = output
+    return output_buffers
+
+
+def AscendCudaGraphMixin_get_outputs_cudagraph(
+    self, output_buffers: Dict[str, Tensor], input_ids: Tensor, **kwargs
+):
+    """Get outputs from buffers."""
+    num_tokens = input_ids.size(-1)
+    outputs = dict()
+    outputs["hidden_states"] = output_buffers["hidden_states"][:, :num_tokens]
+    if output_buffers.get("all_routed_experts", None) is not None:
+        outputs["all_routed_experts"] = output_buffers["all_routed_experts"][
+            :num_tokens, ...
+        ].clone()
+    return outputs
+
+
 CudaGraphMixin.make_buffers_cudagraph = AscendCudaGraphMixin_make_buffers_cudagraph
 CudaGraphMixin.fill_buffers_cudagraph = AscendCudaGraphMixin_fill_buffers_cudagraph
 CudaGraphMixin.update_context_cudagraph = AscendCudaGraphMixin_update_context_cudagraph
+CudaGraphMixin.make_output_buffers = AscendCudaGraphMixin_make_output_buffers
+CudaGraphMixin.get_outputs_cudagraph = AscendCudaGraphMixin_get_outputs_cudagraph
 
 
 def next_power_of_2(n: int):
@@ -248,6 +274,10 @@ class AscendSingleGraphRunner:
         self.model.update_context_cudagraph(self.meta, context)
         current_stream = torch.cuda.current_stream()
 
+        # warmup
+        warmup_output = self.model(**padded_kwargs)
+        warmup_buffers = self.model.make_output_buffers(warmup_output)
+
         aclgraph = torch.npu.NPUGraph()
         with ExitStack() as stack:
             with torch.npu.graph(
@@ -258,15 +288,15 @@ class AscendSingleGraphRunner:
             ):
                 output = self.model(**padded_kwargs)
 
-        output_buffers = dict(logits=output)
+        output_buffers = self.model.make_output_buffers(output)
         self.meta.output_buffers = output_buffers
         self._graph = aclgraph
+        output = self.model.get_outputs_cudagraph(warmup_buffers, **kwargs)
         return output
 
     @record_function("forward_cudagraph")
     def forward(self, **kwargs):
         """forward."""
-        num_tokens = kwargs["input_ids"].size(-1)
         assert self._graph is not None
         self.model.fill_buffers_cudagraph(self.meta, **kwargs)
         context = self.ctx_mgr.current_context()
@@ -281,7 +311,8 @@ class AscendSingleGraphRunner:
         else:
             update_attn_params(self.update_stream, self.meta, self.max_tokens)
             self._graph.replay()
-        output = self.meta.output_buffers["logits"][:, :num_tokens]
+        output_buffers = self.meta.output_buffers
+        output = self.model.get_outputs_cudagraph(output_buffers, **kwargs)
         return output
 
     def reset(self):
@@ -368,7 +399,7 @@ class AscendGraphRunner(GraphRunner):
         if not enable_graph:
             with record_function("forward_eager"):
                 ret = self.model(**kwargs)
-                return ret
+                return self.model.make_output_buffers(ret)
 
         graph_key = self.get_graph_key(**kwargs)
         max_tokens = graph_key[0]
@@ -387,9 +418,11 @@ class AscendGraphRunner(GraphRunner):
                 update_stream=self.update_stream,
             )
             AscendGraphRunner.capturing = True
-            runner.capture(**kwargs)
+            output = runner.capture(**kwargs)
             AscendGraphRunner.capturing = False
             self._runner_map[graph_key] = runner
+            # SSM would update the state in capture(warmup), replay the graph will leads unexpected state update.
+            return output
         else:
             runner = self._runner_map[graph_key]
         output = runner.forward(**kwargs)
