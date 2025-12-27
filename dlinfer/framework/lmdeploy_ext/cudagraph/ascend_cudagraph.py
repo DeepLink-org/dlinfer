@@ -175,21 +175,20 @@ def _get_capture_batch_size_impl(max_batches: int):
     """Capture batch size."""
     ret = []
     batch_size = 1
-    batch_step_1, batch_step_2 = 16, 256
-    # power of 2
-    while batch_size <= min(batch_step_1, max_batches):
-        ret.append(batch_size)
-        batch_size *= 2
-
-    # step 1
-    ret += list(range(batch_size, min(max_batches, batch_step_2) + 1, batch_step_1))
-
-    # step 2
-    ret += list(range(ret[-1] + batch_step_2, max_batches + 1, batch_step_2))
+    
+    # Generate batch sizes and apply get_ascend_compatible_size
+    while batch_size <= max_batches:
+        compatible_size = get_ascend_compatible_size(batch_size)
+        if compatible_size > max_batches:
+            break
+        if not ret or compatible_size > ret[-1]:
+            ret.append(compatible_size)
+        batch_size = compatible_size + 1
 
     # ensure max_batches in ret
-    if max_batches != ret[-1]:
-        ret.append(max_batches)
+    max_batches_compatible = get_ascend_compatible_size(max_batches)
+    if max_batches_compatible not in ret:
+        ret.append(max_batches_compatible)
 
     set_graph_params(set(ret))
     return ret
