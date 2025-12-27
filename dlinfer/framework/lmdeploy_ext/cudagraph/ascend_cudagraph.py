@@ -158,7 +158,7 @@ def AscendCudaGraphMixin_get_outputs_cudagraph(
     num_tokens = input_ids.size(-1)
     outputs = dict()
     outputs["hidden_states"] = output_buffers["hidden_states"][:, :num_tokens]
-    if output_buffers.get("all_routed_experts", None) is not None:
+    if "all_routed_experts" in output_buffers:
         # Use ellipsis to preserve all dimensions after token dimension
         # Shape can vary: [num_tokens, num_experts] or [num_tokens, top_k, ...]
         outputs["all_routed_experts"] = output_buffers["all_routed_experts"][
@@ -423,7 +423,7 @@ class AscendGraphRunner(GraphRunner):
             output = runner.capture(**kwargs)
             AscendGraphRunner.capturing = False
             self._runner_map[graph_key] = runner
-            # SSM would update the state in capture(warmup), replay the graph will leads unexpected state update.
+            # SSM would update the state in capture(warmup), replay the graph will lead to unexpected state update.
             return output
         else:
             runner = self._runner_map[graph_key]
