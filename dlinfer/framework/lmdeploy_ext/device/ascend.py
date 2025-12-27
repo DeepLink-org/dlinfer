@@ -1022,7 +1022,7 @@ def _schedule_prefill_ascend(self, prealloc_size: int = 0):
         token_count += seq.num_token_ids
 
     num_waiting = self.seq_manager.num_sequences(MessageStatus.WAITING)
-    if (len(running) >= max_batches or num_waiting == 0):
+    if len(running) >= max_batches or num_waiting == 0:
         return running, swap_in_map, swap_out_map, copy_map
 
     waiting = _reorder_waiting()
@@ -1033,8 +1033,12 @@ def _schedule_prefill_ascend(self, prealloc_size: int = 0):
             break
         prefill_with_kvcache = False if seq.num_new_tokens == 0 else True
 
-        if (len(running) > 0 and token_count + seq.num_token_ids > self.cache_config.max_prefill_token_num):
-            break
+        if (
+            len(running) > 0
+            and token_count + seq.num_token_ids
+            > self.cache_config.max_prefill_token_num
+        ):
+             break
 
         self.block_trie.match(seq)
 
