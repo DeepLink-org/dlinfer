@@ -148,7 +148,9 @@ def AscendCudaGraphMixin_make_output_buffers(
     if isinstance(output, torch.Tensor):
         output_buffers = dict(hidden_states=output)
     else:
-        assert isinstance(output, Dict), f"Expected output to be Tensor or Dict, got {type(output)}"
+        assert isinstance(
+            output, Dict
+        ), f"Expected output to be torch.Tensor or Dict, got {type(output)}"
         output_buffers = output
     return output_buffers
 
@@ -425,7 +427,7 @@ class AscendGraphRunner(GraphRunner):
             output = runner.capture(**kwargs)
             AscendGraphRunner.capturing = False
             self._runner_map[graph_key] = runner
-            # SSM would update the state in capture(warmup), replaying the graph would lead to unexpected state update.
+            # SSM updates the state in capture(warmup), so replaying the graph would lead to unexpected state update.
             return output
         else:
             runner = self._runner_map[graph_key]
