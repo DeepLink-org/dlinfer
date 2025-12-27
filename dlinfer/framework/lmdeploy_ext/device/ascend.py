@@ -1038,7 +1038,7 @@ def _schedule_prefill_ascend(self, prealloc_size: int = 0):
             and token_count + seq.num_token_ids
             > self.cache_config.max_prefill_token_num
         ):
-             break
+            break
 
         self.block_trie.match(seq)
 
