@@ -424,11 +424,9 @@ class AscendGraphRunner(GraphRunner):
                 update_stream=self.update_stream,
             )
             AscendGraphRunner.capturing = True
-            output = runner.capture(**kwargs)
+            runner.capture(**kwargs)
             AscendGraphRunner.capturing = False
             self._runner_map[graph_key] = runner
-            # SSM updates the state in capture(warmup), so replaying the graph would lead to unexpected state update.
-            return output
         else:
             runner = self._runner_map[graph_key]
         output = runner.forward(**kwargs)
