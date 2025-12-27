@@ -980,3 +980,78 @@ class AscendCacheEngine:
 cache_engine.CacheEngine = AscendCacheEngine
 executor_base.CacheEngine = AscendCacheEngine
 model_agent.CacheEngine = AscendCacheEngine
+
+
+##### patch scheduler #####
+from lmdeploy.pytorch.paging.scheduler import Scheduler
+from lmdeploy.pytorch.messages import MessageStatus
+from lmdeploy.pytorch.engine.request import EventType
+
+
+def _schedule_prefill_ascend(self, prealloc_size: int = 0):
+    """Schedule prefill for Ascend devices.
+    
+    This patched version adds logic to handle prefill with kv-cache optimization.
+    It ensures that prefill sequences are properly scheduled while respecting
+    batch size and token count limits.
+    """
+    running = self.running
+    swap_in_map = dict()
+    swap_out_map = dict()
+    copy_map = dict()
+    token_count = sum([seq.num_token_ids for seq in running])
+    max_batches = self.cache_config.max_batches
+
+    def _reorder_waiting():
+        """Reorder waiting sequences."""
+        return self.seq_manager.get_sequences(MessageStatus.WAITING)
+
+    def __evict_for_seq(seq, waiting):
+        """Evict blocks for sequence."""
+        while not self.block_manager.can_allocate(seq, prealloc_size):
+            if not self._evict(running, waiting):
+                return False
+        return True
+
+    def _to_running(seq):
+        """Move sequence to running state."""
+        running.append(seq)
+        self.seq_manager.update_message_status(seq.msg_id, MessageStatus.RUNNING)
+        nonlocal token_count
+        token_count += seq.num_token_ids
+
+    num_waiting = self.seq_manager.num_sequences(MessageStatus.WAITING)
+    if (len(running) >= max_batches or num_waiting == 0):
+        return running, swap_in_map, swap_out_map, copy_map
+
+    waiting = _reorder_waiting()
+    prefill_with_kvcache = True
+    while len(waiting) > 0 and len(running) < max_batches:
+        seq = waiting.pop(0)
+        if prefill_with_kvcache == False and seq.num_new_tokens > 0:
+            break
+        prefill_with_kvcache = False if seq.num_new_tokens == 0 else True
+
+        if (len(running) > 0 and token_count + seq.num_token_ids > self.cache_config.max_prefill_token_num):
+            break
+
+        self.block_trie.match(seq)
+
+        if not __evict_for_seq(seq, waiting):
+            break
+
+        # allocate session memory
+        self.block_manager.allocate(seq, prealloc_size)
+        self.block_trie.allocate(seq)
+        if self.is_ssm:
+            self.state_manager.allocate(seq)
+        _to_running(seq)
+
+        seq.record_event(EventType.SCHEDULED)
+        if prefill_with_kvcache == True:
+            break
+
+    return running, swap_in_map, swap_out_map, copy_map
+
+
+Scheduler._schedule_prefill = _schedule_prefill_ascend
