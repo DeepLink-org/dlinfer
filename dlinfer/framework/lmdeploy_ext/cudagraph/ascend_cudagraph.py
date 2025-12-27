@@ -146,7 +146,7 @@ def AscendCudaGraphMixin_make_output_buffers(self, output):
     if isinstance(output, torch.Tensor):
         output_buffers = dict(hidden_states=output)
     else:
-        assert isinstance(output, Dict)
+        assert isinstance(output, Dict), f"Expected output to be Tensor or Dict, got {type(output)}"
         output_buffers = output
     return output_buffers
 
@@ -288,13 +288,13 @@ class AscendSingleGraphRunner:
                 pool=self.pool,
                 stream=current_stream,
             ):
-                output = self.model(**padded_kwargs)
+                graph_output = self.model(**padded_kwargs)
 
-        output_buffers = self.model.make_output_buffers(output)
+        output_buffers = self.model.make_output_buffers(graph_output)
         self.meta.output_buffers = output_buffers
         self._graph = aclgraph
-        output = self.model.get_outputs_cudagraph(warmup_buffers, **kwargs)
-        return output
+        final_output = self.model.get_outputs_cudagraph(warmup_buffers, **kwargs)
+        return final_output
 
     @record_function("forward_cudagraph")
     def forward(self, **kwargs):
