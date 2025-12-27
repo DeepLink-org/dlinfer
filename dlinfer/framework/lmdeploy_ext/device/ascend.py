@@ -990,11 +990,32 @@ from lmdeploy.messages import EventType
 
 
 def _schedule_prefill_ascend(self, prealloc_size: int = 0):
-    """Schedule prefill for Ascend devices.
+    """Schedule prefill for Ascend devices with kv-cache constraints.
 
-    This patched version adds logic to handle prefill with kv-cache optimization.
-    It ensures that prefill sequences are properly scheduled while respecting
-    batch size and token count limits.
+    This function patches :meth:`Scheduler._schedule_prefill` to add extra
+    restrictions when batching requests that use the Ascend
+    ``prefill_attention_with_kvcache`` kernel. The original CUDA-based
+    implementation can freely mix plain prefill (``num_new_tokens == 0``) and
+    decode (``num_new_tokens > 0``) requests in the same batch and allows
+    multiple sequences that rely on kv-cache optimizations to be scheduled
+    together.
+
+    On Ascend, ``prefill_attention_with_kvcache`` is currently not
+    feature-complete: mixing multiple kv-cache-optimized prefill/decode
+    requests in a single step may corrupt kv-cache state or exceed hardware
+    limitations. To work around this, the ``prefill_with_kvcache`` state and
+    the associated early-return conditions in this method enforce that:
+
+    * the original token-count and batch-size admission logic is preserved;
+    * at most one sequence that requires kv-cache-optimized prefill or decode
+      is admitted in a scheduling step; and
+    * once such a sequence is admitted, additional prefill/decode requests are
+      not mixed into the same step.
+
+    This workaround should be removed, and the upstream
+    :meth:`Scheduler._schedule_prefill` used as-is, once the Ascend
+    implementation of ``prefill_attention_with_kvcache`` supports fully mixed
+    prefill and decode batching without these constraints.
     """
     running = self.running
     swap_in_map = dict()
