@@ -985,9 +985,10 @@ model_agent.CacheEngine = AscendCacheEngine
 ##### patch scheduler #####
 ##### workaround for uncompleted prefill_attention_with_kvcache #####
 from lmdeploy.pytorch.paging.scheduler import Scheduler
-from lmdeploy.pytorch.messages import MessageStatus
+from lmdeploy.pytorch.messages import MessageStatus, SchedulerSequence
 from lmdeploy.messages import EventType
-
+MapType = Dict[int, int]
+SeqList = List[SchedulerSequence]
 
 def _schedule_prefill_ascend(self, prealloc_size: int = 0):
     """Schedule prefill for Ascend devices with kv-cache constraints.
@@ -1017,39 +1018,42 @@ def _schedule_prefill_ascend(self, prealloc_size: int = 0):
     implementation of ``prefill_attention_with_kvcache`` supports fully mixed
     prefill and decode batching without these constraints.
     """
-    running = self.running
-    swap_in_map = dict()
-    swap_out_map = dict()
-    copy_map = dict()
-    token_count = sum([seq.num_token_ids for seq in running])
-    max_batches = self.cache_config.max_batches
+    max_batches = self.scheduler_config.max_batches - self.num_ready() - self.num_running()
+    eviction_helper = self.eviction_helper
+    swap_out_map: MapType = dict()
+    swap_in_map: MapType = dict()
+    copy_map: MapType = dict()
+    running: SeqList = []
+    token_count = 0
 
-    def _reorder_waiting():
-        """Reorder waiting sequences."""
-        return self.seq_manager.get_sequences(MessageStatus.WAITING)
-
-    def __evict_for_seq(seq, waiting):
-        """Evict blocks for sequence."""
-        while not self.block_manager.can_allocate(seq, prealloc_size):
-            if not self._evict(running, waiting):
-                return False
-        return True
-
-    def _to_running(seq):
-        """Move sequence to running state."""
+    def _to_running(seq: SchedulerSequence):
+        """To running."""
+        seq.state.activate()
         running.append(seq)
-        self.seq_manager.update_message_status(seq.msg_id, MessageStatus.RUNNING)
         nonlocal token_count
         token_count += seq.num_token_ids
 
+    def __evict_for_seq(seq: SchedulerSequence, waiting):
+        """Evict until can append."""
+        from itertools import chain
+        hanging = reversed(self.hanging)
+        waiting = reversed(waiting)
+        evictable = list(chain(hanging, waiting))
+        return eviction_helper.evict_for_seq(seq, evictable, prealloc_size)
+
+    def _reorder_waiting():
+        """Reorder waiting."""
+        return sorted(self.waiting, key=lambda seq: seq.arrive_time)
+
     num_waiting = self.seq_manager.num_sequences(MessageStatus.WAITING)
-    if len(running) >= max_batches or num_waiting == 0:
+    if (len(running) >= max_batches or num_waiting == 0):
         return running, swap_in_map, swap_out_map, copy_map
 
     waiting = _reorder_waiting()
     prefill_with_kvcache = True
     while len(waiting) > 0 and len(running) < max_batches:
         seq = waiting.pop(0)
+
         if not prefill_with_kvcache and seq.num_new_tokens > 0:
             break
         prefill_with_kvcache = False if seq.num_new_tokens == 0 else True
