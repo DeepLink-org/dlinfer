@@ -987,8 +987,10 @@ model_agent.CacheEngine = AscendCacheEngine
 from lmdeploy.pytorch.paging.scheduler import Scheduler
 from lmdeploy.pytorch.messages import MessageStatus, SchedulerSequence
 from lmdeploy.messages import EventType
+
 MapType = Dict[int, int]
 SeqList = List[SchedulerSequence]
+
 
 def _schedule_prefill_ascend(self, prealloc_size: int = 0):
     """Schedule prefill for Ascend devices with kv-cache constraints.
@@ -1018,7 +1020,9 @@ def _schedule_prefill_ascend(self, prealloc_size: int = 0):
     implementation of ``prefill_attention_with_kvcache`` supports fully mixed
     prefill and decode batching without these constraints.
     """
-    max_batches = self.scheduler_config.max_batches - self.num_ready() - self.num_running()
+    max_batches = (
+        self.scheduler_config.max_batches - self.num_ready() - self.num_running()
+    )
     eviction_helper = self.eviction_helper
     swap_out_map: MapType = dict()
     swap_in_map: MapType = dict()
@@ -1036,6 +1040,7 @@ def _schedule_prefill_ascend(self, prealloc_size: int = 0):
     def __evict_for_seq(seq: SchedulerSequence, waiting):
         """Evict until can append."""
         from itertools import chain
+
         hanging = reversed(self.hanging)
         waiting = reversed(waiting)
         evictable = list(chain(hanging, waiting))
@@ -1046,7 +1051,7 @@ def _schedule_prefill_ascend(self, prealloc_size: int = 0):
         return sorted(self.waiting, key=lambda seq: seq.arrive_time)
 
     num_waiting = self.seq_manager.num_sequences(MessageStatus.WAITING)
-    if (len(running) >= max_batches or num_waiting == 0):
+    if len(running) >= max_batches or num_waiting == 0:
         return running, swap_in_map, swap_out_map, copy_map
 
     waiting = _reorder_waiting()
