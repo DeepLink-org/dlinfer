@@ -254,6 +254,7 @@ class AscendSingleGraphRunner:
 
         aclgraph = torch.npu.NPUGraph()
         with ExitStack() as stack:
+            AscendGraphRunner.capturing = True
             with torch.npu.graph(
                 aclgraph,
                 auto_dispatch_capture=True,
@@ -261,6 +262,7 @@ class AscendSingleGraphRunner:
                 stream=current_stream,
             ):
                 graph_output = self.model(**padded_kwargs)
+            AscendGraphRunner.capturing = False
 
         output_buffers = self.model.make_output_buffers(graph_output)
         self.meta.output_buffers = output_buffers
@@ -391,9 +393,7 @@ class AscendGraphRunner(GraphRunner):
                 device=self.device,
                 update_stream=self.update_stream,
             )
-            AscendGraphRunner.capturing = True
             runner.capture(**kwargs)
-            AscendGraphRunner.capturing = False
             self._runner_map[graph_key] = runner
         else:
             runner = self._runner_map[graph_key]
