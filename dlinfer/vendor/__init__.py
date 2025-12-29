@@ -9,8 +9,6 @@ import torch
 vendor_ops_registry = dict()
 vendor_is_initialized = False
 vendor_name_file = Path(__file__).parent / "vendor.yaml"
-linear_w8a8_scale_type = torch.Tensor
-dynamic_quant_scale_type = torch.Tensor
 
 
 with open(str(vendor_name_file), "r") as f:

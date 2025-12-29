@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from functools import lru_cache
 import torch
 

@@ -7,10 +7,17 @@ import torch.distributed as dist
 from typing import List
 from dlinfer.vendor import vendor_ops_registry
 from dlinfer.utils.registry import register_ops
-from dlinfer.utils.type_annotation import Tensor, Optional, Sequence, Tuple
+from dlinfer.utils.type_annotation import (
+    Tensor,
+    Optional,
+    Sequence,
+    Tuple,
+    DlinferDistContext,
+)
 from .utils import SocVersion, get_cpu_seq_len
 from .attention import decode_attention, decode_attention_mla
 from lmdeploy.pytorch.distributed import get_dist_manager
+from lmdeploy.pytorch.backends.dlinfer.ascend.op_backend import AscendOpsBackend
 
 __all__ = [
     "add_rms_norm",
@@ -465,18 +472,22 @@ def silu_and_mul(input_tensor: Tensor, dim: int) -> Tensor:
 
 
 @register_ops(vendor_ops_registry)
-def moe_gating_topk_softmax(router_logits: Tensor, topk: int) -> Tuple[Tensor, Tensor]:
-    dist_ctx = get_dist_manager().current_context()
-    if dist_ctx.dist_config.ep > 1 and dist_ctx.dist_config.tp > 1:
-        if router_logits.shape[0] % dist_ctx.dist_config.tp != 0:
-            pad_size = dist_ctx.dist_config.tp - (
-                router_logits.shape[0] % dist_ctx.dist_config.tp
-            )
-            router_logits = torch.nn.functional.pad(router_logits, (0, 0, 0, pad_size))
-        split_router_logits = torch.tensor_split(
-            router_logits, dist_ctx.dist_config.tp, dim=0
+def moe_gating_topk_softmax(
+    router_logits: Tensor, topk: int, dist_ctx: DlinferDistContext
+) -> Tuple[Tensor, Tensor]:
+    if dist_ctx.ep_size > 1:
+        paded_size = (
+            (AscendOpsBackend.max_tokens_accros_dp + dist_ctx.tp_size - 1)
+            // dist_ctx.tp_size
+            * dist_ctx.tp_size
         )
-        router_logits = split_router_logits[dist_ctx.rank]
+        pad_size = paded_size - router_logits.shape[0]
+        router_logits = torch.nn.functional.pad(router_logits, (0, 0, 0, pad_size))
+        if dist_ctx.tp_size > 1:
+            split_router_logits = torch.tensor_split(
+                router_logits, dist_ctx.tp_size, dim=0
+            )
+            router_logits = split_router_logits[dist_ctx.tp_rank]
     routing_weights, selected_idx, _ = torch.ops.npu.npu_moe_gating_top_k_softmax(
         router_logits, None, topk
     )
@@ -585,36 +596,38 @@ def fused_moe(
     topk_ids: Tensor,
     topk: int,
     renormalize: bool,
-    ep_size: int,
-    ep_group: torch.distributed.ProcessGroup = None,
+    dist_ctx: DlinferDistContext,
 ) -> Tensor:
-    dist_ctx = get_dist_manager().current_context()
-    if ep_size > 1:
+    if dist_ctx.ep_size > 1:
         num_tokens = hidden_states.size(0)
-        ep_group = dist_ctx.ep_gpu_group
+        ep_group = dist_ctx.ep_group
         local_rank = torch.distributed.get_rank(group=ep_group)
         backend = ep_group._get_backend(torch.device("npu"))
         moe_all_to_all_group_name = backend.get_hccl_comm_name(local_rank)
         x_active_mask = torch.ones(
             num_tokens, dtype=torch.bool, device=torch.npu.current_device()
         )
-    if dist_ctx.dist_config.ep > 1 and dist_ctx.dist_config.tp > 1:
-        if hidden_states.shape[0] % dist_ctx.dist_config.tp != 0:
-            pad_size = dist_ctx.dist_config.tp - (
-                hidden_states.shape[0] % dist_ctx.dist_config.tp
-            )
-            hidden_states = torch.nn.functional.pad(hidden_states, (0, 0, 0, pad_size))
-            x_active_mask = torch.nn.functional.pad(
-                x_active_mask, (0, pad_size), value=False
-            )
-        split_hidden_states = torch.tensor_split(
-            hidden_states, dist_ctx.dist_config.tp, dim=0
+        # pad hidden_states and x_active_mask
+        paded_size = (
+            (AscendOpsBackend.max_tokens_accros_dp + dist_ctx.tp_size - 1)
+            // dist_ctx.tp_size
+            * dist_ctx.tp_size
         )
-        split_x_active_mask = torch.tensor_split(
-            x_active_mask, dist_ctx.dist_config.tp, dim=0
+        pad_size = paded_size - hidden_states.shape[0]
+        hidden_states = torch.nn.functional.pad(hidden_states, (0, 0, 0, pad_size))
+        x_active_mask = torch.nn.functional.pad(
+            x_active_mask, (0, pad_size), value=False
         )
-        hidden_states = split_hidden_states[dist_ctx.rank]
-        x_active_mask = split_x_active_mask[dist_ctx.rank]
+        # split hidden_states and x_active_mask if tp_size > 1
+        if dist_ctx.tp_size > 1:
+            split_hidden_states = torch.tensor_split(
+                hidden_states, dist_ctx.tp_size, dim=0
+            )
+            split_x_active_mask = torch.tensor_split(
+                x_active_mask, dist_ctx.tp_size, dim=0
+            )
+            hidden_states = split_hidden_states[dist_ctx.tp_rank]
+            x_active_mask = split_x_active_mask[dist_ctx.tp_rank]
     num_experts = gate_up_weights.size(0)
     active_num = hidden_states.size(0) * topk
     topk_ids = topk_ids.to(torch.int32)
@@ -629,7 +642,7 @@ def fused_moe(
         down_weights = down_weights.transpose(1, 2)
 
     # moe init routing
-    if ep_size <= 1:
+    if dist_ctx.ep_size <= 1:
         expanded_hidden_states, expanded_row_idx, expert_tokens, pertoken_scale = (
             torch.ops.npu.npu_moe_init_routing_v2(
                 hidden_states,
@@ -645,7 +658,7 @@ def fused_moe(
         group_list_type = 1
     else:
         quant_mode = 0
-        moe_expert_num = num_experts * ep_size
+        moe_expert_num = num_experts * dist_ctx.ep_size
         kwargs_mc2 = {
             "x": hidden_states,
             "expert_ids": topk_ids,
@@ -659,7 +672,7 @@ def fused_moe(
             "scales": None,
             "quant_mode": quant_mode,
             "group_ep": moe_all_to_all_group_name,
-            "ep_world_size": ep_size,
+            "ep_world_size": dist_ctx.ep_size,
             "ep_rank_id": ep_group.rank(),
         }
         stage1_kwargs.update(
@@ -714,14 +727,14 @@ def fused_moe(
     )[0]
 
     # moe finalize routing
-    if ep_size <= 1:
+    if dist_ctx.ep_size <= 1:
         moe_output = torch.ops.npu.npu_moe_token_unpermute(
             permuted_tokens=down_proj,
             sorted_indices=expanded_row_idx,
             probs=topk_weights,
         )
     else:
-        moe_expert_num = ep_size * num_experts
+        moe_expert_num = dist_ctx.ep_size * num_experts
         kwargs_mc2 = {
             "expand_x": down_proj,
             "expert_ids": topk_ids,
@@ -734,7 +747,7 @@ def fused_moe(
         stage3_kwargs = {
             "ep_send_counts": ep_recv_counts,
             "group_ep": moe_all_to_all_group_name,
-            "ep_world_size": ep_size,
+            "ep_world_size": dist_ctx.ep_size,
             "ep_rank_id": ep_group.rank(),
             "expand_scales": expand_scales,
             "assist_info_for_combine": assist_info_for_combine,
@@ -754,10 +767,10 @@ def fused_moe(
         )
         kwargs_mc2.update(stage3_kwargs)
         moe_output = torch.ops.npu.npu_moe_distribute_combine_v2(**kwargs_mc2)
-        if dist_ctx.dist_config.tp > 1:
-            dist.all_gather(list(split_hidden_states), moe_output)
+        if dist_ctx.tp_size > 1:
+            dist.all_gather(list(split_hidden_states), moe_output, dist_ctx.tp_group)
             moe_output = torch.cat(split_hidden_states, dim=0)
-            moe_output = moe_output[:num_tokens, :]
+        moe_output = moe_output[:num_tokens, :]
 
     return moe_output
 
