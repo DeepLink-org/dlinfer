@@ -598,6 +598,15 @@ def fused_moe(
     renormalize: bool,
     dist_ctx: DlinferDistContext,
 ) -> Tensor:
+    from lmdeploy.utils import get_logger
+
+    logger = get_logger(__name__)
+    logger.error(
+        f"#### rank={torch.distributed.get_rank()} max_tokens_accros_dp={AscendOpsBackend.max_tokens_accros_dp} shape={hidden_states.shape}"
+    )
+    # logger.error(f"#### {hidden_states.shape=}, {gate_up_weights.shape=}, "
+    #              f"{down_weights.shape=}, {topk_weights.shape=}, "
+    #              f"{topk_ids.shape=}, {topk=}, {renormalize=}, {dist_ctx=}")
     if dist_ctx.ep_size > 1:
         num_tokens = hidden_states.size(0)
         ep_group = dist_ctx.ep_group
@@ -641,132 +650,147 @@ def fused_moe(
         gate_up_weights = gate_up_weights.transpose(1, 2)
         down_weights = down_weights.transpose(1, 2)
 
-    # moe init routing
-    if dist_ctx.ep_size <= 1:
-        expanded_hidden_states, expanded_row_idx, expert_tokens, pertoken_scale = (
-            torch.ops.npu.npu_moe_init_routing_v2(
-                hidden_states,
-                topk_ids,
-                active_num=active_num,
-                expert_num=num_experts,
-                expert_tokens_num_type=1,
-                expert_tokens_num_flag=True,
-                active_expert_range=[0, num_experts],
-                quant_mode=-1,
+    if AscendOpsBackend.max_tokens_accros_dp <= dist_ctx.ep_size * 512:
+        # moe init routing
+        if dist_ctx.ep_size <= 1:
+            expanded_hidden_states, expanded_row_idx, expert_tokens, pertoken_scale = (
+                torch.ops.npu.npu_moe_init_routing_v2(
+                    hidden_states,
+                    topk_ids,
+                    active_num=active_num,
+                    expert_num=num_experts,
+                    expert_tokens_num_type=1,
+                    expert_tokens_num_flag=True,
+                    active_expert_range=[0, num_experts],
+                    quant_mode=-1,
+                )
             )
-        )
-        group_list_type = 1
+            group_list_type = 1
+        else:
+            quant_mode = 0
+            moe_expert_num = num_experts * dist_ctx.ep_size
+            kwargs_mc2 = {
+                "x": hidden_states,
+                "expert_ids": topk_ids,
+                "expert_shard_type": 0,
+                "shared_expert_rank_num": 0,
+                "moe_expert_num": moe_expert_num,
+                "global_bs": 0,
+                "expert_token_nums_type": 0,
+            }
+            stage1_kwargs = {
+                "scales": None,
+                "quant_mode": quant_mode,
+                "group_ep": moe_all_to_all_group_name,
+                "ep_world_size": dist_ctx.ep_size,
+                "ep_rank_id": ep_group.rank(),
+            }
+            stage1_kwargs.update(
+                {
+                    "group_tp": moe_all_to_all_group_name,
+                    "tp_world_size": 1,
+                    "tp_rank_id": 0,
+                }
+            )
+            stage1_kwargs.update(
+                {
+                    "x_active_mask": x_active_mask,
+                }
+            )
+            kwargs_mc2.update(stage1_kwargs)
+            distributed_moe_init_outputs = torch.ops.npu.npu_moe_distribute_dispatch_v2(
+                **kwargs_mc2
+            )
+            (
+                expanded_hidden_states,
+                dynamic_scale,
+                assist_info_for_combine,
+                expert_tokens,
+                ep_recv_counts,
+                tp_recv_counts,
+                expand_scales,
+            ) = distributed_moe_init_outputs[0:7]
+            group_list_type = 0
+
+        # up sample
+        group_list = expert_tokens.to(torch.int64)
+        up_proj = torch.ops.npu.npu_grouped_matmul(
+            [expanded_hidden_states],
+            [gate_up_weights],
+            group_list=group_list,
+            split_item=2,
+            group_type=0,
+            group_list_type=group_list_type,
+        )[0]
+
+        # activation
+        gate_cache = silu_and_mul(up_proj, -1)
+
+        # down sample
+        down_proj = torch.ops.npu.npu_grouped_matmul(
+            [gate_cache],
+            [down_weights],
+            group_list=group_list,
+            split_item=2,
+            group_type=0,
+            group_list_type=group_list_type,
+        )[0]
+
+        # moe finalize routing
+        if dist_ctx.ep_size <= 1:
+            moe_output = torch.ops.npu.npu_moe_token_unpermute(
+                permuted_tokens=down_proj,
+                sorted_indices=expanded_row_idx,
+                probs=topk_weights,
+            )
+        else:
+            moe_expert_num = dist_ctx.ep_size * num_experts
+            kwargs_mc2 = {
+                "expand_x": down_proj,
+                "expert_ids": topk_ids,
+                "expert_scales": topk_weights.to(torch.float32),
+                "expert_shard_type": 0,
+                "shared_expert_rank_num": 0,
+                "moe_expert_num": moe_expert_num,
+                "global_bs": 0,
+            }
+            stage3_kwargs = {
+                "ep_send_counts": ep_recv_counts,
+                "group_ep": moe_all_to_all_group_name,
+                "ep_world_size": dist_ctx.ep_size,
+                "ep_rank_id": ep_group.rank(),
+                "expand_scales": expand_scales,
+                "assist_info_for_combine": assist_info_for_combine,
+            }
+            stage3_kwargs.update(
+                {
+                    "tp_send_counts": tp_recv_counts,
+                    "group_tp": moe_all_to_all_group_name,
+                    "tp_world_size": 1,
+                    "tp_rank_id": 0,
+                }
+            )
+            stage3_kwargs.update(
+                {
+                    "x_active_mask": x_active_mask,
+                }
+            )
+            kwargs_mc2.update(stage3_kwargs)
+            moe_output = torch.ops.npu.npu_moe_distribute_combine_v2(**kwargs_mc2)
     else:
-        quant_mode = 0
-        moe_expert_num = num_experts * dist_ctx.ep_size
-        kwargs_mc2 = {
-            "x": hidden_states,
-            "expert_ids": topk_ids,
-            "expert_shard_type": 0,
-            "shared_expert_rank_num": 0,
-            "moe_expert_num": moe_expert_num,
-            "global_bs": 0,
-            "expert_token_nums_type": 0,
-        }
-        stage1_kwargs = {
-            "scales": None,
-            "quant_mode": quant_mode,
-            "group_ep": moe_all_to_all_group_name,
-            "ep_world_size": dist_ctx.ep_size,
-            "ep_rank_id": ep_group.rank(),
-        }
-        stage1_kwargs.update(
-            {
-                "group_tp": moe_all_to_all_group_name,
-                "tp_world_size": 1,
-                "tp_rank_id": 0,
-            }
-        )
-        stage1_kwargs.update(
-            {
-                "x_active_mask": x_active_mask,
-            }
-        )
-        kwargs_mc2.update(stage1_kwargs)
-        distributed_moe_init_outputs = torch.ops.npu.npu_moe_distribute_dispatch_v2(
-            **kwargs_mc2
-        )
-        (
-            expanded_hidden_states,
-            dynamic_scale,
-            assist_info_for_combine,
-            expert_tokens,
-            ep_recv_counts,
-            tp_recv_counts,
-            expand_scales,
-        ) = distributed_moe_init_outputs[0:7]
-        group_list_type = 0
+        from .moe import fused_moe_all2all
 
-    # up sample
-    group_list = expert_tokens.to(torch.int64)
-    up_proj = torch.ops.npu.npu_grouped_matmul(
-        [expanded_hidden_states],
-        [gate_up_weights],
-        group_list=group_list,
-        split_item=2,
-        group_type=0,
-        group_list_type=group_list_type,
-    )[0]
-
-    # activation
-    gate_cache = silu_and_mul(up_proj, -1)
-
-    # down sample
-    down_proj = torch.ops.npu.npu_grouped_matmul(
-        [gate_cache],
-        [down_weights],
-        group_list=group_list,
-        split_item=2,
-        group_type=0,
-        group_list_type=group_list_type,
-    )[0]
-
-    # moe finalize routing
-    if dist_ctx.ep_size <= 1:
-        moe_output = torch.ops.npu.npu_moe_token_unpermute(
-            permuted_tokens=down_proj,
-            sorted_indices=expanded_row_idx,
-            probs=topk_weights,
+        moe_output = fused_moe_all2all(
+            hidden_states,
+            gate_up_weights,
+            down_weights,
+            topk_weights,
+            topk_ids,
+            topk,
+            renormalize,
+            dist_ctx,
         )
-    else:
-        moe_expert_num = dist_ctx.ep_size * num_experts
-        kwargs_mc2 = {
-            "expand_x": down_proj,
-            "expert_ids": topk_ids,
-            "expert_scales": topk_weights.to(torch.float32),
-            "expert_shard_type": 0,
-            "shared_expert_rank_num": 0,
-            "moe_expert_num": moe_expert_num,
-            "global_bs": 0,
-        }
-        stage3_kwargs = {
-            "ep_send_counts": ep_recv_counts,
-            "group_ep": moe_all_to_all_group_name,
-            "ep_world_size": dist_ctx.ep_size,
-            "ep_rank_id": ep_group.rank(),
-            "expand_scales": expand_scales,
-            "assist_info_for_combine": assist_info_for_combine,
-        }
-        stage3_kwargs.update(
-            {
-                "tp_send_counts": tp_recv_counts,
-                "group_tp": moe_all_to_all_group_name,
-                "tp_world_size": 1,
-                "tp_rank_id": 0,
-            }
-        )
-        stage3_kwargs.update(
-            {
-                "x_active_mask": x_active_mask,
-            }
-        )
-        kwargs_mc2.update(stage3_kwargs)
-        moe_output = torch.ops.npu.npu_moe_distribute_combine_v2(**kwargs_mc2)
+    if dist_ctx.ep_size > 1:
         if dist_ctx.tp_size > 1:
             dist.all_gather(list(split_hidden_states), moe_output, dist_ctx.tp_group)
             moe_output = torch.cat(split_hidden_states, dim=0)
