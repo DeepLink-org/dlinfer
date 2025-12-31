@@ -108,6 +108,7 @@ def fused_moe_tp(
         )
     )
     group_list_type = 1
+    expert_tokens = expert_tokens.to(torch.int64)
     mlp_output = apply_mlp(
         expanded_hidden_states,
         gate_up_weights,
