@@ -37,6 +37,10 @@ from lmdeploy.pytorch.disagg.messages import (
 )
 from lmdeploy.utils import get_logger
 
+# dp ep
+from lmdeploy.pytorch.backends.dlinfer.ascend import AscendOpsBackend
+from dlinfer.utils.type_annotation import DlinferDistContext
+
 
 def rl_update_weights(self, gate_up_weights: torch.Tensor, down_weights: torch.Tensor):
     """Update weights."""
@@ -980,3 +984,24 @@ class AscendCacheEngine:
 cache_engine.CacheEngine = AscendCacheEngine
 executor_base.CacheEngine = AscendCacheEngine
 model_agent.CacheEngine = AscendCacheEngine
+
+
+def get_max_tokens_accros_dp():
+    return AscendOpsBackend.max_tokens_accros_dp
+
+
+def get_pad_size(dist_ctx: DlinferDistContext, actual_size: int):
+    @functools.lru_cache(maxsize=1024)
+    def inner(max_tokens_accros_dp: int, ep_size: int, tp_size: int, actual_size: int):
+        if ep_size > 1:
+            paded_size = (max_tokens_accros_dp + tp_size - 1) // tp_size * tp_size
+            pad_size = paded_size - actual_size
+            return pad_size
+        return 0
+
+    return inner(
+        get_max_tokens_accros_dp(),
+        dist_ctx.ep_size,
+        dist_ctx.tp_size,
+        actual_size,
+    )

@@ -1,8 +1,53 @@
+import functools
 import torch
 import numpy
 import torch.distributed as dist
 from dlinfer.utils.type_annotation import DlinferDistContext
-from lmdeploy.pytorch.backends.dlinfer.ascend import AscendOpsBackend
+from dlinfer.vendor.ascend.utils import SocVersion, get_world_size_accros_dp
+from dlinfer.framework.lmdeploy_ext.device.ascend import get_pad_size
+from dlinfer.framework.lmdeploy_ext.cudagraph.ascend_cudagraph import get_graph_params
+
+
+class MoEType:
+    ALL2ALL: str = "all2all"
+    MC2: str = "mc2"
+    ALLGAHER: str = "allgaher"
+    UNDEFINED: str = "undefined"
+
+
+def mc2_tokens_capacity(dist_ctx: DlinferDistContext) -> int:
+    # @functools.lru_cache(maxsize=1)
+    def inner(tp_size: int) -> int:
+        graph_params = get_graph_params()
+        if graph_params:
+            max_num_tokens = max(graph_params.handles.keys())
+        else:
+            # NOTE: To save memory, we cap the max number of tokens to 512.
+            max_num_tokens = 512
+        num_tokens_per_tp_rank = (max_num_tokens + tp_size - 1) // tp_size
+        return num_tokens_per_tp_rank * tp_size
+
+    return inner(dist_ctx.tp_size)
+
+
+def select_moe_type(num_tokens: int, dist_ctx: DlinferDistContext) -> str:
+    if dist_ctx.ep_size <= 1:
+        return MoEType.ALLGAHER
+    elif SocVersion.is_A2():
+        if (
+            num_tokens <= mc2_tokens_capacity(dist_ctx)
+            and get_world_size_accros_dp(dist_ctx) >= 16
+        ):
+            return MoEType.MC2
+        else:
+            return MoEType.ALLGAHER
+    elif SocVersion.is_A3():
+        if num_tokens <= mc2_tokens_capacity(dist_ctx):
+            return MoEType.MC2
+        else:
+            return MoEType.ALLGAHER
+    else:
+        raise ValueError(f"Unsupported soc_version: {SocVersion.soc_version()}")
 
 
 def apply_mlp(
@@ -49,12 +94,7 @@ def moe_prepare(hidden_states: torch.Tensor, dist_ctx: DlinferDistContext):
         num_tokens, dtype=torch.bool, device=torch.npu.current_device()
     )
     # pad hidden_states and x_active_mask
-    paded_size = (
-        (AscendOpsBackend.max_tokens_accros_dp + dist_ctx.tp_size - 1)
-        // dist_ctx.tp_size
-        * dist_ctx.tp_size
-    )
-    pad_size = paded_size - hidden_states.shape[0]
+    pad_size = get_pad_size(dist_ctx, num_tokens)
     hidden_states = torch.nn.functional.pad(hidden_states, (0, 0, 0, pad_size))
     x_active_mask = torch.nn.functional.pad(x_active_mask, (0, pad_size), value=False)
     # split hidden_states and x_active_mask if tp_size > 1
@@ -80,7 +120,7 @@ def moe_finalize(
     return moe_output
 
 
-def fused_moe_tp(
+def fused_moe_allgaher(
     hidden_states: torch.Tensor,
     gate_up_weights: torch.Tensor,
     down_weights: torch.Tensor,
@@ -91,10 +131,13 @@ def fused_moe_tp(
 ):
     num_experts = gate_up_weights.size(0)
     active_num = hidden_states.size(0) * topk
+    # do renormalize
     if renormalize:
         topk_weights = topk_weights / topk_weights.sum(dim=-1, keepdim=True)
     if not topk_weights.is_contiguous():
         topk_weights = topk_weights.contiguous()
+
+    # distribute dispatch
     expanded_hidden_states, expanded_row_idx, expert_tokens, pertoken_scale = (
         torch.ops.npu.npu_moe_init_routing_v2(
             hidden_states,
@@ -107,6 +150,8 @@ def fused_moe_tp(
             quant_mode=-1,
         )
     )
+
+    # MLP
     group_list_type = 1
     expert_tokens = expert_tokens.to(torch.int64)
     mlp_output = apply_mlp(
@@ -116,6 +161,8 @@ def fused_moe_tp(
         expert_tokens,
         group_list_type,
     )
+
+    # distribute combine
     moe_output = torch.ops.npu.npu_moe_token_unpermute(
         permuted_tokens=mlp_output,
         sorted_indices=expanded_row_idx,
@@ -187,9 +234,9 @@ def fused_moe_mc2(
         tp_recv_counts,
         expand_scales,
     ) = distributed_moe_init_outputs[0:7]
-    group_list_type = 0
 
     # MLP
+    group_list_type = 0
     mlp_output = apply_mlp(
         expanded_hidden_states,
         gate_up_weights,
@@ -386,6 +433,7 @@ def fused_moe_all2all(
             probs=topk_weights,
             restore_shape=hidden_shape_before_permute,
         )
+        output = output.view(hidden_shape_before_permute)
         input_splits = None
         output_splits = None
         hidden_shape_before_permute = None
@@ -402,11 +450,16 @@ def fused_moe_all2all(
         topk_ids: torch.Tensor,
         topk_weights: torch.Tensor,
     ) -> torch.Tensor:
+        # do renormalize
         if renormalize:
             topk_weights = topk_weights / topk_weights.sum(dim=-1, keepdim=True)
         if not topk_weights.is_contiguous():
             topk_weights = topk_weights.contiguous()
+
+        # distribute dispatch
         dispatched_outputs = dispatch(hidden_states, topk_ids)
+
+        # MLP
         mlp_output = apply_mlp(
             dispatched_outputs["hidden_states"],
             gate_up_weights,
@@ -414,6 +467,8 @@ def fused_moe_all2all(
             dispatched_outputs["group_list"].to(torch.int64),
             dispatched_outputs["group_list_type"],
         )
+
+        # distribute combine
         combined_output = combine(mlp_output, gate_up_weights, topk_weights)
         return combined_output
 

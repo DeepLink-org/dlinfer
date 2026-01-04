@@ -19,6 +19,10 @@ from .attention import decode_attention, decode_attention_mla
 from . import moe
 from lmdeploy.pytorch.distributed import get_dist_manager
 from lmdeploy.pytorch.backends.dlinfer.ascend.op_backend import AscendOpsBackend
+from dlinfer.framework.lmdeploy_ext.device.ascend import (
+    get_max_tokens_accros_dp,
+    get_pad_size,
+)
 
 __all__ = [
     "add_rms_norm",
@@ -477,12 +481,7 @@ def moe_gating_topk_softmax(
     router_logits: Tensor, topk: int, dist_ctx: DlinferDistContext
 ) -> Tuple[Tensor, Tensor]:
     if dist_ctx.ep_size > 1:
-        paded_size = (
-            (AscendOpsBackend.max_tokens_accros_dp + dist_ctx.tp_size - 1)
-            // dist_ctx.tp_size
-            * dist_ctx.tp_size
-        )
-        pad_size = paded_size - router_logits.shape[0]
+        pad_size = get_pad_size(dist_ctx, router_logits.size(0))
         router_logits = torch.nn.functional.pad(router_logits, (0, 0, 0, pad_size))
         if dist_ctx.tp_size > 1:
             split_router_logits = torch.tensor_split(
@@ -608,8 +607,9 @@ def fused_moe(
         gate_up_weights = gate_up_weights.transpose(1, 2)
         down_weights = down_weights.transpose(1, 2)
 
+    # if moe.select_moe_type(num_tokens, dist_ctx) == moe.MoEType.ALLGAHER:
     if dist_ctx.ep_size <= 1:
-        moe_output = moe.fused_moe_tp(
+        moe_output = moe.fused_moe_allgaher(
             hidden_states,
             gate_up_weights,
             down_weights,
@@ -618,7 +618,7 @@ def fused_moe(
             topk,
             renormalize,
         )
-
+    # elif moe.select_moe_type(num_tokens, dist_ctx) == moe.MoEType.MC2:
     elif AscendOpsBackend.max_tokens_accros_dp <= dist_ctx.tp_size * 512:
         moe_output = moe.fused_moe_mc2(
             hidden_states,
@@ -632,6 +632,7 @@ def fused_moe(
             moe_group_name,
             x_active_mask,
         )
+    # elif moe.select_moe_type(num_tokens, dist_ctx) == moe.MoEType.ALL2ALL:
     else:
         moe_output = moe.fused_moe_all2all(
             hidden_states,
