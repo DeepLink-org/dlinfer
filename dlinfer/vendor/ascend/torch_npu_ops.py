@@ -619,7 +619,7 @@ def fused_moe(
             renormalize,
         )
 
-    elif AscendOpsBackend.max_tokens_accros_dp <= dist_ctx.ep_size * 512:
+    elif AscendOpsBackend.max_tokens_accros_dp <= dist_ctx.tp_size * 512:
         moe_output = moe.fused_moe_mc2(
             hidden_states,
             gate_up_weights,
