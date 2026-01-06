@@ -2,17 +2,22 @@ import functools
 import torch
 import numpy
 import torch.distributed as dist
+
+from enum import Enum
 from dlinfer.utils.type_annotation import DlinferDistContext
 from dlinfer.vendor.ascend.utils import SocVersion, get_world_size_accros_dp
-from dlinfer.framework.lmdeploy_ext.device.ascend import get_pad_size
+from dlinfer.framework.lmdeploy_ext.device.ascend import (
+    get_max_tokens_accros_dp,
+    get_pad_size,
+)
 from dlinfer.framework.lmdeploy_ext.cudagraph.ascend_cudagraph import get_graph_params
 
 
-class MoEType:
-    ALL2ALL: str = "all2all"
-    MC2: str = "mc2"
-    ALLGAHER: str = "allgaher"
-    UNDEFINED: str = "undefined"
+class MoEType(Enum):
+    ALLGATHER = 0
+    MC2 = 1
+    ALL2ALL = 2
+    NAIVE_MULTICAST = 3
 
 
 def mc2_tokens_capacity(dist_ctx: DlinferDistContext) -> int:
@@ -23,7 +28,8 @@ def mc2_tokens_capacity(dist_ctx: DlinferDistContext) -> int:
             max_num_tokens = max(graph_params.handles.keys())
         else:
             # NOTE: To save memory, we cap the max number of tokens to 512.
-            max_num_tokens = 512
+            max_num_tokens = min(get_max_tokens_accros_dp(), 512)
+        max_num_tokens = min(max_num_tokens, 512)
         num_tokens_per_tp_rank = (max_num_tokens + tp_size - 1) // tp_size
         return num_tokens_per_tp_rank * tp_size
 
@@ -32,22 +38,24 @@ def mc2_tokens_capacity(dist_ctx: DlinferDistContext) -> int:
 
 def select_moe_type(num_tokens: int, dist_ctx: DlinferDistContext) -> str:
     if dist_ctx.ep_size <= 1:
-        return MoEType.ALLGAHER
+        moe_type = MoEType.ALLGATHER
     elif SocVersion.is_A2():
         if (
             num_tokens <= mc2_tokens_capacity(dist_ctx)
             and get_world_size_accros_dp(dist_ctx) >= 16
         ):
-            return MoEType.MC2
+            moe_type = MoEType.MC2
         else:
-            return MoEType.ALLGAHER
+            moe_type = MoEType.ALLGATHER
     elif SocVersion.is_A3():
         if num_tokens <= mc2_tokens_capacity(dist_ctx):
-            return MoEType.MC2
+            moe_type = MoEType.MC2
         else:
-            return MoEType.ALLGAHER
+            moe_type = MoEType.ALL2ALL
     else:
         raise ValueError(f"Unsupported soc_version: {SocVersion.soc_version()}")
+
+    return moe_type
 
 
 def apply_mlp(

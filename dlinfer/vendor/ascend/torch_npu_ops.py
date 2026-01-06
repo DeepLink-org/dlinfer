@@ -607,7 +607,8 @@ def fused_moe(
         gate_up_weights = gate_up_weights.transpose(1, 2)
         down_weights = down_weights.transpose(1, 2)
 
-    # if moe.select_moe_type(num_tokens, dist_ctx) == moe.MoEType.ALLGAHER:
+    # moe_type = moe.select_moe_type(num_tokens, dist_ctx)
+    # if moe_type == moe.MoEType.ALLGATHER:
     if dist_ctx.ep_size <= 1:
         moe_output = moe.fused_moe_allgaher(
             hidden_states,
@@ -618,7 +619,7 @@ def fused_moe(
             topk,
             renormalize,
         )
-    # elif moe.select_moe_type(num_tokens, dist_ctx) == moe.MoEType.MC2:
+    # elif moe_type == moe.MoEType.MC2:
     elif AscendOpsBackend.max_tokens_accros_dp <= dist_ctx.tp_size * 512:
         moe_output = moe.fused_moe_mc2(
             hidden_states,
@@ -632,7 +633,7 @@ def fused_moe(
             moe_group_name,
             x_active_mask,
         )
-    # elif moe.select_moe_type(num_tokens, dist_ctx) == moe.MoEType.ALL2ALL:
+    # elif moe_type == moe.MoEType.ALL2ALL:
     else:
         moe_output = moe.fused_moe_all2all(
             hidden_states,
