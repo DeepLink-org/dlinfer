@@ -109,7 +109,8 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
             )
         input_buffers["inputs_embeds"][:, :num_tokens] = inputs_embeds
     # create inputs
-    new_batch_size = get_ascend_compatible_size(batch_size)
+    # Use compatible size but cap at graph's max_batchs to avoid buffer overflow
+    new_batch_size = min(get_ascend_compatible_size(batch_size), graph_meta.max_batchs)
 
     attn_metadata.block_offsets = input_buffers["block_offsets"][:new_batch_size]
     attn_metadata.kv_seqlens = input_buffers["kv_seqlens"][:new_batch_size]
@@ -172,11 +173,16 @@ def get_ascend_compatible_size(n: int):
 
 @functools.lru_cache
 def _get_capture_batch_size_impl(max_batches: int):
-    """Capture batch size."""
+    """Capture batch size.
+
+    Generate compatible sizes up to max_batches (not exceeding it),
+    then add max_batches itself to ensure it can be handled.
+    """
     ret = []
     batch_size = 1
 
     # Generate batch sizes and apply get_ascend_compatible_size
+    # Only include sizes that do not exceed max_batches
     while batch_size <= max_batches:
         compatible_size = get_ascend_compatible_size(batch_size)
         if compatible_size > max_batches:
@@ -185,12 +191,9 @@ def _get_capture_batch_size_impl(max_batches: int):
             ret.append(compatible_size)
         batch_size = compatible_size + 1
 
-    # Ensure we can handle max_batches by including its compatible size
-    # Note: If max_batches is not a compatible size (e.g., 513),
-    # we must include the next compatible size (e.g., 768) to handle it
-    max_batches_compatible = get_ascend_compatible_size(max_batches)
-    if max_batches_compatible not in ret:
-        ret.append(max_batches_compatible)
+    # Add max_batches itself to ensure it can be handled
+    if max_batches not in ret:
+        ret.append(max_batches)
 
     set_graph_params(set(ret))
     return ret
