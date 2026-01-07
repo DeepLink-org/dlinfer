@@ -20,7 +20,7 @@ class MoEType(Enum):
     NAIVE_MULTICAST = 3
 
 
-def mc2_tokens_capacity(dist_ctx: DlinferDistContext) -> int:
+def mc2_tokens_capacity(tp_size: int) -> int:
     # @functools.lru_cache(maxsize=1)
     def inner(tp_size: int) -> int:
         graph_params = get_graph_params()
@@ -33,22 +33,22 @@ def mc2_tokens_capacity(dist_ctx: DlinferDistContext) -> int:
         num_tokens_per_tp_rank = (max_num_tokens + tp_size - 1) // tp_size
         return num_tokens_per_tp_rank * tp_size
 
-    return inner(dist_ctx.tp_size)
+    return inner(tp_size)
 
 
-def select_moe_type(num_tokens: int, dist_ctx: DlinferDistContext) -> str:
-    if dist_ctx.ep_size <= 1:
+def select_moe_type(num_tokens: int, dp_size: int, tp_size: int, ep_size: int) -> str:
+    if ep_size <= 1:
         moe_type = MoEType.ALLGATHER
     elif SocVersion.is_A2():
         if (
-            num_tokens <= mc2_tokens_capacity(dist_ctx)
-            and get_world_size_accros_dp(dist_ctx) >= 16
+            num_tokens <= mc2_tokens_capacity(tp_size)
+            and get_world_size_accros_dp(dp_size, tp_size) >= 16
         ):
             moe_type = MoEType.MC2
         else:
             moe_type = MoEType.ALLGATHER
     elif SocVersion.is_A3():
-        if num_tokens <= mc2_tokens_capacity(dist_ctx):
+        if num_tokens <= mc2_tokens_capacity(tp_size):
             moe_type = MoEType.MC2
         else:
             moe_type = MoEType.ALL2ALL

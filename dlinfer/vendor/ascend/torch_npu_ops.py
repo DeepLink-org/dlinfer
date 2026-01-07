@@ -607,7 +607,8 @@ def fused_moe(
         gate_up_weights = gate_up_weights.transpose(1, 2)
         down_weights = down_weights.transpose(1, 2)
 
-    # moe_type = moe.select_moe_type(num_tokens, dist_ctx)
+    # dp_size, tp_size, ep_size = dist_ctx.dp_size, dist_ctx.tp_size, dist_ctx.ep_size
+    # moe_type = moe.select_moe_type(num_tokens, dp_size, tp_size, ep_size)
     # if moe_type == moe.MoEType.ALLGATHER:
     if dist_ctx.ep_size <= 1:
         moe_output = moe.fused_moe_allgaher(

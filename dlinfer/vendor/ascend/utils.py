@@ -40,5 +40,5 @@ def get_cpu_seq_len(seq_len):
 
 
 @lru_cache(maxsize=1)
-def get_world_size_accros_dp(dist_ctx: DlinferDistContext) -> int:
-    return dist_ctx.tp_size * dist_ctx.dp_size
+def get_world_size_accros_dp(dp_size, tp_size) -> int:
+    return tp_size * dp_size
