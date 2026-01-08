@@ -442,6 +442,8 @@ def paged_prefill_attention(
     key_cache = key_cache.view(block_num, block_size, -1)
     value_cache = value_cache.view(block_num, block_size, -1)
 
+    # Note: actual_seq_lengths is not set here because the default query sequence
+    # length per batch is 1, which matches our paged prefill phase assumption.
     attn_output, _ = torch.ops.npu.npu_fused_infer_attention_score(
         query=query,
         key=key_cache,
@@ -450,7 +452,6 @@ def paged_prefill_attention(
         block_table=block_table,
         input_layout="BSH",
         block_size=block_size,
-        actual_seq_lengths=q_seq_len,
         actual_seq_lengths_kv=kv_seq_len,
         num_key_value_heads=num_kv_heads,
         num_heads=num_q_heads,
