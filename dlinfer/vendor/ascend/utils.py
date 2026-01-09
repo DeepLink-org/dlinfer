@@ -19,6 +19,19 @@ class SocVersion:
     def is_Ascend910(cls) -> bool:
         return cls.device_name().startswith(cls.Ascend910)
 
+    @classmethod
+    @lru_cache(maxsize=1)
+    def soc_version(cls) -> str:
+        return torch.npu.get_soc_version()
+
+    @classmethod
+    def is_A2(cls) -> bool:
+        return 220 <= cls.soc_version() <= 225
+
+    @classmethod
+    def is_A3(cls) -> bool:
+        return 250 <= cls.soc_version() <= 255
+
 
 @lru_cache(maxsize=1)
 def get_cpu_seq_len(seq_len):

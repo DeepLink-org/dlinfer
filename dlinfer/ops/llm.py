@@ -1,9 +1,16 @@
 # Copyright (c) 2024, DeepLink. All rights reserved.
 import torch
+from typing import List
 from dlinfer.vendor import vendor_ops_registry
-from dlinfer.utils.type_annotation import Tensor, Optional, Sequence, Tuple
+from dlinfer.utils.type_annotation import (
+    Tensor,
+    Optional,
+    Sequence,
+    Tuple,
+    linear_w8a8_scale_type,
+    dynamic_quant_scale_type,
+)
 from dlinfer.graph.custom_op import register_custom_op
-from dlinfer.vendor import linear_w8a8_scale_type, dynamic_quant_scale_type
 
 
 __all__ = [
@@ -465,7 +472,8 @@ def silu_and_mul(
 
 
 def moe_gating_topk_softmax_impl_abstract_func(
-    router_logits: Tensor, topk: int
+    router_logits: Tensor,
+    topk: int,
 ) -> Tuple[Tensor, Tensor]:
     routing_weights = router_logits.new_empty((*router_logits.shape[:-1], topk))
     selected_experts = router_logits.new_empty(
@@ -474,11 +482,18 @@ def moe_gating_topk_softmax_impl_abstract_func(
     return routing_weights, selected_experts
 
 
-@register_custom_op(
-    "dlinfer::moe_gating_topk_softmax",
-    impl_abstract_func=moe_gating_topk_softmax_impl_abstract_func,
-)
-def moe_gating_topk_softmax(router_logits: Tensor, topk: int) -> Tuple[Tensor, Tensor]:
+# @register_custom_op(
+#     "dlinfer::moe_gating_topk_softmax",
+#     impl_abstract_func=moe_gating_topk_softmax_impl_abstract_func,
+# )
+def moe_gating_topk_softmax(
+    router_logits: Tensor,
+    topk: int,
+    pad_size: int,
+    tp_size: int,
+    ep_size: int,
+    tp_rank: int,
+) -> Tuple[Tensor, Tensor]:
     """
     Given router_logits of experts, it computes the probability distributions of experts
     and then selecting topk values and their corresponding indices.
@@ -492,7 +507,9 @@ def moe_gating_topk_softmax(router_logits: Tensor, topk: int) -> Tuple[Tensor, T
         - The router weight of selected experts.
         - The index of selected experts.
     """
-    return vendor_ops_registry["moe_gating_topk_softmax"](router_logits, topk)
+    return vendor_ops_registry["moe_gating_topk_softmax"](
+        router_logits, topk, pad_size, tp_size, ep_size, tp_rank
+    )
 
 
 # TODO only for internlm on transformers lib.
@@ -585,7 +602,7 @@ def weight_quant_matmul(
     )
 
 
-@register_custom_op("dlinfer::fused_moe", ["hidden_states"])
+# @register_custom_op("dlinfer::fused_moe", ["hidden_states"])
 def fused_moe(
     hidden_states: Tensor,
     gate_up_weights: Tensor,
@@ -594,6 +611,14 @@ def fused_moe(
     topk_ids: Tensor,
     topk: int,
     renormalize: bool,
+    pad_size: int,
+    tp_size: int,
+    ep_size: int,
+    tp_rank: int,
+    ep_rank: int,
+    tp_group: torch.distributed.ProcessGroup,
+    ep_group: torch.distributed.ProcessGroup,
+    moe_type: int,
 ) -> Tensor:
     """
     Implement the Fused Mixture of Experts (MoE) model.
@@ -619,6 +644,14 @@ def fused_moe(
         topk_ids,
         topk,
         renormalize,
+        pad_size,
+        tp_size,
+        ep_size,
+        tp_rank,
+        ep_rank,
+        tp_group,
+        ep_group,
+        moe_type,
     )
 
 
