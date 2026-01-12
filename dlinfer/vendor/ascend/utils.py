@@ -1,6 +1,5 @@
 from functools import lru_cache
 import torch
-from dlinfer.utils.type_annotation import DlinferDistContext
 
 
 class SocVersion:

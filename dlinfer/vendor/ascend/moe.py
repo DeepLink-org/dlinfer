@@ -3,59 +3,54 @@ import torch
 import numpy
 import torch.distributed as dist
 
-from enum import Enum
-from dlinfer.utils.type_annotation import DlinferDistContext
-from dlinfer.vendor.ascend.utils import SocVersion, get_world_size_accros_dp
-from dlinfer.framework.lmdeploy_ext.device.ascend import (
-    get_max_tokens_accros_dp,
-    get_pad_size,
-)
-from dlinfer.framework.lmdeploy_ext.cudagraph.ascend_cudagraph import get_graph_params
+# from enum import Enum
+# from dlinfer.vendor.ascend.utils import SocVersion, get_world_size_accros_dp
+# from dlinfer.framework.lmdeploy_ext.cudagraph.ascend_cudagraph import get_graph_params
 
 
-class MoEType(Enum):
-    ALLGATHER = 0
-    MC2 = 1
-    ALL2ALL = 2
-    NAIVE_MULTICAST = 3
+# class MoEType(Enum):
+#     ALLGATHER = 0
+#     MC2 = 1
+#     ALL2ALL = 2
+#     NAIVE_MULTICAST = 3
 
 
-def mc2_tokens_capacity(tp_size: int) -> int:
-    # @functools.lru_cache(maxsize=1)
-    def inner(tp_size: int) -> int:
-        graph_params = get_graph_params()
-        if graph_params:
-            max_num_tokens = max(graph_params.handles.keys())
-        else:
-            # NOTE: To save memory, we cap the max number of tokens to 512.
-            max_num_tokens = min(get_max_tokens_accros_dp(), 512)
-        max_num_tokens = min(max_num_tokens, 512)
-        num_tokens_per_tp_rank = (max_num_tokens + tp_size - 1) // tp_size
-        return num_tokens_per_tp_rank * tp_size
+# def mc2_tokens_capacity(tp_size: int) -> int:
+#     # @functools.lru_cache(maxsize=1)
+#     def inner(tp_size: int) -> int:
+#         graph_params = get_graph_params()
+#         if graph_params:
+#             max_num_tokens = max(graph_params.handles.keys())
+#         else:
+#             # NOTE: To save memory, we cap the max number of tokens to 512.
+#             max_num_tokens = min(get_max_tokens_accros_dp(), 512)
+#         max_num_tokens = min(max_num_tokens, 512)
+#         num_tokens_per_tp_rank = (max_num_tokens + tp_size - 1) // tp_size
+#         return num_tokens_per_tp_rank * tp_size
 
-    return inner(tp_size)
+#     return inner(tp_size)
 
 
-def select_moe_type(num_tokens: int, dp_size: int, tp_size: int, ep_size: int) -> str:
-    if ep_size <= 1:
-        moe_type = MoEType.ALLGATHER
-    elif SocVersion.is_A2():
-        if (
-            num_tokens <= mc2_tokens_capacity(tp_size)
-            and get_world_size_accros_dp(dp_size, tp_size) >= 16
-        ):
-            moe_type = MoEType.MC2
-        else:
-            moe_type = MoEType.ALLGATHER
-    elif SocVersion.is_A3():
-        if num_tokens <= mc2_tokens_capacity(tp_size):
-            moe_type = MoEType.MC2
-        else:
-            moe_type = MoEType.ALL2ALL
-    else:
-        raise ValueError(f"Unsupported soc_version: {SocVersion.soc_version()}")
+# def select_moe_type(num_tokens: int, dp_size: int, tp_size: int, ep_size: int) -> str:
+#     if ep_size <= 1:
+#         moe_type = MoEType.ALLGATHER
+#     elif SocVersion.is_A2():
+#         if (
+#             num_tokens <= mc2_tokens_capacity(tp_size)
+#             and get_world_size_accros_dp(dp_size, tp_size) >= 16
+#         ):
+#             moe_type = MoEType.MC2
+#         else:
+#             moe_type = MoEType.ALLGATHER
+#     elif SocVersion.is_A3():
+#         if num_tokens <= mc2_tokens_capacity(tp_size):
+#             moe_type = MoEType.MC2
+#         else:
+#             moe_type = MoEType.ALL2ALL
+#     else:
+#         raise ValueError(f"Unsupported soc_version: {SocVersion.soc_version()}")
 
-    return moe_type
+#     return moe_type
 
 
 def apply_mlp(
@@ -90,27 +85,33 @@ def apply_mlp(
     return down_proj
 
 
-def moe_prepare(hidden_states: torch.Tensor, dist_ctx: DlinferDistContext):
-    if dist_ctx.ep_size <= 1:
+def moe_prepare(
+    hidden_states: torch.Tensor,
+    x_active_mask: torch.Tensor,
+    pad_size: int,
+    tp_size: int,
+    ep_size: int,
+    tp_rank: int,
+    ep_group: dist.ProcessGroup,
+):
+    if ep_size <= 1:
         return hidden_states, None, None, None, None
     num_tokens = hidden_states.size(0)
-    ep_group = dist_ctx.ep_group
+    ep_group = ep_group
     local_rank = torch.distributed.get_rank(group=ep_group)
     backend = ep_group._get_backend(torch.device("npu"))
     moe_group_name = backend.get_hccl_comm_name(local_rank)
-    x_active_mask = torch.ones(
-        num_tokens, dtype=torch.bool, device=torch.npu.current_device()
-    )
-    # pad hidden_states and x_active_mask
-    pad_size = get_pad_size(dist_ctx, num_tokens)
-    hidden_states = torch.nn.functional.pad(hidden_states, (0, 0, 0, pad_size))
-    x_active_mask = torch.nn.functional.pad(x_active_mask, (0, pad_size), value=False)
+    # pad hidden_states
+    x_active_mask = torch.ones(num_tokens, dtype=torch.bool, device=torch.npu.current_device())
+    if pad_size > 0:
+        x_active_mask = torch.nn.functional.pad(x_active_mask, (0, pad_size), value=False)
+        hidden_states = torch.nn.functional.pad(hidden_states, (0, 0, 0, pad_size))
     # split hidden_states and x_active_mask if tp_size > 1
-    if dist_ctx.tp_size > 1:
-        split_hidden_states = torch.tensor_split(hidden_states, dist_ctx.tp_size, dim=0)
-        split_x_active_mask = torch.tensor_split(x_active_mask, dist_ctx.tp_size, dim=0)
-        hidden_states = split_hidden_states[dist_ctx.tp_rank]
-        x_active_mask = split_x_active_mask[dist_ctx.tp_rank]
+    if tp_size > 1:
+        split_hidden_states = torch.tensor_split(hidden_states, tp_size, dim=0)
+        split_x_active_mask = torch.tensor_split(x_active_mask, tp_size, dim=0)
+        hidden_states = split_hidden_states[tp_rank]
+        x_active_mask = split_x_active_mask[tp_rank]
     return hidden_states, split_hidden_states, num_tokens, x_active_mask, moe_group_name
 
 
@@ -118,11 +119,13 @@ def moe_finalize(
     split_hidden_states: list,
     moe_output: torch.Tensor,
     num_tokens: int,
-    dist_ctx: DlinferDistContext,
+    ep_size: int,
+    tp_size: int,
+    tp_group: dist.ProcessGroup,
 ):
-    if dist_ctx.ep_size > 1:
-        if dist_ctx.tp_size > 1:
-            dist.all_gather(list(split_hidden_states), moe_output, dist_ctx.tp_group)
+    if ep_size > 1:
+        if tp_size > 1:
+            dist.all_gather(list(split_hidden_states), moe_output, tp_group)
             moe_output = torch.cat(split_hidden_states, dim=0)
         moe_output = moe_output[:num_tokens, :]
     return moe_output
@@ -187,7 +190,8 @@ def fused_moe_mc2(
     topk_ids: torch.Tensor,
     topk: int,
     renormalize: bool,
-    dist_ctx: DlinferDistContext,
+    ep_size: int,
+    ep_rank: int,
     moe_group_name: str,
     x_active_mask: torch.Tensor,
 ):
@@ -200,7 +204,7 @@ def fused_moe_mc2(
     # distribute dispatch
     num_local_experts = gate_up_weights.size(0)
     quant_mode = 0
-    moe_expert_num = num_local_experts * dist_ctx.ep_size
+    moe_expert_num = num_local_experts * ep_size
     kwargs_mc2 = {
         "x": hidden_states,
         "expert_ids": topk_ids,
@@ -214,8 +218,8 @@ def fused_moe_mc2(
         "scales": None,
         "quant_mode": quant_mode,
         "group_ep": moe_group_name,
-        "ep_world_size": dist_ctx.ep_size,
-        "ep_rank_id": dist_ctx.ep_rank,
+        "ep_world_size": ep_size,
+        "ep_rank_id": ep_rank,
     }
     stage1_kwargs.update(
         {
@@ -266,8 +270,8 @@ def fused_moe_mc2(
     stage3_kwargs = {
         "ep_send_counts": ep_recv_counts,
         "group_ep": moe_group_name,
-        "ep_world_size": dist_ctx.ep_size,
-        "ep_rank_id": dist_ctx.ep_rank,
+        "ep_world_size": ep_size,
+        "ep_rank_id": ep_rank,
         "expand_scales": expand_scales,
         "assist_info_for_combine": assist_info_for_combine,
     }
@@ -297,10 +301,12 @@ def fused_moe_all2all(
     topk_ids: torch.Tensor,
     topk: int,
     renormalize: bool,
-    dist_ctx: DlinferDistContext,
+    ep_size: int,
+    ep_rank: int,
+    ep_group: dist.ProcessGroup,
 ):
     num_local_experts = gate_up_weights.size(0)
-    num_experts = num_local_experts * dist_ctx.ep_size
+    num_experts = num_local_experts * ep_size
 
     input_splits = None
     output_splits = None
@@ -324,28 +330,26 @@ def fused_moe_all2all(
         )
         num_out_tokens = topk_ids.numel()
         input_splits = (
-            num_local_tokens_per_expert.reshape(dist_ctx.ep_size, num_local_experts)
+            num_local_tokens_per_expert.reshape(ep_size, num_local_experts)
             .sum(axis=1)
             .to(torch.device("cpu"), non_blocking=True)
             .numpy()
         )
         num_global_tokens_per_expert = torch.empty(
-            (num_local_tokens_per_expert.size(0) * dist_ctx.ep_size,),
+            (num_local_tokens_per_expert.size(0) * ep_size,),
             dtype=num_local_tokens_per_expert.dtype,
             device=torch.npu.current_device(),
         )
         torch.distributed.all_gather_into_tensor(
-            num_global_tokens_per_expert, num_local_tokens_per_expert, dist_ctx.ep_group
+            num_global_tokens_per_expert, num_local_tokens_per_expert, ep_group
         )
         num_global_tokens_per_expert = num_global_tokens_per_expert.reshape(
-            dist_ctx.ep_size, num_experts
+            ep_size, num_experts
         )
         hidden_shape_before_permute = hidden_states.shape
         num_global_tokens_per_local_expert = num_global_tokens_per_expert[
             :,
-            num_local_experts
-            * dist_ctx.ep_rank : num_local_experts
-            * (dist_ctx.ep_rank + 1),
+            num_local_experts * ep_rank : num_local_experts * (ep_rank + 1),
         ]
         output_splits = (
             num_global_tokens_per_local_expert.sum(axis=-1)
@@ -353,7 +357,7 @@ def fused_moe_all2all(
             .numpy()
         )
         num_tokens_per_local_expert = num_global_tokens_per_local_expert.sum(axis=0)
-        if dist_ctx.ep_size > 1:
+        if ep_size > 1:
             if num_global_tokens_per_local_expert is None:
                 raise ValueError(
                     "num_global_tokens_per_local_expert must be set before operations."
@@ -385,7 +389,7 @@ def fused_moe_all2all(
             permutated_local_input_tokens,
             output_split_sizes=output_splits,
             input_split_sizes=input_splits,
-            group=dist_ctx.ep_group,
+            group=ep_group,
             async_op=True,
         )
         permute1_ep_all_to_all_handle.wait()
@@ -429,7 +433,7 @@ def fused_moe_all2all(
             hidden_states,
             output_split_sizes=input_splits,
             input_split_sizes=output_splits,
-            group=dist_ctx.ep_group,
+            group=ep_group,
             async_op=True,
         )
         unpermute1_ep_all_to_all_handle.wait()

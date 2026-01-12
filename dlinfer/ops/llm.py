@@ -7,7 +7,7 @@ from dlinfer.utils.type_annotation import (
     Optional,
     Sequence,
     Tuple,
-    DlinferDistContext,
+    MoeType,
     linear_w8a8_scale_type,
     dynamic_quant_scale_type,
 )
@@ -473,7 +473,7 @@ def silu_and_mul(
 
 
 def moe_gating_topk_softmax_impl_abstract_func(
-    router_logits: Tensor, topk: int, dist_ctx: DlinferDistContext = None
+    router_logits: Tensor, topk: int
 ) -> Tuple[Tensor, Tensor]:
     routing_weights = router_logits.new_empty((*router_logits.shape[:-1], topk))
     selected_experts = router_logits.new_empty(
@@ -487,7 +487,13 @@ def moe_gating_topk_softmax_impl_abstract_func(
 #     impl_abstract_func=moe_gating_topk_softmax_impl_abstract_func,
 # )
 def moe_gating_topk_softmax(
-    router_logits: Tensor, topk: int, dist_ctx: DlinferDistContext
+    router_logits: Tensor,
+    topk: int,
+    max_tokens_across_dp: int,
+    pad_size: int,
+    tp_size: int,
+    ep_size: int,
+    tp_rank: int,
 ) -> Tuple[Tensor, Tensor]:
     """
     Given router_logits of experts, it computes the probability distributions of experts
@@ -502,7 +508,9 @@ def moe_gating_topk_softmax(
         - The router weight of selected experts.
         - The index of selected experts.
     """
-    return vendor_ops_registry["moe_gating_topk_softmax"](router_logits, topk, dist_ctx)
+    return vendor_ops_registry["moe_gating_topk_softmax"](
+        router_logits, topk, max_tokens_across_dp, pad_size, tp_size, ep_size, tp_rank
+    )
 
 
 # TODO only for internlm on transformers lib.
@@ -604,7 +612,15 @@ def fused_moe(
     topk_ids: Tensor,
     topk: int,
     renormalize: bool,
-    dist_ctx: DlinferDistContext,
+    pad_size: int = 0,
+    tp_size: int = 1,
+    ep_size: int = 1,
+    tp_rank: int = 0,
+    ep_rank: int = 0,
+    tp_group: torch.distributed.ProcessGroup = None,
+    ep_group: torch.distributed.ProcessGroup = None,
+    moe_type: MoeType = None,
+    x_active_mask: Tensor = None,
 ) -> Tensor:
     """
     Implement the Fused Mixture of Experts (MoE) model.
@@ -630,7 +646,15 @@ def fused_moe(
         topk_ids,
         topk,
         renormalize,
-        dist_ctx,
+        pad_size,
+        tp_size,
+        ep_size,
+        tp_rank,
+        ep_rank,
+        tp_group,
+        ep_group,
+        moe_type,
+        x_active_mask,
     )
 
 

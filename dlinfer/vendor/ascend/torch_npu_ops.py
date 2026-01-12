@@ -12,17 +12,11 @@ from dlinfer.utils.type_annotation import (
     Optional,
     Sequence,
     Tuple,
-    DlinferDistContext,
+    MoeType,
 )
 from .utils import SocVersion, get_cpu_seq_len
 from .attention import decode_attention, decode_attention_mla
 from . import moe
-from lmdeploy.pytorch.distributed import get_dist_manager
-from lmdeploy.pytorch.backends.dlinfer.ascend.op_backend import AscendOpsBackend
-from dlinfer.framework.lmdeploy_ext.device.ascend import (
-    get_max_tokens_accros_dp,
-    get_pad_size,
-)
 
 __all__ = [
     "add_rms_norm",
@@ -479,16 +473,19 @@ def silu_and_mul(input_tensor: Tensor, dim: int) -> Tensor:
 
 @register_ops(vendor_ops_registry)
 def moe_gating_topk_softmax(
-    router_logits: Tensor, topk: int, dist_ctx: DlinferDistContext
+    router_logits: Tensor,
+    topk: int,
+    max_tokens_across_dp: int,
+    pad_size: int,
+    tp_size: int,
+    ep_size: int,
+    tp_rank: int,
 ) -> Tuple[Tensor, Tensor]:
-    if dist_ctx.ep_size > 1:
-        pad_size = get_pad_size(dist_ctx, router_logits.size(0))
+    if ep_size > 1:
         router_logits = torch.nn.functional.pad(router_logits, (0, 0, 0, pad_size))
-        if dist_ctx.tp_size > 1:
-            split_router_logits = torch.tensor_split(
-                router_logits, dist_ctx.tp_size, dim=0
-            )
-            router_logits = split_router_logits[dist_ctx.tp_rank]
+        if tp_size > 1:
+            split_router_logits = torch.tensor_split(router_logits, tp_size, dim=0)
+            router_logits = split_router_logits[tp_rank]
     routing_weights, selected_idx, _ = torch.ops.npu.npu_moe_gating_top_k_softmax(
         router_logits, None, topk
     )
@@ -597,10 +594,20 @@ def fused_moe(
     topk_ids: Tensor,
     topk: int,
     renormalize: bool,
-    dist_ctx: DlinferDistContext,
+    pad_size: int = 0,
+    tp_size: int = 1,
+    ep_size: int = 1,
+    tp_rank: int = 0,
+    ep_rank: int = 0,
+    tp_group: dist.ProcessGroup = None,
+    ep_group: dist.ProcessGroup = None,
+    moe_type: MoeType = None,
+    x_active_mask: Tensor = None,
 ) -> Tensor:
     hidden_states, split_hidden_states, num_tokens, x_active_mask, moe_group_name = (
-        moe.moe_prepare(hidden_states, dist_ctx)
+        moe.moe_prepare(
+            hidden_states, x_active_mask, pad_size, tp_size, ep_size, tp_rank, ep_group
+        )
     )
 
     topk_ids = topk_ids.to(torch.int32)
@@ -608,10 +615,34 @@ def fused_moe(
         gate_up_weights = gate_up_weights.transpose(1, 2)
         down_weights = down_weights.transpose(1, 2)
 
-    # dp_size, tp_size, ep_size = dist_ctx.dp_size, dist_ctx.tp_size, dist_ctx.ep_size
-    # moe_type = moe.select_moe_type(num_tokens, dp_size, tp_size, ep_size)
-    # if moe_type == moe.MoEType.ALLGATHER:
-    if dist_ctx.ep_size <= 1:
+    if moe_type == MoeType.MC2:
+        moe_output = moe.fused_moe_mc2(
+            hidden_states,
+            gate_up_weights,
+            down_weights,
+            topk_weights,
+            topk_ids,
+            topk,
+            renormalize,
+            ep_size,
+            ep_rank,
+            moe_group_name,
+            x_active_mask,
+        )
+    elif moe_type == MoeType.ALLTOALL:
+        moe_output = moe.fused_moe_all2all(
+            hidden_states,
+            gate_up_weights,
+            down_weights,
+            topk_weights,
+            topk_ids,
+            topk,
+            renormalize,
+            ep_size,
+            ep_rank,
+            ep_group,
+        )
+    else:
         moe_output = moe.fused_moe_allgaher(
             hidden_states,
             gate_up_weights,
@@ -621,34 +652,10 @@ def fused_moe(
             topk,
             renormalize,
         )
-    # elif moe_type == moe.MoEType.MC2:
-    elif AscendOpsBackend.max_tokens_accros_dp <= dist_ctx.tp_size * 512:
-        moe_output = moe.fused_moe_mc2(
-            hidden_states,
-            gate_up_weights,
-            down_weights,
-            topk_weights,
-            topk_ids,
-            topk,
-            renormalize,
-            dist_ctx,
-            moe_group_name,
-            x_active_mask,
-        )
-    # elif moe_type == moe.MoEType.ALL2ALL:
-    else:
-        moe_output = moe.fused_moe_all2all(
-            hidden_states,
-            gate_up_weights,
-            down_weights,
-            topk_weights,
-            topk_ids,
-            topk,
-            renormalize,
-            dist_ctx,
-        )
 
-    moe_output = moe.moe_finalize(split_hidden_states, moe_output, num_tokens, dist_ctx)
+    moe_output = moe.moe_finalize(
+        split_hidden_states, moe_output, num_tokens, ep_size, tp_size, tp_group
+    )
 
     return moe_output
 
