@@ -70,6 +70,10 @@ def AscendCudaGraphMixin_make_buffers_cudagraph(
     input_buffers["kv_start_indices"] = -torch.ones(
         (max_batches), dtype=torch.int32, device=device
     )
+
+    input_buffers["x_active_mask"] = torch.zeros(
+        (max_batches), dtype=torch.bool, device=device
+    )
     return input_buffers
 
 
@@ -80,6 +84,7 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
     position_ids: Tensor,
     past_key_values: List,
     attn_metadata: Any,
+    mlp_metadata: Any,
     inputs_embeds: Tensor,
     **kwargs,
 ) -> Dict[str, Tensor]:
@@ -87,6 +92,7 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
     block_offsets: Tensor = attn_metadata.block_offsets
     kv_seqlens: Tensor = attn_metadata.kv_seqlens
     kv_start_indices: Tensor = attn_metadata.kv_start_indices
+    x_active_mask: Tensor = mlp_metadata.x_active_mask
 
     input_buffers: BuffType = graph_meta.input_buffers
 
@@ -99,6 +105,7 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
     input_buffers["block_offsets"][:batch_size, :num_blocks] = block_offsets
     input_buffers["kv_seqlens"][:batch_size] = kv_seqlens
     input_buffers["kv_start_indices"][:batch_size] = kv_start_indices
+    input_buffers["x_active_mask"][:batch_size] = x_active_mask
 
     if inputs_embeds is not None:
         emb_size = inputs_embeds.size(-1)
@@ -115,10 +122,12 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
     attn_metadata.block_offsets = input_buffers["block_offsets"][:new_batch_size]
     attn_metadata.kv_seqlens = input_buffers["kv_seqlens"][:new_batch_size]
     attn_metadata.kv_start_indices = input_buffers["kv_start_indices"][:new_batch_size]
+    mlp_metadata.x_active_mask = input_buffers["x_active_mask"][:new_batch_size]
 
     new_inputs = dict(
         past_key_values=past_key_values,
         attn_metadata=attn_metadata,
+        mlp_metadata=mlp_metadata,
     )
 
     new_inputs["input_ids"] = input_buffers["input_ids"][:, :new_batch_size]
@@ -140,6 +149,7 @@ def AscendCudaGraphMixin_update_context_cudagraph(self, graph_meta, context):
     context.kv_seqlens = input_buffers["kv_seqlens"]
     context.q_start_loc = input_buffers["q_start_loc"]
     context.kv_start_indices = input_buffers["kv_start_indices"]
+    context.x_active_mask = input_buffers["x_active_mask"]
 
 
 CudaGraphMixin.make_buffers_cudagraph = AscendCudaGraphMixin_make_buffers_cudagraph

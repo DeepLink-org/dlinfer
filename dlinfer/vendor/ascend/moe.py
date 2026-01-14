@@ -102,9 +102,13 @@ def moe_prepare(
     backend = ep_group._get_backend(torch.device("npu"))
     moe_group_name = backend.get_hccl_comm_name(local_rank)
     # pad hidden_states
-    x_active_mask = torch.ones(num_tokens, dtype=torch.bool, device=torch.npu.current_device())
+    x_active_mask = torch.ones(
+        num_tokens, dtype=torch.bool, device=torch.npu.current_device()
+    )
     if pad_size > 0:
-        x_active_mask = torch.nn.functional.pad(x_active_mask, (0, pad_size), value=False)
+        x_active_mask = torch.nn.functional.pad(
+            x_active_mask, (0, pad_size), value=False
+        )
         hidden_states = torch.nn.functional.pad(hidden_states, (0, 0, 0, pad_size))
     # split hidden_states and x_active_mask if tp_size > 1
     if tp_size > 1:
@@ -112,6 +116,7 @@ def moe_prepare(
         split_x_active_mask = torch.tensor_split(x_active_mask, tp_size, dim=0)
         hidden_states = split_hidden_states[tp_rank]
         x_active_mask = split_x_active_mask[tp_rank]
+    # from lmdeploy.
     return hidden_states, split_hidden_states, num_tokens, x_active_mask, moe_group_name
 
 
@@ -362,10 +367,19 @@ def fused_moe_all2all(
                 raise ValueError(
                     "num_global_tokens_per_local_expert must be set before operations."
                 )
-            expert_ids_per_ep_rank = torch.tensor(
-                [i % num_local_experts for i in range(num_experts)],
+            # expert_ids_per_ep_rank = torch.tensor(
+            #     [i % num_local_experts for i in range(num_experts)],
+            #     dtype=torch.int32,
+            #     device=torch.npu.current_device(),
+            # )
+            expert_ids_per_ep_rank = torch.arange(
+                0,
+                num_local_experts,
                 dtype=torch.int32,
                 device=torch.npu.current_device(),
+            )
+            expert_ids_per_ep_rank = torch.cat(
+                [expert_ids_per_ep_rank] * ep_size, dim=0
             )
             global_input_tokens_local_experts_indices = torch.repeat_interleave(
                 expert_ids_per_ep_rank, num_global_tokens_per_local_expert.ravel()

@@ -482,7 +482,9 @@ def moe_gating_topk_softmax(
     tp_rank: int,
 ) -> Tuple[Tensor, Tensor]:
     if ep_size > 1:
-        router_logits = torch.nn.functional.pad(router_logits, (0, 0, 0, pad_size))
+        # pad_size = AscendOpsBackend.max_tokens_accros_dp - router_logits.shape[0]
+        if pad_size > 0:
+            router_logits = torch.nn.functional.pad(router_logits, (0, 0, 0, pad_size))
         if tp_size > 1:
             split_router_logits = torch.tensor_split(router_logits, tp_size, dim=0)
             router_logits = split_router_logits[tp_rank]
@@ -604,6 +606,7 @@ def fused_moe(
     moe_type: MoeType = None,
     x_active_mask: Tensor = None,
 ) -> Tensor:
+    # pad_size = AscendOpsBackend.max_tokens_accros_dp - hidden_states.shape[0]
     hidden_states, split_hidden_states, num_tokens, x_active_mask, moe_group_name = (
         moe.moe_prepare(
             hidden_states, x_active_mask, pad_size, tp_size, ep_size, tp_rank, ep_group
