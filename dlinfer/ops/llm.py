@@ -621,6 +621,7 @@ def fused_moe(
     ep_group: torch.distributed.ProcessGroup = None,
     moe_type: MoeType = None,
     x_active_mask: Tensor = None,
+    expert_ids_per_ep_rank=None,
 ) -> Tensor:
     """
     Implement the Fused Mixture of Experts (MoE) model.
@@ -655,6 +656,7 @@ def fused_moe(
         ep_group,
         moe_type,
         x_active_mask,
+        expert_ids_per_ep_rank,
     )
 
 

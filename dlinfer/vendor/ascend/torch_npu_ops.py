@@ -605,6 +605,7 @@ def fused_moe(
     ep_group: dist.ProcessGroup = None,
     moe_type: MoeType = None,
     x_active_mask: Tensor = None,
+    expert_ids_per_ep_rank: Tensor = None,
 ) -> Tensor:
     # pad_size = AscendOpsBackend.max_tokens_accros_dp - hidden_states.shape[0]
     hidden_states, split_hidden_states, num_tokens, x_active_mask, moe_group_name = (
@@ -644,9 +645,10 @@ def fused_moe(
             ep_size,
             ep_rank,
             ep_group,
+            expert_ids_per_ep_rank,
         )
     else:
-        moe_output = moe.fused_moe_allgaher(
+        moe_output = moe.fused_moe_tp(
             hidden_states,
             gate_up_weights,
             down_weights,

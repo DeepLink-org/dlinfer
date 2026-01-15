@@ -11,6 +11,7 @@ class MoeType(Enum):
     ALLGATHER = auto()
     ALLTOALL = auto()
     MC2 = auto()
+    TP = auto()
     UNDEFINED = auto()
 
 

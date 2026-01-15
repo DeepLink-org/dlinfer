@@ -3,55 +3,6 @@ import torch
 import numpy
 import torch.distributed as dist
 
-# from enum import Enum
-# from dlinfer.vendor.ascend.utils import SocVersion, get_world_size_accros_dp
-# from dlinfer.framework.lmdeploy_ext.cudagraph.ascend_cudagraph import get_graph_params
-
-
-# class MoEType(Enum):
-#     ALLGATHER = 0
-#     MC2 = 1
-#     ALL2ALL = 2
-#     NAIVE_MULTICAST = 3
-
-
-# def mc2_tokens_capacity(tp_size: int) -> int:
-#     # @functools.lru_cache(maxsize=1)
-#     def inner(tp_size: int) -> int:
-#         graph_params = get_graph_params()
-#         if graph_params:
-#             max_num_tokens = max(graph_params.handles.keys())
-#         else:
-#             # NOTE: To save memory, we cap the max number of tokens to 512.
-#             max_num_tokens = min(get_max_tokens_accros_dp(), 512)
-#         max_num_tokens = min(max_num_tokens, 512)
-#         num_tokens_per_tp_rank = (max_num_tokens + tp_size - 1) // tp_size
-#         return num_tokens_per_tp_rank * tp_size
-
-#     return inner(tp_size)
-
-
-# def select_moe_type(num_tokens: int, dp_size: int, tp_size: int, ep_size: int) -> str:
-#     if ep_size <= 1:
-#         moe_type = MoEType.ALLGATHER
-#     elif SocVersion.is_A2():
-#         if (
-#             num_tokens <= mc2_tokens_capacity(tp_size)
-#             and get_world_size_accros_dp(dp_size, tp_size) >= 16
-#         ):
-#             moe_type = MoEType.MC2
-#         else:
-#             moe_type = MoEType.ALLGATHER
-#     elif SocVersion.is_A3():
-#         if num_tokens <= mc2_tokens_capacity(tp_size):
-#             moe_type = MoEType.MC2
-#         else:
-#             moe_type = MoEType.ALL2ALL
-#     else:
-#         raise ValueError(f"Unsupported soc_version: {SocVersion.soc_version()}")
-
-#     return moe_type
-
 
 def apply_mlp(
     hidden_states: torch.Tensor,
@@ -102,9 +53,6 @@ def moe_prepare(
     backend = ep_group._get_backend(torch.device("npu"))
     moe_group_name = backend.get_hccl_comm_name(local_rank)
     # pad hidden_states
-    x_active_mask = torch.ones(
-        num_tokens, dtype=torch.bool, device=torch.npu.current_device()
-    )
     if pad_size > 0:
         x_active_mask = torch.nn.functional.pad(
             x_active_mask, (0, pad_size), value=False
@@ -136,7 +84,7 @@ def moe_finalize(
     return moe_output
 
 
-def fused_moe_allgaher(
+def fused_moe_tp(
     hidden_states: torch.Tensor,
     gate_up_weights: torch.Tensor,
     down_weights: torch.Tensor,
@@ -309,6 +257,7 @@ def fused_moe_all2all(
     ep_size: int,
     ep_rank: int,
     ep_group: dist.ProcessGroup,
+    expert_ids_per_ep_rank: torch.Tensor,
 ):
     num_local_experts = gate_up_weights.size(0)
     num_experts = num_local_experts * ep_size
@@ -372,15 +321,15 @@ def fused_moe_all2all(
             #     dtype=torch.int32,
             #     device=torch.npu.current_device(),
             # )
-            expert_ids_per_ep_rank = torch.arange(
-                0,
-                num_local_experts,
-                dtype=torch.int32,
-                device=torch.npu.current_device(),
-            )
-            expert_ids_per_ep_rank = torch.cat(
-                [expert_ids_per_ep_rank] * ep_size, dim=0
-            )
+            # expert_ids_per_ep_rank = torch.arange(
+            #     0,
+            #     num_local_experts,
+            #     dtype=torch.int32,
+            #     device=torch.npu.current_device(),
+            # )
+            # expert_ids_per_ep_rank = torch.cat(
+            #     [expert_ids_per_ep_rank] * ep_size, dim=0
+            # )
             global_input_tokens_local_experts_indices = torch.repeat_interleave(
                 expert_ids_per_ep_rank, num_global_tokens_per_local_expert.ravel()
             )
