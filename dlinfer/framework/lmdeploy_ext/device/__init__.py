@@ -66,7 +66,8 @@ def patch_compiled_func():
 
 def patch_async_sampling_logits():
     from torch.profiler import record_function
-    from lmdeploy.pytorch.engine.model_agent import BaseModelAgent, BatchedLogProbs
+    from lmdeploy.pytorch.engine.model_agent import BaseModelAgent
+    from lmdeploy.pytorch.engine.model_agent.agent import BatchedLogProbs
     from lmdeploy.pytorch.engine.logits_process import (
         SamplingInputs,
         FusedLogitsProcessor,
