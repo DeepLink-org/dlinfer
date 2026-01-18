@@ -24,7 +24,6 @@ from lmdeploy.pytorch.backends import get_backend
 from lmdeploy.pytorch.engine import cache_engine
 from lmdeploy.pytorch.config import ModelConfig, CacheConfig
 import lmdeploy.pytorch.engine.executor.base as executor_base  # noqa: E402
-import lmdeploy.pytorch.engine.model_agent as model_agent  # noqa: E402
 from lmdeploy.pytorch.disagg.conn.protocol import (
     DistServeInitRequest,
     DistServeKVTransferEndpointInfo,
@@ -979,4 +978,3 @@ class AscendCacheEngine:
 # Make sure all modules that already captured CacheEngine see the patched class.
 cache_engine.CacheEngine = AscendCacheEngine
 executor_base.CacheEngine = AscendCacheEngine
-model_agent.CacheEngine = AscendCacheEngine

@@ -74,14 +74,11 @@ def patch_async_sampling_logits():
     )
     from lmdeploy.pytorch.model_inputs import ModelInputs
 
-    async def async_sampling_logits(
-        self, logits: torch.Tensor, sampling_inputs: SamplingInputs, inputs: ModelInputs
-    ):
+    async def async_sampling_logits(self, logits: torch.Tensor, sampling_inputs: SamplingInputs):
         """Sampling logits."""
-
         # record function does not support async function
         # so we can not decorate it on async_sampling_logits
-        with record_function("sampling_logits"):
+        with record_function('sampling_logits'):
             logits = logits.to(torch.float32)
             logits_processor = FusedLogitsProcessor(
                 sampling_inputs,
