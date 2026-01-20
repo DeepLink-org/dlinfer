@@ -48,7 +48,6 @@ def moe_prepare(
     if ep_size <= 1:
         return hidden_states, None, None, None, None
     num_tokens = hidden_states.size(0)
-    ep_group = ep_group
     local_rank = torch.distributed.get_rank(group=ep_group)
     backend = ep_group._get_backend(torch.device("npu"))
     moe_group_name = backend.get_hccl_comm_name(local_rank)
@@ -64,7 +63,6 @@ def moe_prepare(
         split_x_active_mask = torch.tensor_split(x_active_mask, tp_size, dim=0)
         hidden_states = split_hidden_states[tp_rank]
         x_active_mask = split_x_active_mask[tp_rank]
-    # from lmdeploy.
     return hidden_states, split_hidden_states, num_tokens, x_active_mask, moe_group_name
 
 
@@ -141,7 +139,6 @@ def fused_moe_mc2(
     down_weights: torch.Tensor,
     topk_weights: torch.Tensor,
     topk_ids: torch.Tensor,
-    topk: int,
     renormalize: bool,
     ep_size: int,
     ep_rank: int,
@@ -252,7 +249,6 @@ def fused_moe_all2all(
     down_weights: torch.Tensor,
     topk_weights: torch.Tensor,
     topk_ids: torch.Tensor,
-    topk: int,
     renormalize: bool,
     ep_size: int,
     ep_rank: int,
@@ -409,13 +405,13 @@ def fused_moe_all2all(
             restore_shape=hidden_shape_before_permute,
         )
         output = output.view(hidden_shape_before_permute)
-        input_splits = None
-        output_splits = None
-        hidden_shape_before_permute = None
-        num_global_tokens_per_local_expert = None
-        reversed_global_input_permutation_mapping = None
-        reversed_local_input_permutation_mapping = None
-        global_input_tokens_local_experts_indices = None
+        # input_splits = None
+        # output_splits = None
+        # hidden_shape_before_permute = None
+        # num_global_tokens_per_local_expert = None
+        # reversed_global_input_permutation_mapping = None
+        # reversed_local_input_permutation_mapping = None
+        # global_input_tokens_local_experts_indices = None
         return output
 
     def fused_moe_all2all_forward(
