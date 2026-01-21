@@ -1,6 +1,6 @@
-import functools
 import torch
 import numpy
+from dataclasses import dataclass, field
 import torch.distributed as dist
 
 
@@ -258,22 +258,7 @@ def fused_moe_all2all(
     num_local_experts = gate_up_weights.size(0)
     num_experts = num_local_experts * ep_size
 
-    input_splits = None
-    output_splits = None
-    hidden_shape_before_permute = None
-    num_global_tokens_per_local_expert = None
-    reversed_global_input_permutation_mapping = None
-    reversed_local_input_permutation_mapping = None
-    global_input_tokens_local_experts_indices = None
-
     def dispatch(hidden_states, topk_ids):
-        nonlocal input_splits
-        nonlocal output_splits
-        nonlocal hidden_shape_before_permute
-        nonlocal num_global_tokens_per_local_expert
-        nonlocal reversed_global_input_permutation_mapping
-        nonlocal reversed_local_input_permutation_mapping
-        nonlocal global_input_tokens_local_experts_indices
         # dispatch pre-process
         num_local_tokens_per_expert = torch.histc(
             topk_ids, bins=num_experts, min=0, max=num_experts
@@ -307,25 +292,11 @@ def fused_moe_all2all(
             .numpy()
         )
         num_tokens_per_local_expert = num_global_tokens_per_local_expert.sum(axis=0)
-        if ep_size > 1:
+        if num_local_experts > 1:
             if num_global_tokens_per_local_expert is None:
                 raise ValueError(
                     "num_global_tokens_per_local_expert must be set before operations."
                 )
-            # expert_ids_per_ep_rank = torch.tensor(
-            #     [i % num_local_experts for i in range(num_experts)],
-            #     dtype=torch.int32,
-            #     device=torch.npu.current_device(),
-            # )
-            # expert_ids_per_ep_rank = torch.arange(
-            #     0,
-            #     num_local_experts,
-            #     dtype=torch.int32,
-            #     device=torch.npu.current_device(),
-            # )
-            # expert_ids_per_ep_rank = torch.cat(
-            #     [expert_ids_per_ep_rank] * ep_size, dim=0
-            # )
             global_input_tokens_local_experts_indices = torch.repeat_interleave(
                 expert_ids_per_ep_rank, num_global_tokens_per_local_expert.ravel()
             )
@@ -337,12 +308,13 @@ def fused_moe_all2all(
                 num_out_tokens=num_out_tokens,
             )
         )
+
+        # dispatch
         global_input_tokens = permutated_local_input_tokens.new_empty(
             size=[sum(output_splits)] + list(permutated_local_input_tokens.size()[1:]),
             dtype=permutated_local_input_tokens.dtype,
             device=torch.npu.current_device(),
         )
-        # dispatch
         permute1_ep_all_to_all_handle = torch.distributed.all_to_all_single(
             global_input_tokens,
             permutated_local_input_tokens,
@@ -363,21 +335,33 @@ def fused_moe_all2all(
                 global_input_tokens, global_input_tokens_local_experts_indices
             )
         )
-        return {
-            "hidden_states": global_input_tokens,
-            "group_list": num_tokens_per_local_expert,
-            "dynamic_scale": None,
-            "group_list_type": 1,
+
+        context_metadata = {
+            "hidden_shape_before_permute": hidden_shape_before_permute,
+            "input_splits": input_splits,
+            "output_splits": output_splits,
+            "reversed_local_input_permutation_mapping": reversed_local_input_permutation_mapping,
+            "reversed_global_input_permutation_mapping": reversed_global_input_permutation_mapping,
         }
 
-    def combine(hidden_states, gate_up_weights, topk_weights):
-        nonlocal input_splits
-        nonlocal output_splits
-        nonlocal hidden_shape_before_permute
-        nonlocal num_global_tokens_per_local_expert
-        nonlocal reversed_global_input_permutation_mapping
-        nonlocal reversed_local_input_permutation_mapping
-        nonlocal global_input_tokens_local_experts_indices
+        return {
+            "hidden_states": global_input_tokens,
+            "dynamic_scale": None,
+            "group_list": num_tokens_per_local_expert,
+            "group_list_type": 1,
+            "context_metadata": context_metadata,
+        }
+
+    def combine(
+        hidden_states,
+        gate_up_weights,
+        topk_weights,
+        hidden_shape_before_permute,
+        input_splits,
+        output_splits,
+        reversed_local_input_permutation_mapping,
+        reversed_global_input_permutation_mapping,
+    ):
         if hidden_states.shape[0] > 0 and gate_up_weights.shape[0] > 1:
             hidden_states = torch.ops.npu.npu_moe_token_unpermute(
                 hidden_states, reversed_global_input_permutation_mapping
@@ -405,13 +389,6 @@ def fused_moe_all2all(
             restore_shape=hidden_shape_before_permute,
         )
         output = output.view(hidden_shape_before_permute)
-        # input_splits = None
-        # output_splits = None
-        # hidden_shape_before_permute = None
-        # num_global_tokens_per_local_expert = None
-        # reversed_global_input_permutation_mapping = None
-        # reversed_local_input_permutation_mapping = None
-        # global_input_tokens_local_experts_indices = None
         return output
 
     def fused_moe_all2all_forward(
@@ -440,7 +417,17 @@ def fused_moe_all2all(
         )
 
         # distribute combine
-        combined_output = combine(mlp_output, gate_up_weights, topk_weights)
+        context_metadata = dispatched_outputs["context_metadata"]
+        combined_output = combine(
+            mlp_output,
+            gate_up_weights,
+            topk_weights,
+            context_metadata["hidden_shape_before_permute"],
+            context_metadata["input_splits"],
+            context_metadata["output_splits"],
+            context_metadata["reversed_local_input_permutation_mapping"],
+            context_metadata["reversed_global_input_permutation_mapping"],
+        )
         return combined_output
 
     return fused_moe_all2all_forward(
