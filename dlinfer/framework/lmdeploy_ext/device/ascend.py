@@ -20,10 +20,6 @@ from lmdeploy.pytorch.distributed import get_dist_manager, get_tp_world_rank
 from lmdeploy.pytorch.model_inputs import get_step_ctx_manager
 import lmdeploy.pytorch.distributed as dist
 
-
-# cache engine
-from lmdeploy.pytorch.engine import cache_engine
-from lmdeploy.pytorch.config import CacheConfig, ModelConfig
 from lmdeploy.pytorch.disagg.conn.protocol import (
     DistServeInitRequest,
     DistServeKVTransferEndpointInfo,
@@ -534,36 +530,4 @@ if SocVersion.is_Ascend310P():
     BaseModelAgent._build_model = _build_model_310P
 
 
-##### patch cache engine #####
-@classmethod
-def _cache_engine_allocate_caches(cls, num_blocks: int, model_config: ModelConfig, cache_config: CacheConfig, world_size: int,
-                        device: str):
-    """Allocate caches."""
-    num_layers = model_config.num_layers
 
-    # get all descs
-    k_cache_desc = cls.get_k_cache_desc(model_config, cache_config, world_size)
-    v_cache_desc = cls.get_v_cache_desc(model_config, cache_config, world_size)
-    quant_cache_descs = cls.get_quant_cache_descs(k_cache_desc, v_cache_desc, model_config, cache_config)
-    custom_cache_descs = cls.get_custom_cache_descs(model_config, cache_config)
-    cache_descs = [k_cache_desc, v_cache_desc] + quant_cache_descs + custom_cache_descs
-
-    # get mempool size
-    mem_pool_size = 0
-    for desc in cache_descs:
-        mem_pool_size += desc.aligned_size
-
-    # create pool
-    mem_pool = torch.zeros(((mem_pool_size+1)//2, num_layers, num_blocks, 2), dtype=torch.uint8, device=device)
-
-    # slice caches
-    caches = []
-    remain_pool = mem_pool
-    for desc in cache_descs:
-        cache = remain_pool[:(desc.size+1)//2, :, :, :].view(desc.dtype).view((num_layers, num_blocks, *desc.shape))
-        remain_pool = remain_pool[(desc.aligned_size+1)//2:, :, :, :]
-        caches.append(cache)
-    return mem_pool, caches
-
-
-cache_engine.CacheEngine.allocate_caches = _cache_engine_allocate_caches

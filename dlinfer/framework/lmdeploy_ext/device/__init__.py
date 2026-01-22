@@ -74,11 +74,13 @@ def patch_async_sampling_logits():
     )
     from lmdeploy.pytorch.model_inputs import ModelInputs
 
-    async def async_sampling_logits(self, logits: torch.Tensor, sampling_inputs: SamplingInputs):
+    async def async_sampling_logits(
+        self, logits: torch.Tensor, sampling_inputs: SamplingInputs
+    ):
         """Sampling logits."""
         # record function does not support async function
         # so we can not decorate it on async_sampling_logits
-        with record_function('sampling_logits'):
+        with record_function("sampling_logits"):
             logits = logits.to(torch.float32)
             logits_processor = FusedLogitsProcessor(
                 sampling_inputs,
@@ -100,6 +102,66 @@ def patch_async_sampling_logits():
     BaseModelAgent.async_sampling_logits = async_sampling_logits
 
 
+##### patch cache engine #####
+def patch_contiguous_cache_engine():
+    from lmdeploy.pytorch.config import CacheConfig, ModelConfig
+    from functools import reduce
+    from math import gcd
+    from lmdeploy.pytorch.engine import cache_engine
+    @classmethod
+    def _cache_engine_allocate_caches(
+        cls,
+        num_blocks: int,
+        model_config: ModelConfig,
+        cache_config: CacheConfig,
+        world_size: int,
+        device: str,
+    ):
+        """Allocate caches."""
+        num_layers = model_config.num_layers
+
+        # get all descs
+        k_cache_desc = cls.get_k_cache_desc(model_config, cache_config, world_size)
+        v_cache_desc = cls.get_v_cache_desc(model_config, cache_config, world_size)
+        quant_cache_descs = cls.get_quant_cache_descs(
+            k_cache_desc, v_cache_desc, model_config, cache_config
+        )
+        custom_cache_descs = cls.get_custom_cache_descs(model_config, cache_config)
+        cache_descs = [k_cache_desc, v_cache_desc] + quant_cache_descs + custom_cache_descs
+
+        # get mempool size
+        mem_pool_size = 0
+        alignments = []
+        for desc in cache_descs:
+            mem_pool_size += desc.aligned_size
+            alignments.append(desc.alignment)
+
+        # compute gcd of alignments
+        alignments_gcd = reduce(gcd, alignments) if alignments else 1
+        assert mem_pool_size % alignments_gcd == 0, "mem_pool_size must be divisible by alignments_gcd"
+
+        # create pool
+        mem_pool = torch.zeros(
+            (mem_pool_size // alignments_gcd, num_layers, num_blocks, alignments_gcd),
+            dtype=torch.uint8,
+            device=device,
+        )
+
+        # slice caches
+        caches = []
+        remain_pool = mem_pool
+        for desc in cache_descs:
+            cache = (
+                remain_pool[: desc.size // alignments_gcd, :, :, :]
+                .view(desc.dtype)
+                .view((num_layers, num_blocks, *desc.shape))
+            )
+            remain_pool = remain_pool[desc.aligned_size // alignments_gcd :, :, :, :]
+            caches.append(cache)
+        return mem_pool, caches
+
+    cache_engine.CacheEngine.allocate_caches = _cache_engine_allocate_caches
+
 @lru_cache(1)
 def import_vendor_module(vendor_name_str):
     if vendor_name_str in vendor:
@@ -110,6 +172,7 @@ def vendor_device_init():
     import_vendor_module(vendor_name)
     patch_compiled_func()
     patch_async_sampling_logits()
-
+    if vendor_name in ["camb", "ascend"]:
+        patch_contiguous_cache_engine()
 
 vendor_device_init()
