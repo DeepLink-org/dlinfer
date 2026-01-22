@@ -606,7 +606,6 @@ def fused_moe(
     x_active_mask: Tensor = None,
     expert_ids_per_ep_rank: Tensor = None,
 ) -> Tensor:
-    # return hidden_states
     hidden_states, split_hidden_states, num_tokens, x_active_mask, moe_group_name = (
         moe.moe_prepare(
             hidden_states, x_active_mask, pad_size, tp_size, ep_size, tp_rank, ep_group
