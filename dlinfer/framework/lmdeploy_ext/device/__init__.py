@@ -108,6 +108,7 @@ def patch_contiguous_cache_engine():
     from functools import reduce
     from math import gcd
     from lmdeploy.pytorch.engine import cache_engine
+
     @classmethod
     def _cache_engine_allocate_caches(
         cls,
@@ -127,7 +128,9 @@ def patch_contiguous_cache_engine():
             k_cache_desc, v_cache_desc, model_config, cache_config
         )
         custom_cache_descs = cls.get_custom_cache_descs(model_config, cache_config)
-        cache_descs = [k_cache_desc, v_cache_desc] + quant_cache_descs + custom_cache_descs
+        cache_descs = (
+            [k_cache_desc, v_cache_desc] + quant_cache_descs + custom_cache_descs
+        )
 
         # get mempool size
         mem_pool_size = 0
@@ -138,7 +141,9 @@ def patch_contiguous_cache_engine():
 
         # compute gcd of alignments
         alignments_gcd = reduce(gcd, alignments) if alignments else 1
-        assert mem_pool_size % alignments_gcd == 0, "mem_pool_size must be divisible by alignments_gcd"
+        assert (
+            mem_pool_size % alignments_gcd == 0
+        ), "mem_pool_size must be divisible by alignments_gcd"
 
         # create pool
         mem_pool = torch.zeros(
@@ -162,6 +167,7 @@ def patch_contiguous_cache_engine():
 
     cache_engine.CacheEngine.allocate_caches = _cache_engine_allocate_caches
 
+
 @lru_cache(1)
 def import_vendor_module(vendor_name_str):
     if vendor_name_str in vendor:
@@ -174,5 +180,6 @@ def vendor_device_init():
     patch_async_sampling_logits()
     if vendor_name in ["camb", "ascend"]:
         patch_contiguous_cache_engine()
+
 
 vendor_device_init()
