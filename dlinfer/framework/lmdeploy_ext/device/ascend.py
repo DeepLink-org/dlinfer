@@ -528,6 +528,3 @@ if SocVersion.is_Ascend310P():
     # We convert Linear weight to NZ format on Ascend310P device defaultly in graph mode.
     # However, vision_model part is not compiled in graph mode, so we skip converting weights of vision_model part.
     BaseModelAgent._build_model = _build_model_310P
-
-
-
