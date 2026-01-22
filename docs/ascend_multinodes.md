@@ -114,35 +114,31 @@ rank table 的字段含义和配置规范可参考：
   "server_count": "2",
   "server_list": [
     {
-      "server_id": "node_0",
+      "server_id": "10.0.0.1",
       "device": [
         {
           "device_id": "0",
           "device_ip": "192.168.1.8",
-          "device_port": "16667",
           "rank_id": "0"
         },
         {
           "device_id": "1",
           "device_ip": "192.168.1.9",
-          "device_port": "16667",
           "rank_id": "1"
         }
       ]
     },
     {
-      "server_id": "node_1",
+      "server_id": "10.0.0.2",
       "device": [
         {
           "device_id": "0",
           "device_ip": "192.168.2.8",
-          "device_port": "16667",
           "rank_id": "2"
         },
         {
           "device_id": "1",
           "device_ip": "192.168.2.9",
-          "device_port": "16667",
           "rank_id": "3"
         }
       ]
@@ -151,8 +147,17 @@ rank table 的字段含义和配置规范可参考：
 }
 ```
 
+> [!IMPORTANT]
+> **`server_id` 必须填写节点的 host IP 地址**（与 Ray 集群启动时使用的 IP 一致），
+> 不要填写 `node_0`、`node_1` 等非 IP 字符串。
+
+<!-- -->
+
 > [!WARNING]
 > 后续我们将提供自动生成 `rank table` 文件的脚本。
+
+<!-- -->
+
 > [!IMPORTANT]
 > 多机场景下建议将 rank table 文件放在**所有节点相同的路径**，
 > 并在启动服务前确保相关进程环境中已设置 `ASCEND_RANK_TABLE_FILE_PATH`
