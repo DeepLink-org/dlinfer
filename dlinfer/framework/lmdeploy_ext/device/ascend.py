@@ -2,7 +2,6 @@
 import functools
 import math
 import os
-import sys
 import torch
 import weakref
 from typing import Callable, List
