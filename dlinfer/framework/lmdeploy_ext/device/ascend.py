@@ -5,7 +5,7 @@ import os
 import sys
 import torch
 import weakref
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Callable, List
 
 from lmdeploy.pytorch.backends.dlinfer.moe import DlinferFusedMoEImpl
 from lmdeploy.pytorch.models.chatglm2 import SelfAttention
