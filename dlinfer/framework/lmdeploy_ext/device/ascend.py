@@ -18,7 +18,6 @@ from lmdeploy.pytorch.distributed import get_dist_manager, get_tp_world_rank
 from lmdeploy.pytorch.model_inputs import get_step_ctx_manager
 import lmdeploy.pytorch.distributed as dist
 
-from lmdeploy.pytorch.disagg.backend.backend import MIGRATION_BACKENDS
 from lmdeploy.pytorch.disagg.messages import (
     AssignmentInstruct,
     DistServeRegisterMRMessage,
