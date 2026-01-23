@@ -72,7 +72,6 @@ def patch_async_sampling_logits():
         SamplingInputs,
         FusedLogitsProcessor,
     )
-    from lmdeploy.pytorch.model_inputs import ModelInputs
 
     async def async_sampling_logits(
         self, logits: torch.Tensor, sampling_inputs: SamplingInputs
