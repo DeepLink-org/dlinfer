@@ -1,6 +1,7 @@
 import torch
 import numpy
 import torch.distributed as dist
+from dlinfer.utils.type_annotation import MoeType
 
 
 def apply_mlp(
@@ -43,6 +44,7 @@ def moe_prepare(
     ep_size: int,
     tp_rank: int,
     ep_group: dist.ProcessGroup,
+    moe_type: MoeType,
 ):
     if ep_size <= 1:
         return hidden_states, None, None, None, None
@@ -52,16 +54,18 @@ def moe_prepare(
     moe_group_name = backend.get_hccl_comm_name(local_rank)
     # pad hidden_states
     if pad_size > 0:
-        x_active_mask = torch.nn.functional.pad(
-            x_active_mask, (0, pad_size), value=False
-        )
+        if moe_type == MoeType.MC2:
+            x_active_mask = torch.nn.functional.pad(
+                x_active_mask, (0, pad_size), value=False
+            )
         hidden_states = torch.nn.functional.pad(hidden_states, (0, 0, 0, pad_size))
     # split hidden_states and x_active_mask if tp_size > 1
     if tp_size > 1:
         split_hidden_states = torch.tensor_split(hidden_states, tp_size, dim=0)
-        split_x_active_mask = torch.tensor_split(x_active_mask, tp_size, dim=0)
         hidden_states = split_hidden_states[tp_rank]
-        x_active_mask = split_x_active_mask[tp_rank]
+        if moe_type == MoeType.MC2:
+            split_x_active_mask = torch.tensor_split(x_active_mask, tp_size, dim=0)
+            x_active_mask = split_x_active_mask[tp_rank]
     return hidden_states, split_hidden_states, num_tokens, x_active_mask, moe_group_name
 
 

@@ -105,7 +105,8 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
     input_buffers["block_offsets"][:batch_size, :num_blocks] = block_offsets
     input_buffers["kv_seqlens"][:batch_size] = kv_seqlens
     input_buffers["kv_start_indices"][:batch_size] = kv_start_indices
-    input_buffers["x_active_mask"][:batch_size] = x_active_mask
+    if x_active_mask is not None:
+        input_buffers["x_active_mask"][:batch_size] = x_active_mask
 
     if inputs_embeds is not None:
         emb_size = inputs_embeds.size(-1)
