@@ -57,8 +57,10 @@ def AscendCudaGraphMixin_make_buffers_cudagraph(
         (max_batches, num_blocks), dtype=torch.int32, device=device
     )
 
-    input_buffers["q_seqlens"] = torch.ones(
-        max_batches, dtype=torch.int32, device=device
+    # q_seqlens means cu_attn actual_seq_lengths
+    # this buffer is only used during graph capture under decoding phase
+    input_buffers["q_seqlens"] = torch.arange(
+        1, max_batches + 1, dtype=torch.int32
     )
 
     input_buffers["kv_seqlens"] = torch.ones(max_batches, dtype=torch.int32)
@@ -86,6 +88,7 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
     """fill cudagraph buffers from forward inputs."""
     block_offsets: Tensor = attn_metadata.block_offsets
     kv_seqlens: Tensor = attn_metadata.kv_seqlens
+    q_seqlens: Tensor = attn_metadata.q_seqlens
     kv_start_indices: Tensor = attn_metadata.kv_start_indices
 
     input_buffers: BuffType = graph_meta.input_buffers
@@ -114,6 +117,7 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
 
     attn_metadata.block_offsets = input_buffers["block_offsets"][:new_batch_size]
     attn_metadata.kv_seqlens = input_buffers["kv_seqlens"][:new_batch_size]
+    attn_metadata.q_seqlens = input_buffers["q_seqlens"][:new_batch_size]
     attn_metadata.kv_start_indices = input_buffers["kv_start_indices"][:new_batch_size]
 
     new_inputs = dict(

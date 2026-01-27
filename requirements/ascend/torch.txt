@@ -1,7 +1,7 @@
 # Supported torch versions: 2.3.1, 2.5.1, 2.6.0, 2.7.1, 2.8.0
 # Please install one of the supported versions manually
-torch>=2.3.1,<2.9.0
-torch-npu>=2.3.1,<2.9.0
-torchvision>=0.18.1,<0.24.0
+torch>=2.3.1,<2.10.0
+torch-npu>=2.3.1,<2.10.0
+torchvision>=0.18.1,<0.25.0
 importlib-metadata
 pyyaml
