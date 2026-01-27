@@ -98,7 +98,7 @@ def fused_moe_tp(
     active_num = hidden_states.size(0) * topk
     # do renormalize
     if renormalize:
-        topk_weights = topk_weights / topk_weights.sum(dim=-1, keepdim=True)
+        topk_weights.div_(topk_weights.sum(dim=-1, keepdim=True))
     if not topk_weights.is_contiguous():
         topk_weights = topk_weights.contiguous()
 
@@ -150,7 +150,7 @@ def fused_moe_mc2(
 ):
     # do renormalize
     if renormalize:
-        topk_weights = topk_weights / topk_weights.sum(dim=-1, keepdim=True)
+        topk_weights.div_(topk_weights.sum(dim=-1, keepdim=True))
     if not topk_weights.is_contiguous():
         topk_weights = topk_weights.contiguous()
 
@@ -267,34 +267,29 @@ def fused_moe_all2all(
             topk_ids, bins=num_experts, min=0, max=num_experts
         )
         num_out_tokens = topk_ids.numel()
-        input_splits = (
-            num_local_tokens_per_expert.reshape(ep_size, num_local_experts)
-            .sum(axis=1)
-            .to(torch.device("cpu"), non_blocking=True)
-            .numpy()
-        )
+        hidden_shape_before_permute = hidden_states.shape
+
         num_global_tokens_per_expert = torch.empty(
-            (num_local_tokens_per_expert.size(0) * ep_size,),
+            (ep_size, num_experts),
             dtype=num_local_tokens_per_expert.dtype,
-            device=torch.npu.current_device(),
+            device=hidden_states.device,
         )
         torch.distributed.all_gather_into_tensor(
-            num_global_tokens_per_expert, num_local_tokens_per_expert, ep_group
+            num_global_tokens_per_expert.view(-1), num_local_tokens_per_expert, ep_group
         )
-        num_global_tokens_per_expert = num_global_tokens_per_expert.reshape(
-            ep_size, num_experts
-        )
-        hidden_shape_before_permute = hidden_states.shape
+
+        local_splits_tensor = num_local_tokens_per_expert.view(
+            ep_size, num_local_experts
+        ).sum(dim=1)
         num_global_tokens_per_local_expert = num_global_tokens_per_expert[
-            :,
-            num_local_experts * ep_rank : num_local_experts * (ep_rank + 1),
+            :, num_local_experts * ep_rank : num_local_experts * (ep_rank + 1)
         ]
-        output_splits = (
-            num_global_tokens_per_local_expert.sum(axis=-1)
-            .to(torch.device("cpu"), non_blocking=True)
-            .numpy()
-        )
-        num_tokens_per_local_expert = num_global_tokens_per_local_expert.sum(axis=0)
+        global_splits_tensor = num_global_tokens_per_local_expert.sum(dim=-1)
+
+        combined_splits = torch.cat([local_splits_tensor, global_splits_tensor]).cpu()
+        input_splits = combined_splits[:ep_size].tolist()
+        output_splits = combined_splits[ep_size:].tolist()
+        num_tokens_per_local_expert = num_global_tokens_per_local_expert.sum(dim=0)
         if num_local_experts > 1:
             if num_global_tokens_per_local_expert is None:
                 raise ValueError(
@@ -327,7 +322,8 @@ def fused_moe_all2all(
             async_op=True,
         )
         permute1_ep_all_to_all_handle.wait()
-        permutated_local_input_tokens.untyped_storage().resize_(0)
+        # permutated_local_input_tokens.untyped_storage().resize_(0)
+        del permutated_local_input_tokens
 
         # dispatch post-process
         if num_local_experts <= 1:
@@ -383,7 +379,8 @@ def fused_moe_all2all(
             async_op=True,
         )
         unpermute1_ep_all_to_all_handle.wait()
-        hidden_states.untyped_storage().resize_(0)
+        # hidden_states.untyped_storage().resize_(0)
+        del hidden_states
 
         output = torch.ops.npu.npu_moe_token_unpermute(
             permuted_tokens=gloabl_output_tokens,
@@ -403,7 +400,7 @@ def fused_moe_all2all(
     ) -> torch.Tensor:
         # do renormalize
         if renormalize:
-            topk_weights = topk_weights / topk_weights.sum(dim=-1, keepdim=True)
+            topk_weights.div_(topk_weights.sum(dim=-1, keepdim=True))
         if not topk_weights.is_contiguous():
             topk_weights = topk_weights.contiguous()
 
