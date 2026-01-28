@@ -7,7 +7,7 @@ from typing import Optional, Sequence, Union, Any, Tuple, Callable, Dict
 
 
 class MoeType(Enum):
-    NATIVE = auto()
+    NAIVE = auto()
     ALLGATHER = auto()
     ALLTOALL = auto()
     MC2 = auto()

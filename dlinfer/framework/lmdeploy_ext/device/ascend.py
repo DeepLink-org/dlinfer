@@ -13,6 +13,7 @@ from dlinfer.vendor.ascend.utils import SocVersion
 
 # moe
 from lmdeploy.pytorch.nn.moe import base
+from lmdeploy.pytorch.backends.moe import MLPMetadata
 from lmdeploy.pytorch.distributed import get_dist_manager, get_tp_world_rank
 from lmdeploy.pytorch.model_inputs import get_step_ctx_manager
 import lmdeploy.pytorch.distributed as dist
@@ -192,11 +193,12 @@ class AscendMoEForwardDPTP:
         hidden_states: torch.Tensor,
         topk_weights: torch.Tensor,
         topk_ids: torch.Tensor,
+        mlp_metadata: MLPMetadata,
         output_states: torch.Tensor,
         tp_sizes: List[int],
     ):
         """Gemm and reduce scatter."""
-        cur_out = self.gemm_func(hidden_states, topk_weights, topk_ids)
+        cur_out = self.gemm_func(hidden_states, topk_weights, topk_ids, mlp_metadata)
         return self.reduce_scatter(cur_out, output_states, tp_sizes)
 
     def forward_decode(
@@ -205,6 +207,7 @@ class AscendMoEForwardDPTP:
         hidden_states: torch.Tensor,
         topk_weights: torch.Tensor,
         topk_ids: torch.Tensor,
+        mlp_metadata: MLPMetadata,
     ):
         """forward."""
         tp_sizes = step_ctx.dp_meta.moe_tp_sizes
@@ -238,7 +241,9 @@ class AscendMoEForwardDPTP:
             )
 
         # MoE gemm
-        cur_out = self.gemm_func(cur_hidden_states, cur_topk_weights, cur_topk_ids)
+        cur_out = self.gemm_func(
+            cur_hidden_states, cur_topk_weights, cur_topk_ids, mlp_metadata
+        )
         output_states = dist.reduce_scatter_by_tp_sizes(
             cur_out, self.rank, tp_sizes, group=self.tp_group
         )
@@ -249,11 +254,14 @@ class AscendMoEForwardDPTP:
         hidden_states: torch.Tensor,
         topk_weights: torch.Tensor,
         topk_ids: torch.Tensor,
+        mlp_metadata: MLPMetadata,
     ):
         """forward."""
         step_ctx = get_step_ctx_manager().current_context()
         if step_ctx.is_decoding:
-            return self.forward_decode(step_ctx, hidden_states, topk_weights, topk_ids)
+            return self.forward_decode(
+                step_ctx, hidden_states, topk_weights, topk_ids, mlp_metadata
+            )
 
         # lazy init comm buffer
         if self.use_comm_buffer is None:
@@ -358,12 +366,14 @@ class AscendMoEForwardDPTP:
 
         # pre
         cur_inputs = __slice_and_gather()
+        cur_inputs.update(dict(mlp_metadata=mlp_metadata))
 
         # main loop
         while tp_sizes.sum() > 0:
             next_inputs = __slice_and_gather()
             self._gemm_and_reduce_scatter(**cur_inputs)
             cur_inputs = next_inputs
+            cur_inputs.update(dict(mlp_metadata=mlp_metadata))
 
         # post
         self._gemm_and_reduce_scatter(**cur_inputs)

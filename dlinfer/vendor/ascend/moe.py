@@ -89,7 +89,7 @@ def moe_finalize(
     return moe_output
 
 
-def fused_moe_tp(
+def fused_moe_naive(
     hidden_states: torch.Tensor,
     gate_up_weights: torch.Tensor,
     down_weights: torch.Tensor,

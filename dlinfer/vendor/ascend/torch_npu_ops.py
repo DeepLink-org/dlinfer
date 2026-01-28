@@ -648,8 +648,9 @@ def fused_moe(
             ep_group,
             expert_ids_per_ep_rank,
         )
+    # TODO: fused_moe_allgather
     else:
-        moe_output = moe.fused_moe_tp(
+        moe_output = moe.fused_moe_naive(
             hidden_states,
             gate_up_weights,
             down_weights,
