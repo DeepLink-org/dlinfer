@@ -604,19 +604,17 @@ def fused_moe(
     ep_group: dist.ProcessGroup = None,
     moe_type: MoeType = None,
     x_active_mask: Tensor = None,
+    moe_group_name: str = None,
     expert_ids_per_ep_rank: Tensor = None,
 ) -> Tensor:
-    hidden_states, split_hidden_states, num_tokens, x_active_mask, moe_group_name = (
-        moe.moe_prepare(
-            hidden_states,
-            x_active_mask,
-            pad_size,
-            tp_size,
-            ep_size,
-            tp_rank,
-            ep_group,
-            moe_type,
-        )
+    hidden_states, num_tokens, paded_num_tokens, x_active_mask = moe.moe_prepare(
+        hidden_states,
+        x_active_mask,
+        pad_size,
+        tp_size,
+        ep_size,
+        tp_rank,
+        moe_type,
     )
 
     topk_ids = topk_ids.to(torch.int32)
@@ -662,7 +660,7 @@ def fused_moe(
         )
 
     moe_output = moe.moe_finalize(
-        split_hidden_states, moe_output, num_tokens, ep_size, tp_size, tp_group
+        moe_output, num_tokens, paded_num_tokens, ep_size, tp_size, tp_group
     )
 
     return moe_output

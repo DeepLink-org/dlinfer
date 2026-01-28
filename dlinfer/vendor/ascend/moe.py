@@ -43,15 +43,11 @@ def moe_prepare(
     tp_size: int,
     ep_size: int,
     tp_rank: int,
-    ep_group: dist.ProcessGroup,
     moe_type: MoeType,
 ):
     if ep_size <= 1:
-        return hidden_states, None, None, None, None
+        return hidden_states, None, None, None
     num_tokens = hidden_states.size(0)
-    local_rank = torch.distributed.get_rank(group=ep_group)
-    backend = ep_group._get_backend(torch.device("npu"))
-    moe_group_name = backend.get_hccl_comm_name(local_rank)
     # pad hidden_states
     if pad_size > 0:
         if moe_type == MoeType.MC2:
@@ -60,28 +56,36 @@ def moe_prepare(
             )
         hidden_states = torch.nn.functional.pad(hidden_states, (0, 0, 0, pad_size))
     # split hidden_states and x_active_mask if tp_size > 1
+    paded_num_tokens = hidden_states.size(0)
     if tp_size > 1:
         split_hidden_states = torch.tensor_split(hidden_states, tp_size, dim=0)
         hidden_states = split_hidden_states[tp_rank]
         if moe_type == MoeType.MC2:
             split_x_active_mask = torch.tensor_split(x_active_mask, tp_size, dim=0)
             x_active_mask = split_x_active_mask[tp_rank]
-    return hidden_states, split_hidden_states, num_tokens, x_active_mask, moe_group_name
+    return hidden_states, num_tokens, paded_num_tokens, x_active_mask
 
 
 def moe_finalize(
-    split_hidden_states: list,
     moe_output: torch.Tensor,
     num_tokens: int,
+    paded_num_tokens: int,
     ep_size: int,
     tp_size: int,
     tp_group: dist.ProcessGroup,
 ):
     if ep_size > 1:
         if tp_size > 1:
+            output_shape = list(moe_output.shape)
+            output_shape[0] = paded_num_tokens
+            gathered_output = torch.empty(
+                output_shape, dtype=moe_output.dtype, device=moe_output.device
+            )
+            split_hidden_states = torch.tensor_split(gathered_output, tp_size, dim=0)
             dist.all_gather(list(split_hidden_states), moe_output, tp_group)
-            moe_output = torch.cat(split_hidden_states, dim=0)
-        moe_output = moe_output[:num_tokens, :]
+            moe_output = gathered_output
+        if moe_output.size(0) > num_tokens:
+            moe_output = moe_output[:num_tokens, :]
     return moe_output
 
 
@@ -286,9 +290,11 @@ def fused_moe_all2all(
         ]
         global_splits_tensor = num_global_tokens_per_local_expert.sum(dim=-1)
 
-        combined_splits = torch.cat([local_splits_tensor, global_splits_tensor]).cpu()
-        input_splits = combined_splits[:ep_size].tolist()
-        output_splits = combined_splits[ep_size:].tolist()
+        combined_splits = torch.cat(
+            [local_splits_tensor, global_splits_tensor]
+        ).tolist()
+        input_splits = combined_splits[:ep_size]
+        output_splits = combined_splits[ep_size:]
         num_tokens_per_local_expert = num_global_tokens_per_local_expert.sum(dim=0)
         if num_local_experts > 1:
             if num_global_tokens_per_local_expert is None:

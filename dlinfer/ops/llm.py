@@ -621,6 +621,7 @@ def fused_moe(
     ep_group: torch.distributed.ProcessGroup = None,
     moe_type: MoeType = None,
     x_active_mask: Tensor = None,
+    moe_group_name: str = None,
     expert_ids_per_ep_rank=None,
 ) -> Tensor:
     """
@@ -656,6 +657,7 @@ def fused_moe(
         ep_group,
         moe_type,
         x_active_mask,
+        moe_group_name,
         expert_ids_per_ep_rank,
     )
 
