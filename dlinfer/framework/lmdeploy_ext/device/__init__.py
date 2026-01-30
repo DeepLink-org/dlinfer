@@ -4,7 +4,6 @@ import torch
 from functools import lru_cache
 from dlinfer.vendor import vendor_name
 
-
 vendor = ["camb", "ascend"]
 
 
@@ -101,6 +100,122 @@ def patch_async_sampling_logits():
     BaseModelAgent.async_sampling_logits = async_sampling_logits
 
 
+##### patch dlinfer moe: DlinferSoftmaxTopKImpl #####
+def patch_dlinfer_moe():
+    import torch
+    from lmdeploy.pytorch.kernels.dlinfer import moe_gating_topk_softmax
+    from lmdeploy.pytorch.backends import moe as backends_moe
+    from lmdeploy.pytorch.backends.dlinfer import moe as dlinfer_moe
+
+    class PatchedDlinferSoftmaxTopKImpl(backends_moe.SoftmaxTopKImpl):
+        """Dlinfer softmax topk implementation (patched with n_groups support)."""
+
+        def __init__(self, top_k: int, dim: int = -1, n_groups: int = -1):
+            self.top_k = top_k
+            self.dim = dim
+            self.n_groups = n_groups
+
+        def forward(self, x: torch.Tensor):
+            if self.n_groups > 0:
+                routing_weights = torch.softmax(x, dim=self.dim, dtype=torch.float32)
+                assert (
+                    routing_weights.shape[self.dim] % self.n_groups == 0
+                ), f"{routing_weights.shape[self.dim]} cannot be divided by {self.n_groups}"
+                per_group_top_k = self.top_k // self.n_groups
+                group_size = routing_weights.shape[self.dim] // self.n_groups
+                group_offsets = self.get_group_offsets(
+                    self.n_groups,
+                    group_size,
+                    str(routing_weights.device),
+                )
+                routing_weights = routing_weights.unflatten(
+                    self.dim, (self.n_groups, group_size)
+                )
+                topk_weights, topk_ids = torch.topk(
+                    routing_weights, per_group_top_k, dim=-1
+                )
+                topk_ids = (topk_ids + group_offsets).flatten(-2, -1)
+                topk_weights = topk_weights.flatten(-2, -1)
+                return topk_weights, topk_ids
+            else:
+                routing_weights, selected_experts = moe_gating_topk_softmax(
+                    x, self.top_k
+                )
+                return routing_weights, selected_experts
+
+    dlinfer_moe.DlinferSoftmaxTopKImpl = PatchedDlinferSoftmaxTopKImpl
+
+
+##### patch dlinfer rotary_embedding: DlinferRotaryEmbeddingBuilder.build #####
+def patch_dlinfer_rotary_embedding():
+    from lmdeploy.pytorch.backends.dlinfer import rotary_embedding as dlinfer_rotary
+    from lmdeploy.pytorch.backends.rotary_embedding import (
+        FopeParameters,
+        Llama3Parameters,
+        LongRoPEScalingParameters,
+        RopeType,
+        YarnParameters,
+    )
+    from lmdeploy.pytorch.backends.dlinfer.rotary_embedding import (
+        DlinferLlama3RotaryEmbeddingImpl,
+        DlinferLlamaDynamicNTKScalingRotaryEmbedding,
+        DlinferRotaryEmbeddingImpl,
+        DlinferYarnRotaryEmbeddingImpl,
+    )
+
+    @staticmethod
+    def patched_build(
+        dim: int,
+        max_position_embeddings: int = 2048,
+        base: int = 10000,
+        scaling_factor: float = 1.0,
+        yarn_params: YarnParameters = None,
+        longrope_params: LongRoPEScalingParameters = None,
+        llama3_params: Llama3Parameters = None,
+        fope_params: FopeParameters = None,
+        emb_type: RopeType = RopeType.Default,
+    ):
+        """build."""
+        if emb_type in (RopeType.Default, RopeType.LinearScaling):
+            return DlinferRotaryEmbeddingImpl(dim, base, scaling_factor)
+        elif emb_type == RopeType.DynamicNTKScaling:
+            return DlinferLlamaDynamicNTKScalingRotaryEmbedding(
+                dim, base, scaling_factor, max_position_embeddings
+            )
+        elif emb_type == RopeType.Llama3:
+            return DlinferLlama3RotaryEmbeddingImpl(
+                dim,
+                base,
+                scaling_factor,
+                llama3_params.low_freq_factor,
+                llama3_params.high_freq_factor,
+                max_position_embeddings,
+            )
+        elif emb_type == RopeType.Yarn:
+            return DlinferYarnRotaryEmbeddingImpl(
+                dim,
+                base,
+                scaling_factor,
+                max_position_embeddings,
+                yarn_params=yarn_params,
+            )
+        elif emb_type == RopeType.Fope:
+            from lmdeploy.pytorch.backends.default.rotary_embedding import (
+                FopeRotaryEmbeddingImpl,
+            )
+
+            return FopeRotaryEmbeddingImpl(
+                dim,
+                max_position_embeddings=max_position_embeddings,
+                scaling_factor=scaling_factor,
+                params=fope_params,
+            )
+        else:
+            raise NotImplementedError(f"Unsupported embedding type: {emb_type}")
+
+    dlinfer_rotary.DlinferRotaryEmbeddingBuilder.build = patched_build
+
+
 ##### patch cache engine #####
 def patch_contiguous_cache_engine():
     from lmdeploy.pytorch.config import CacheConfig, ModelConfig
@@ -179,6 +294,8 @@ def vendor_device_init():
     patch_async_sampling_logits()
     if vendor_name in ["camb", "ascend"]:
         patch_contiguous_cache_engine()
+    patch_dlinfer_moe()
+    patch_dlinfer_rotary_embedding()
 
 
 vendor_device_init()
