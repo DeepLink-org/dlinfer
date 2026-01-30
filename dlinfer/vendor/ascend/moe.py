@@ -85,7 +85,7 @@ def moe_finalize(
             dist.all_gather(list(split_hidden_states), moe_output, tp_group)
             moe_output = gathered_output
         if moe_output.size(0) > num_tokens:
-            moe_output = moe_output[:num_tokens, :]
+            moe_output = moe_output[:num_tokens, :].contiguous()
     return moe_output
 
 

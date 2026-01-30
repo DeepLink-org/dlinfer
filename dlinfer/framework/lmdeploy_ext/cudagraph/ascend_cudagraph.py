@@ -11,6 +11,7 @@ import torch_npu
 from torch import Tensor
 from torch.profiler import record_function
 
+from lmdeploy.pytorch.model_inputs import get_step_ctx_manager
 from lmdeploy.pytorch.models.utils.cudagraph import CudaGraphMeta
 from lmdeploy.pytorch.models.utils.cudagraph import CudaGraphMixin
 from lmdeploy.pytorch.config import BackendConfig, CacheConfig, ModelConfig
@@ -84,7 +85,6 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
     position_ids: Tensor,
     past_key_values: List,
     attn_metadata: Any,
-    mlp_metadata: Any,
     inputs_embeds: Tensor,
     **kwargs,
 ) -> Dict[str, Tensor]:
@@ -92,8 +92,8 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
     block_offsets: Tensor = attn_metadata.block_offsets
     kv_seqlens: Tensor = attn_metadata.kv_seqlens
     kv_start_indices: Tensor = attn_metadata.kv_start_indices
-    x_active_mask: Tensor = mlp_metadata.x_active_mask
-
+    moe_metadata = get_step_ctx_manager().current_context().moe_metadata
+    x_active_mask: Tensor = moe_metadata.x_active_mask
     input_buffers: BuffType = graph_meta.input_buffers
 
     batch_size, num_blocks = block_offsets.size()
@@ -123,12 +123,12 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
     attn_metadata.block_offsets = input_buffers["block_offsets"][:new_batch_size]
     attn_metadata.kv_seqlens = input_buffers["kv_seqlens"][:new_batch_size]
     attn_metadata.kv_start_indices = input_buffers["kv_start_indices"][:new_batch_size]
-    mlp_metadata.x_active_mask = input_buffers["x_active_mask"][:new_batch_size]
+    moe_metadata.x_active_mask = input_buffers["x_active_mask"][:new_batch_size]
 
     new_inputs = dict(
         past_key_values=past_key_values,
         attn_metadata=attn_metadata,
-        mlp_metadata=mlp_metadata,
+        moe_metadata=moe_metadata,
     )
 
     new_inputs["input_ids"] = input_buffers["input_ids"][:, :new_batch_size]
@@ -150,7 +150,7 @@ def AscendCudaGraphMixin_update_context_cudagraph(self, graph_meta, context):
     context.kv_seqlens = input_buffers["kv_seqlens"]
     context.q_start_loc = input_buffers["q_start_loc"]
     context.kv_start_indices = input_buffers["kv_start_indices"]
-    context.x_active_mask = input_buffers["x_active_mask"]
+    context.moe_metadata.x_active_mask = input_buffers["x_active_mask"]
 
 
 CudaGraphMixin.make_buffers_cudagraph = AscendCudaGraphMixin_make_buffers_cudagraph
