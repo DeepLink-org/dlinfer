@@ -25,6 +25,7 @@ from lmdeploy.pytorch.disagg.messages import (
     MigrationExecutionBatch,
 )
 from lmdeploy.utils import get_logger
+logger = get_logger("lmdeploy")
 
 import torch_npu
 from torch_npu.profiler import profile as npu_profile
