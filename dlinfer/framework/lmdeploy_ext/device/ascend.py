@@ -26,6 +26,11 @@ from lmdeploy.pytorch.disagg.messages import (
 )
 from lmdeploy.utils import get_logger
 
+logger = get_logger("lmdeploy")
+
+import torch_npu
+from torch_npu.profiler import profile as npu_profile
+
 
 def rl_update_weights(self, gate_up_weights: torch.Tensor, down_weights: torch.Tensor):
     """Update weights."""
@@ -365,6 +370,30 @@ class AscendMoEForwardDPTP:
 
 
 base.MoEForwardDPTP = AscendMoEForwardDPTP
+
+from lmdeploy.pytorch.engine.model_agent.profiler import AgentProfiler
+
+
+def _build_npu_profiler(self):
+    from lmdeploy.pytorch import envs
+
+    activities = []
+    if envs.torch_profile_cpu:
+        activities.append(torch_npu.profiler.ProfilerActivity.CPU)
+    if envs.torch_profile_cuda:
+        activities.append(torch_npu.profiler.ProfilerActivity.NPU)
+    if len(activities) > 0:
+        logger.warning(
+            f"Profiler start on {self.name}. "
+            "Please Note that profiling might harm performance."
+        )
+        profiler = npu_profile(activities=activities)
+        return profiler
+    else:
+        return None
+
+
+AgentProfiler._build_profiler = _build_npu_profiler
 
 ########## below is for ascend310P ##########
 
