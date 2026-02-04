@@ -6,7 +6,6 @@ from dlinfer.vendor import vendor_ops_registry
 from dlinfer.utils.registry import register_ops
 from dlinfer.utils.type_annotation import Tensor, Optional, Sequence, Tuple
 
-
 __all__ = [
     "add_rms_norm",
     "apply_rotary_pos_emb",
@@ -161,7 +160,9 @@ def prefill_attention(
     causal = True
     # TODO This is a trick to handle lmdeploy vlmodel vision part flash-attention
     if q_start_loc.shape[0] == q_seq_len.shape[0]:
-        q_start_loc = torch.cat([q_start_loc, q_seq_len.sum().to(torch.int32).unsqueeze(0)])
+        q_start_loc = torch.cat(
+            [q_start_loc, q_seq_len.sum().to(torch.int32).unsqueeze(0)]
+        )
         causal = False
     if alibi_slopes is not None:
         alibi_slopes = torch.tensor(alibi_slopes, dtype=torch.float32)
