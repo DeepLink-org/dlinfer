@@ -72,6 +72,76 @@ def _process_bad_words_(
 logits_process._process_bad_words_ = _process_bad_words_
 
 
+# patch create_model_inputs_delta for num_ignored_history fix (PR #4316)
+# Fix negative KV sequence length error in Attention op
+# Reference: https://github.com/InternLM/lmdeploy/pull/4316
+from lmdeploy.pytorch.engine.inputs_maker import InputsMakerAsync
+from lmdeploy.pytorch.model_inputs import ModelInputsDelta
+import numpy as np
+
+
+def _patched_create_model_inputs_delta(self):
+    """Create model inputs delta from messages."""
+    from torch.profiler import record_function
+
+    with record_function("create_model_inputs_delta"):
+        batch_size = len(self.running_seqs)
+        assert batch_size > 0
+        num_decode_tokens = self.engine_strategy.get_num_decode_tokens()
+        max_q_seqlen = num_decode_tokens
+        prealloc_size = self.engine_strategy.get_prealloc_size(True)
+        valid_mask = self.scheduler.schedule_running(
+            self.running_seqs,
+            num_decode_tokens=num_decode_tokens,
+            prealloc_size=prealloc_size,
+        )
+
+        valid_mask = np.array(valid_mask)
+        indices_cpu = np.arange(0, batch_size)[valid_mask]
+        valid_seqs = [self.running_seqs[i] for i in indices_cpu]
+        invalid_seqs = [
+            self.running_seqs[i] for i in range(batch_size) if not valid_mask[i]
+        ]
+        if len(valid_seqs) == 0:
+            return None, valid_seqs, invalid_seqs
+
+        # block offsets
+        from lmdeploy.pytorch.engine.inputs_maker import _tensorlize_block_offsets
+
+        block_offsets = self.scheduler.get_block_tables(valid_seqs)
+        block_offsets = _tensorlize_block_offsets(
+            block_offsets, dtype=self.torch_int_dtype
+        )
+
+        # sliding window - PATCH FROM PR #4316
+        if self.scheduler.cache_config.window_size > 0:
+            num_ignored_history = torch.tensor(
+                [msg.num_ignored_history for msg in valid_seqs]
+            )
+        else:
+            # Changed from None to zeros tensor
+            num_ignored_history = torch.zeros(len(valid_seqs), dtype=torch.long)
+
+        kv_seqlens = [seq.num_all_ids + max_q_seqlen for seq in valid_seqs]
+        sum_kv_seqlen = sum(kv_seqlens) + batch_size * max_q_seqlen
+        max_kv_seqlen = max(kv_seqlens) + max_q_seqlen
+
+        output = ModelInputsDelta(
+            indices=None,
+            block_offsets=block_offsets,
+            indice_cpu=indices_cpu,
+            max_q_seqlen=max_q_seqlen,
+            max_kv_seqlen=max_kv_seqlen,
+            sum_kv_seqlen=sum_kv_seqlen,
+            num_ignored_history=num_ignored_history,
+        )
+
+        return output, valid_seqs, invalid_seqs
+
+
+InputsMakerAsync.create_model_inputs_delta = _patched_create_model_inputs_delta
+
+
 # patch MoEForwardDPTP
 hidden_states_gather_buffer = None
 topk_weights_gather_buffer = None
