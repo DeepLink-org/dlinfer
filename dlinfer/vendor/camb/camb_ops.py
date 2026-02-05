@@ -4,7 +4,7 @@ import torch_mlu_ops as tmo
 
 from dlinfer.vendor import vendor_ops_registry
 from dlinfer.utils.registry import register_ops
-from dlinfer.utils.type_annotation import Tensor, Optional, Sequence, Tuple
+from dlinfer.utils.type_annotation import Tensor, Optional, Sequence, Tuple, MoeMetadata
 
 
 __all__ = [
@@ -300,7 +300,9 @@ def paged_prefill_attention(
 
 
 @register_ops(vendor_ops_registry)
-def moe_gating_topk_softmax(router_logits: Tensor, topk: int) -> Tuple[Tensor, Tensor]:
+def moe_gating_topk_softmax(
+    router_logits: Tensor, topk: int, moe_metadata: MoeMetadata = None
+) -> Tuple[Tensor, Tensor]:
     routing_weights, selected_experts = tmo.moe_softmax_topk(
         router_logits.float(), topk
     )
@@ -316,6 +318,7 @@ def fused_moe(
     topk_ids: Tensor,
     top_k: int,
     renormalize: bool,
+    moe_metadata: MoeMetadata = None,
 ) -> Tensor:
     seq_len = hidden_states.shape[0]
     num_experts = gate_up_weights.shape[0]

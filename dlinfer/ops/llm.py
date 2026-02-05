@@ -7,7 +7,7 @@ from dlinfer.utils.type_annotation import (
     Optional,
     Sequence,
     Tuple,
-    MoeType,
+    MoeMetadata,
     linear_w8a8_scale_type,
     dynamic_quant_scale_type,
 )
@@ -489,11 +489,7 @@ def moe_gating_topk_softmax_impl_abstract_func(
 def moe_gating_topk_softmax(
     router_logits: Tensor,
     topk: int,
-    max_tokens_across_dp: int,
-    pad_size: int,
-    tp_size: int,
-    ep_size: int,
-    tp_rank: int,
+    moe_metadata: MoeMetadata,
 ) -> Tuple[Tensor, Tensor]:
     """
     Given router_logits of experts, it computes the probability distributions of experts
@@ -502,6 +498,8 @@ def moe_gating_topk_softmax(
     Args:
         router_logits (Tensor): The input router logits of probability.
         topk (int): The number of top experts to select.
+        moe_metadata (MoeMetadata): Metadata containing configuration and context for the MoE layer
+                                    required by the backend operation.
 
     Returns:
         Tuple[Tensor, Tensor]:
@@ -509,7 +507,7 @@ def moe_gating_topk_softmax(
         - The index of selected experts.
     """
     return vendor_ops_registry["moe_gating_topk_softmax"](
-        router_logits, topk, max_tokens_across_dp, pad_size, tp_size, ep_size, tp_rank
+        router_logits, topk, moe_metadata
     )
 
 
@@ -612,17 +610,7 @@ def fused_moe(
     topk_ids: Tensor,
     topk: int,
     renormalize: bool,
-    pad_size: int = 0,
-    tp_size: int = 1,
-    ep_size: int = 1,
-    tp_rank: int = 0,
-    ep_rank: int = 0,
-    tp_group: torch.distributed.ProcessGroup = None,
-    ep_group: torch.distributed.ProcessGroup = None,
-    moe_type: MoeType = None,
-    x_active_mask: Tensor = None,
-    moe_group_name: str = None,
-    expert_ids_per_ep_rank=None,
+    moe_metadata: MoeMetadata,
 ) -> Tensor:
     """
     Implement the Fused Mixture of Experts (MoE) model.
@@ -635,6 +623,8 @@ def fused_moe(
         gate_up_weights (Tensor): The gate_up_weights tensor used to upsample.
         down_weights (Tensor): The down_weights tensor used to downsample.
         renormalize (bool): A boolean flag to indicate whether to renormalize the output.
+        moe_metadata (MoeMetadata): Metadata containing configuration and context for the MoE layer
+                                    required by the backend operation.
 
     Returns:
         Tensor: The output tensor of the Fused Mixture of Experts (MoE) model.
@@ -648,17 +638,7 @@ def fused_moe(
         topk_ids,
         topk,
         renormalize,
-        pad_size,
-        tp_size,
-        ep_size,
-        tp_rank,
-        ep_rank,
-        tp_group,
-        ep_group,
-        moe_type,
-        x_active_mask,
-        moe_group_name,
-        expert_ids_per_ep_rank,
+        moe_metadata,
     )
 
 

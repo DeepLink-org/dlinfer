@@ -13,6 +13,7 @@ from dlinfer.utils.type_annotation import (
     Sequence,
     Tuple,
     MoeType,
+    MoeMetadata,
 )
 from .utils import SocVersion, get_cpu_seq_len
 from .attention import decode_attention, decode_attention_mla
@@ -475,22 +476,27 @@ def silu_and_mul(input_tensor: Tensor, dim: int) -> Tensor:
 def moe_gating_topk_softmax(
     router_logits: Tensor,
     topk: int,
-    max_tokens_across_dp: int,
-    pad_size: int,
-    tp_size: int,
-    ep_size: int,
-    tp_rank: int,
+    moe_metadata: MoeMetadata,
+    # max_tokens_across_dp: int,
+    # pad_size: int,
+    # tp_size: int,
+    # ep_size: int,
+    # tp_rank: int,
 ) -> Tuple[Tensor, Tensor]:
-    if ep_size > 1:
-        if pad_size > 0:
-            router_logits = torch.nn.functional.pad(router_logits, (0, 0, 0, pad_size))
-        if tp_size > 1:
-            split_router_logits = torch.tensor_split(router_logits, tp_size, dim=0)
-            router_logits = split_router_logits[tp_rank]
+    if moe_metadata.ep_size > 1:
+        if moe_metadata.pad_size > 0:
+            router_logits = torch.nn.functional.pad(
+                router_logits, (0, 0, 0, moe_metadata.pad_size)
+            )
+        if moe_metadata.tp_size > 1:
+            split_router_logits = torch.tensor_split(
+                router_logits, moe_metadata.tp_size, dim=0
+            )
+            router_logits = split_router_logits[moe_metadata.tp_rank]
     routing_weights, selected_idx, _ = torch.ops.npu.npu_moe_gating_top_k_softmax(
         router_logits, None, topk
     )
-    return routing_weights, selected_idx.to(torch.int64)
+    return routing_weights, selected_idx
 
 
 # TODO only for internlm in transformers lib.
@@ -595,34 +601,23 @@ def fused_moe(
     topk_ids: Tensor,
     topk: int,
     renormalize: bool,
-    pad_size: int = 0,
-    tp_size: int = 1,
-    ep_size: int = 1,
-    tp_rank: int = 0,
-    ep_rank: int = 0,
-    tp_group: dist.ProcessGroup = None,
-    ep_group: dist.ProcessGroup = None,
-    moe_type: MoeType = None,
-    x_active_mask: Tensor = None,
-    moe_group_name: str = None,
-    expert_ids_per_ep_rank: Tensor = None,
+    moe_metadata: MoeMetadata,
 ) -> Tensor:
     hidden_states, num_tokens, paded_num_tokens, x_active_mask = moe.moe_prepare(
         hidden_states,
-        x_active_mask,
-        pad_size,
-        tp_size,
-        ep_size,
-        tp_rank,
-        moe_type,
+        moe_metadata.x_active_mask,
+        moe_metadata.pad_size,
+        moe_metadata.tp_size,
+        moe_metadata.ep_size,
+        moe_metadata.tp_rank,
+        moe_metadata.moe_type,
     )
 
-    topk_ids = topk_ids.to(torch.int32)
     if os.getenv("DLINFER_RESET_MOE_UPDATE_WEIGHTS", "0") == "1":
         gate_up_weights = gate_up_weights.transpose(1, 2)
         down_weights = down_weights.transpose(1, 2)
 
-    if moe_type == MoeType.MC2:
+    if moe_metadata.moe_type == MoeType.MC2:
         moe_output = moe.fused_moe_mc2(
             hidden_states,
             gate_up_weights,
@@ -630,12 +625,12 @@ def fused_moe(
             topk_weights,
             topk_ids,
             renormalize,
-            ep_size,
-            ep_rank,
-            moe_group_name,
+            moe_metadata.ep_size,
+            moe_metadata.ep_rank,
+            moe_metadata.moe_group_name,
             x_active_mask,
         )
-    elif moe_type == MoeType.ALLTOALL:
+    elif moe_metadata.moe_type == MoeType.ALLTOALL:
         moe_output = moe.fused_moe_all2all(
             hidden_states,
             gate_up_weights,
@@ -643,10 +638,10 @@ def fused_moe(
             topk_weights,
             topk_ids,
             renormalize,
-            ep_size,
-            ep_rank,
-            ep_group,
-            expert_ids_per_ep_rank,
+            moe_metadata.ep_size,
+            moe_metadata.ep_rank,
+            moe_metadata.ep_group,
+            moe_metadata.expert_ids_per_ep_rank,
         )
     # TODO: fused_moe_allgather
     else:
@@ -661,7 +656,12 @@ def fused_moe(
         )
 
     moe_output = moe.moe_finalize(
-        moe_output, num_tokens, paded_num_tokens, ep_size, tp_size, tp_group
+        moe_output,
+        num_tokens,
+        paded_num_tokens,
+        moe_metadata.ep_size,
+        moe_metadata.tp_size,
+        moe_metadata.tp_group,
     )
 
     return moe_output
