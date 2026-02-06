@@ -1,7 +1,7 @@
 import torch
 import numpy
 import torch.distributed as dist
-from dlinfer.utils.type_annotation import MoeType
+from dlinfer.utils.type_annotation import MoECommType
 
 
 def apply_mlp(
@@ -43,14 +43,14 @@ def moe_prepare(
     tp_size: int,
     ep_size: int,
     tp_rank: int,
-    moe_type: MoeType,
+    moe_comm_type: MoECommType,
 ):
     if ep_size <= 1:
         return hidden_states, None, None, None
     num_tokens = hidden_states.size(0)
     # pad hidden_states
     if pad_size > 0:
-        if moe_type == MoeType.MC2:
+        if moe_comm_type == MoECommType.MC2:
             x_active_mask = torch.nn.functional.pad(
                 x_active_mask, (0, pad_size), value=False
             )
@@ -60,7 +60,7 @@ def moe_prepare(
     if tp_size > 1:
         split_hidden_states = torch.tensor_split(hidden_states, tp_size, dim=0)
         hidden_states = split_hidden_states[tp_rank]
-        if moe_type == MoeType.MC2:
+        if moe_comm_type == MoECommType.MC2:
             split_x_active_mask = torch.tensor_split(x_active_mask, tp_size, dim=0)
             x_active_mask = split_x_active_mask[tp_rank]
     return hidden_states, num_tokens, paded_num_tokens, x_active_mask

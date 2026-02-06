@@ -482,10 +482,15 @@ def moe_gating_topk_softmax_impl_abstract_func(
     return routing_weights, selected_experts
 
 
-# @register_custom_op(
-#     "dlinfer::moe_gating_topk_softmax",
-#     impl_abstract_func=moe_gating_topk_softmax_impl_abstract_func,
-# )
+"""
+register_custom_op only support simple parameter type
+@register_custom_op(
+    "dlinfer::moe_gating_topk_softmax",
+    impl_abstract_func=moe_gating_topk_softmax_impl_abstract_func,
+)
+"""
+
+
 def moe_gating_topk_softmax(
     router_logits: Tensor,
     topk: int,
@@ -601,7 +606,12 @@ def weight_quant_matmul(
     )
 
 
-# @register_custom_op("dlinfer::fused_moe", ["hidden_states"])
+"""
+register_custom_op only support simple parameter type
+@register_custom_op("dlinfer::fused_moe", ["hidden_states"])
+"""
+
+
 def fused_moe(
     hidden_states: Tensor,
     gate_up_weights: Tensor,

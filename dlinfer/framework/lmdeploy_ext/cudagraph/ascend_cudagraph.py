@@ -478,11 +478,11 @@ def set_graph_params(aclgraph_capture_sizes: set[int]):
     if _graph_params is not None:
         raise ValueError("Graph parameters have already been set!")
     _graph_params = GraphParams(
-        {size: [] for size in aclgraph_capture_sizes},
-        {size: None for size in aclgraph_capture_sizes},
-        {size: [] for size in aclgraph_capture_sizes},
-        {size: [] for size in aclgraph_capture_sizes},
-        False,
+        events={size: [] for size in aclgraph_capture_sizes},
+        workspaces={size: None for size in aclgraph_capture_sizes},
+        handles={size: [] for size in aclgraph_capture_sizes},
+        attn_params={size: [] for size in aclgraph_capture_sizes},
+        is_mla=False,
     )
 
 

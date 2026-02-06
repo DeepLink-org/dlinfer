@@ -6,7 +6,7 @@ from enum import auto, Enum
 from typing import Optional, Sequence, Union, Any, Tuple, Callable, Dict
 
 
-class MoeType(Enum):
+class MoECommType(Enum):
     NAIVE = auto()
     ALLGATHER = auto()
     ALLTOALL = auto()
@@ -26,7 +26,7 @@ class MoeMetadata:
     ep_rank: int = 0
     tp_group: torch.distributed.ProcessGroup = None
     ep_group: torch.distributed.ProcessGroup = None
-    moe_type: MoeType = MoeType.UNDEFINED
+    moe_comm_type: MoECommType = MoECommType.UNDEFINED
     x_active_mask: torch.Tensor = None
     moe_group_name: str = None
     expert_ids_per_ep_rank: torch.Tensor = None

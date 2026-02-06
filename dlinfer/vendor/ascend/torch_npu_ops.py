@@ -12,7 +12,7 @@ from dlinfer.utils.type_annotation import (
     Optional,
     Sequence,
     Tuple,
-    MoeType,
+    MoECommType,
     MoeMetadata,
 )
 from .utils import SocVersion, get_cpu_seq_len
@@ -610,10 +610,10 @@ def fused_moe(
         moe_metadata.tp_size,
         moe_metadata.ep_size,
         moe_metadata.tp_rank,
-        moe_metadata.moe_type,
+        moe_metadata.moe_comm_type,
     )
 
-    if moe_metadata.moe_type == MoeType.MC2:
+    if moe_metadata.moe_comm_type == MoECommType.MC2:
         moe_output = moe.fused_moe_mc2(
             hidden_states,
             gate_up_weights,
@@ -626,7 +626,7 @@ def fused_moe(
             moe_metadata.moe_group_name,
             x_active_mask,
         )
-    elif moe_metadata.moe_type == MoeType.ALLTOALL:
+    elif moe_metadata.moe_comm_type == MoECommType.ALLTOALL:
         moe_output = moe.fused_moe_all2all(
             hidden_states,
             gate_up_weights,
