@@ -1,9 +1,17 @@
 # Copyright (c) 2024, DeepLink. All rights reserved.
 import torch
+from typing import List
 from dlinfer.vendor import vendor_ops_registry
-from dlinfer.utils.type_annotation import Tensor, Optional, Sequence, Tuple
+from dlinfer.utils.type_annotation import (
+    Tensor,
+    Optional,
+    Sequence,
+    Tuple,
+    MoeMetadata,
+    linear_w8a8_scale_type,
+    dynamic_quant_scale_type,
+)
 from dlinfer.graph.custom_op import register_custom_op
-from dlinfer.vendor import linear_w8a8_scale_type, dynamic_quant_scale_type
 
 
 __all__ = [
@@ -474,11 +482,20 @@ def moe_gating_topk_softmax_impl_abstract_func(
     return routing_weights, selected_experts
 
 
+"""
+register_custom_op only support simple parameter type
 @register_custom_op(
     "dlinfer::moe_gating_topk_softmax",
     impl_abstract_func=moe_gating_topk_softmax_impl_abstract_func,
 )
-def moe_gating_topk_softmax(router_logits: Tensor, topk: int) -> Tuple[Tensor, Tensor]:
+"""
+
+
+def moe_gating_topk_softmax(
+    router_logits: Tensor,
+    topk: int,
+    moe_metadata: MoeMetadata,
+) -> Tuple[Tensor, Tensor]:
     """
     Given router_logits of experts, it computes the probability distributions of experts
     and then selecting topk values and their corresponding indices.
@@ -486,13 +503,17 @@ def moe_gating_topk_softmax(router_logits: Tensor, topk: int) -> Tuple[Tensor, T
     Args:
         router_logits (Tensor): The input router logits of probability.
         topk (int): The number of top experts to select.
+        moe_metadata (MoeMetadata): Metadata containing configuration and context for the MoE layer
+                                    required by the backend operation.
 
     Returns:
         Tuple[Tensor, Tensor]:
         - The router weight of selected experts.
         - The index of selected experts.
     """
-    return vendor_ops_registry["moe_gating_topk_softmax"](router_logits, topk)
+    return vendor_ops_registry["moe_gating_topk_softmax"](
+        router_logits, topk, moe_metadata
+    )
 
 
 # TODO only for internlm on transformers lib.
@@ -585,7 +606,12 @@ def weight_quant_matmul(
     )
 
 
+"""
+register_custom_op only support simple parameter type
 @register_custom_op("dlinfer::fused_moe", ["hidden_states"])
+"""
+
+
 def fused_moe(
     hidden_states: Tensor,
     gate_up_weights: Tensor,
@@ -594,6 +620,7 @@ def fused_moe(
     topk_ids: Tensor,
     topk: int,
     renormalize: bool,
+    moe_metadata: MoeMetadata,
 ) -> Tensor:
     """
     Implement the Fused Mixture of Experts (MoE) model.
@@ -606,6 +633,8 @@ def fused_moe(
         gate_up_weights (Tensor): The gate_up_weights tensor used to upsample.
         down_weights (Tensor): The down_weights tensor used to downsample.
         renormalize (bool): A boolean flag to indicate whether to renormalize the output.
+        moe_metadata (MoeMetadata): Metadata containing configuration and context for the MoE layer
+                                    required by the backend operation.
 
     Returns:
         Tensor: The output tensor of the Fused Mixture of Experts (MoE) model.
@@ -619,6 +648,7 @@ def fused_moe(
         topk_ids,
         topk,
         renormalize,
+        moe_metadata,
     )
 
 

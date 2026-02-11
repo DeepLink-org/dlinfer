@@ -8,7 +8,7 @@ from .context_flashattention import context_attention_fwd
 
 from dlinfer.vendor import vendor_ops_registry
 from dlinfer.utils.registry import register_ops
-from dlinfer.utils.type_annotation import Tensor, Optional, Sequence, Tuple
+from dlinfer.utils.type_annotation import Tensor, Optional, Sequence, Tuple, MoeMetadata
 
 from .fused_moe import fused_experts
 from mcoplib import lmdeploy as ops
@@ -359,7 +359,10 @@ def rms_norm(
 
 @register_ops(vendor_ops_registry)
 def moe_gating_topk_softmax(
-    router_logits: Tensor, topk: int, renormalize: bool = False
+    router_logits: Tensor,
+    topk: int,
+    renormalize: bool = False,
+    moe_metadata: MoeMetadata = None,
 ) -> Tuple[Tensor, Tensor]:
 
     N = router_logits.size(0)
@@ -402,6 +405,7 @@ def fused_moe(
     topk_ids: Tensor,
     top_k: int,
     renormalize: bool,
+    moe_metadata: MoeMetadata = None,
 ) -> Tensor:
     N = hidden_states.size(0)
     topk_weights = topk_weights.reshape(N, top_k)
