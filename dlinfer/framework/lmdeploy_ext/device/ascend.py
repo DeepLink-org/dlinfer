@@ -6,7 +6,6 @@ import torch
 import weakref
 from typing import Callable, List
 
-from lmdeploy.pytorch.backends.dlinfer.moe import DlinferFusedMoEImpl
 from lmdeploy.pytorch.models.chatglm2 import SelfAttention
 from lmdeploy.pytorch.engine import logits_process
 
@@ -35,10 +34,6 @@ from torch_npu.profiler import profile as npu_profile
 def rl_update_weights(self, gate_up_weights: torch.Tensor, down_weights: torch.Tensor):
     """Update weights."""
     return gate_up_weights, down_weights
-
-
-if os.getenv("DLINFER_RESET_MOE_UPDATE_WEIGHTS", "0") == "1":
-    DlinferFusedMoEImpl.update_weights = rl_update_weights
 
 
 @staticmethod
