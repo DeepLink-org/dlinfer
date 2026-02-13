@@ -131,7 +131,7 @@ def apply_rotary_pos_emb(
     assert len(query.shape) == 4
     batch, seq_len, _, head_size = query.shape
     rotary_dim = cos.size(-1)
-    
+
     cos = cos.reshape(batch, seq_len, 1, -1)
     sin = sin.reshape(batch, seq_len, 1, -1)
 
@@ -149,7 +149,7 @@ def apply_rotary_pos_emb(
         else:
             return apply_rotary_pos_emb_(query, key, cos, sin)
     elif rotary_dim < head_size:
-        
+
         q_rot = query[..., :rotary_dim].contiguous()
         q_pass = query[..., rotary_dim:]
         k_rot = key[..., :rotary_dim].contiguous()
@@ -159,7 +159,7 @@ def apply_rotary_pos_emb(
         q = torch.cat((q_rot, q_pass), dim=-1)
         k = torch.cat((k_rot, k_pass), dim=-1)
         return q, k
-        
+
         # vllm-ascend/vllm_ascend/ops/rotary_embedding.py
         # num_tokens = query.shape[0]
         # query = query.view(num_tokens, -1, head_size)
@@ -187,6 +187,7 @@ def apply_rotary_pos_emb(
         raise RuntimeError(
             "apply_rotary_pos_emb does not " "support rotary_dim >xl head_size"
         )
+
 
 @register_ops(vendor_ops_registry)
 def prefill_attention(

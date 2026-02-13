@@ -18,10 +18,12 @@ from einops import rearrange
 MAX_CORES = 65535
 
 
-@triton.heuristics({
-    "HAS_BIAS": lambda args: args["B"] is not None,
-    "HAS_Z": lambda args: args["Z"] is not None,
-})
+@triton.heuristics(
+    {
+        "HAS_BIAS": lambda args: args["B"] is not None,
+        "HAS_Z": lambda args: args["Z"] is not None,
+    }
+)
 @triton.jit
 def layer_norm_fwd_kernel(
     X,  # pointer to the input
@@ -55,13 +57,12 @@ def layer_norm_fwd_kernel(
         n_iters = n_iters + 1
 
     for i in tl.range(n_iters):
-        X_base = X + (i * BLOCK_ROWS *
-                      stride_x_row) + row * stride_x_row + group * N
-        Y_base = Y + (i * BLOCK_ROWS *
-                      stride_y_row) + row * stride_y_row + group * N
+        X_base = X + (i * BLOCK_ROWS * stride_x_row) + row * stride_x_row + group * N
+        Y_base = Y + (i * BLOCK_ROWS * stride_y_row) + row * stride_y_row + group * N
         if HAS_Z:
-            Z_base = Z + (i * BLOCK_ROWS *
-                          stride_z_row) + row * stride_z_row + group * N
+            Z_base = (
+                Z + (i * BLOCK_ROWS * stride_z_row) + row * stride_z_row + group * N
+            )
         if not IS_RMS_NORM:
             Mean_base = Mean + (i * BLOCK_ROWS) + group * M
         Rstd_base = Rstd + (i * BLOCK_ROWS) + group * M
@@ -70,17 +71,17 @@ def layer_norm_fwd_kernel(
             B_base = B + group * N
         # Compute mean and variance
         cols = tl.arange(0, BLOCK_N)
-        x = tl.load(X_base + cols, mask=cols < N, other=0.).to(tl.float32)
+        x = tl.load(X_base + cols, mask=cols < N, other=0.0).to(tl.float32)
         if HAS_Z and not NORM_BEFORE_GATE:
             z = tl.load(Z_base + cols, mask=cols < N).to(tl.float32)
             x *= z * tl.sigmoid(z)
         if not IS_RMS_NORM:
             mean = tl.sum(x, axis=0) / N
             tl.store(Mean_base + row, mean)
-            xbar = tl.where(cols < N, x - mean, 0.)
+            xbar = tl.where(cols < N, x - mean, 0.0)
             var = tl.sum(xbar * xbar, axis=0) / N
         else:
-            xbar = tl.where(cols < N, x, 0.)
+            xbar = tl.where(cols < N, x, 0.0)
             var = tl.sum(xbar * xbar, axis=0) / N
         rstd = 1 / tl.sqrt(var + eps)
         tl.store(Rstd_base + row, rstd)
@@ -118,26 +119,28 @@ def _layer_norm_fwd(
     if z is not None:
         assert z.stride(-1) == 1
         assert z.shape == (M, N)
-    assert weight.shape == (N, )
+    assert weight.shape == (N,)
     assert weight.stride(-1) == 1
     if bias is not None:
         assert bias.stride(-1) == 1
-        assert bias.shape == (N, )
+        assert bias.shape == (N,)
     # allocate output
     if out is not None:
         assert out.shape == x.shape
     else:
         out = torch.empty_like(x)
     assert out.stride(-1) == 1
-    mean = (torch.empty((ngroups * M, ), dtype=torch.float32, device=x.device)
-            if not is_rms_norm else None)
-    rstd = torch.empty((ngroups * M, ), dtype=torch.float32, device=x.device)
+    mean = (
+        torch.empty((ngroups * M,), dtype=torch.float32, device=x.device)
+        if not is_rms_norm
+        else None
+    )
+    rstd = torch.empty((ngroups * M,), dtype=torch.float32, device=x.device)
     # Less than 64KB per feature: enqueue fused kernel
     MAX_FUSED_SIZE = 65536 // x.element_size()
     BLOCK_N = min(MAX_FUSED_SIZE, triton.next_power_of_2(group_size))
     if group_size > BLOCK_N:
-        raise RuntimeError(
-            "This layer norm doesn't support feature dim >= 64KB.")
+        raise RuntimeError("This layer norm doesn't support feature dim >= 64KB.")
     # heuristics for number of warps
     num_warps = min(max(BLOCK_N // 256, 1), 8)
     grid = (M if M < MAX_CORES else MAX_CORES, ngroups)
@@ -205,29 +208,29 @@ class LayerNormFn(torch.autograd.Function):
             is_rms_norm=is_rms_norm,
         )
         return y.reshape(x_shape_og)
-    
-
-def layernorm_fn(x,
-                 weight,
-                 bias,
-                 z=None,
-                 eps=1e-6,
-                 group_size=None,
-                 norm_before_gate=True,
-                 is_rms_norm=False):
-    return LayerNormFn.apply(x, weight, bias, z, eps, group_size,
-                             norm_before_gate, is_rms_norm)
 
 
-def rmsnorm_fn(x,
-               weight,
-               bias,
-               z=None,
-               eps=1e-6,
-               group_size=None,
-               norm_before_gate=True):
-    return LayerNormFn.apply(x, weight, bias, z, eps, group_size,
-                             norm_before_gate, True)
+def layernorm_fn(
+    x,
+    weight,
+    bias,
+    z=None,
+    eps=1e-6,
+    group_size=None,
+    norm_before_gate=True,
+    is_rms_norm=False,
+):
+    return LayerNormFn.apply(
+        x, weight, bias, z, eps, group_size, norm_before_gate, is_rms_norm
+    )
+
+
+def rmsnorm_fn(
+    x, weight, bias, z=None, eps=1e-6, group_size=None, norm_before_gate=True
+):
+    return LayerNormFn.apply(
+        x, weight, bias, z, eps, group_size, norm_before_gate, True
+    )
 
 
 class LayerNormGated(nn.Module):
@@ -259,15 +262,16 @@ class LayerNormGated(nn.Module):
         torch.nn.init.zeros_(self.bias)
 
     def forward(self, x, z=None):
-        """If z is not None, we do norm(x) * silu(z) if norm_before_gate, else norm(x * silu(z))
-        """
-        return layernorm_fn(x,
-                            self.weight,
-                            self.bias,
-                            z=z,
-                            group_size=self.group_size,
-                            eps=self.eps,
-                            norm_before_gate=self.norm_before_gate)
+        """If z is not None, we do norm(x) * silu(z) if norm_before_gate, else norm(x * silu(z))"""
+        return layernorm_fn(
+            x,
+            self.weight,
+            self.bias,
+            z=z,
+            group_size=self.group_size,
+            eps=self.eps,
+            norm_before_gate=self.norm_before_gate,
+        )
 
 
 class RMSNormGated(nn.Module):
@@ -286,7 +290,9 @@ class RMSNormGated(nn.Module):
         """
         super().__init__()
         self.eps = eps
-        self.weight = nn.Parameter(torch.empty(hidden_size, device=device, dtype=torch.bfloat16))
+        self.weight = nn.Parameter(
+            torch.empty(hidden_size, device=device, dtype=torch.bfloat16)
+        )
         self.register_parameter("bias", None)
         self.group_size = group_size
         self.norm_before_gate = norm_before_gate
@@ -296,12 +302,13 @@ class RMSNormGated(nn.Module):
         torch.nn.init.ones_(self.weight)
 
     def forward(self, x, z=None):
-        """If z is not None, we do norm(x) * silu(z) if norm_before_gate, else norm(x * silu(z))
-        """
-        return rmsnorm_fn(x,
-                          self.weight,
-                          self.bias,
-                          z=z,
-                          eps=self.eps,
-                          group_size=self.group_size,
-                          norm_before_gate=self.norm_before_gate)
+        """If z is not None, we do norm(x) * silu(z) if norm_before_gate, else norm(x * silu(z))"""
+        return rmsnorm_fn(
+            x,
+            self.weight,
+            self.bias,
+            z=z,
+            eps=self.eps,
+            group_size=self.group_size,
+            norm_before_gate=self.norm_before_gate,
+        )

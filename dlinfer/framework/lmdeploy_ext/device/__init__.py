@@ -289,7 +289,11 @@ def patch_state_cache_engine():
     from lmdeploy.pytorch.engine.cache_engine import CacheDesc
 
     @staticmethod
-    def _state_cache_engine_allocate_caches(num_caches: int, state_shapes: List[Tuple[Tuple[int], torch.dtype]], device: torch.device):
+    def _state_cache_engine_allocate_caches(
+        num_caches: int,
+        state_shapes: List[Tuple[Tuple[int], torch.dtype]],
+        device: torch.device,
+    ):
         """Allocate cache implement."""
 
         # only support [DT_FLOAT,DT_INT32,DT_INT64,DT_FLOAT16,DT_INT8,DT_BOOL,DT_BFLOAT16,]
@@ -311,14 +315,20 @@ def patch_state_cache_engine():
             mem_pool_size += desc.aligned_size
 
         # create pool
-        mem_pool = torch.zeros((num_caches, mem_pool_size), dtype=cache_dtype, device=device)
+        mem_pool = torch.zeros(
+            (num_caches, mem_pool_size), dtype=cache_dtype, device=device
+        )
 
         # slice caches
         caches = []
         remain_pool = mem_pool
         for desc in cache_descs:
-            cache = remain_pool[:, :desc.size].view(desc.dtype).view((num_caches, *desc.shape))
-            remain_pool = remain_pool[:, desc.aligned_size:]
+            cache = (
+                remain_pool[:, : desc.size]
+                .view(desc.dtype)
+                .view((num_caches, *desc.shape))
+            )
+            remain_pool = remain_pool[:, desc.aligned_size :]
             caches.append(cache)
         return mem_pool, caches
 
@@ -327,8 +337,9 @@ def patch_state_cache_engine():
 
 def patch_qwen3_next():
     from lmdeploy.pytorch.models import module_map
-    module_map.DEVICE_SPECIAL_MODULE_MAP['ascend'] = {
-        'Qwen3NextForCausalLM': 'dlinfer.framework.lmdeploy_ext.device.ascend_qwen3_next.Qwen3NextForCausalLM',
+
+    module_map.DEVICE_SPECIAL_MODULE_MAP["ascend"] = {
+        "Qwen3NextForCausalLM": "dlinfer.framework.lmdeploy_ext.device.ascend_qwen3_next.Qwen3NextForCausalLM",
     }
 
 
