@@ -17,7 +17,7 @@ import triton.language as tl
 import triton.language.extra.libdevice as tldevice
 
 
-if os.environ.get('FLA_USE_FAST_OPS', '0') == '1':
+if os.environ.get("FLA_USE_FAST_OPS", "0") == "1":
     div = tldevice.fast_dividef
     exp = tldevice.fast_expf
     log = tldevice.fast_logf
@@ -34,17 +34,15 @@ else:
     log2 = tl.log2
 
 
-@triton.heuristics({
-    'USE_INITIAL_STATE':
-    lambda args: args['h0'] is not None,
-    'IS_VARLEN':
-    lambda args: args['cu_seqlens'] is not None,
-    "IS_CONTINUOUS_BATCHING":
-    lambda args: args['ssm_state_indices'] is not None,
-    "IS_SPEC_DECODING":
-    lambda args: args['num_accepted_tokens'] is not None,
-})
-@triton.jit(do_not_specialize=['N', 'T'])
+@triton.heuristics(
+    {
+        "USE_INITIAL_STATE": lambda args: args["h0"] is not None,
+        "IS_VARLEN": lambda args: args["cu_seqlens"] is not None,
+        "IS_CONTINUOUS_BATCHING": lambda args: args["ssm_state_indices"] is not None,
+        "IS_SPEC_DECODING": lambda args: args["num_accepted_tokens"] is not None,
+    }
+)
+@triton.jit(do_not_specialize=["N", "T"])
 def fused_recurrent_gated_delta_rule_fwd_kernel(
     q,
     k,
@@ -73,8 +71,7 @@ def fused_recurrent_gated_delta_rule_fwd_kernel(
     stride_indices_tok: tl.constexpr,
     USE_INITIAL_STATE: tl.constexpr,  # whether to use initial state
     INPLACE_FINAL_STATE: tl.constexpr,  # whether to store final state inplace
-    IS_BETA_HEADWISE: tl.
-    constexpr,  # whether beta is headwise vector or scalar,
+    IS_BETA_HEADWISE: tl.constexpr,  # whether beta is headwise vector or scalar,
     USE_QK_L2NORM_IN_KERNEL: tl.constexpr,
     IS_VARLEN: tl.constexpr,
     IS_CONTINUOUS_BATCHING: tl.constexpr,
@@ -85,8 +82,9 @@ def fused_recurrent_gated_delta_rule_fwd_kernel(
     i_n, i_hv = i_nh // HV, i_nh % HV
     i_h = i_hv // (HV // H)
     if IS_VARLEN:
-        bos, eos = tl.load(cu_seqlens + i_n).to(
-            tl.int64), tl.load(cu_seqlens + i_n + 1).to(tl.int64)
+        bos, eos = tl.load(cu_seqlens + i_n).to(tl.int64), tl.load(
+            cu_seqlens + i_n + 1
+        ).to(tl.int64)
         all = T
         T = eos - bos
     else:
@@ -111,8 +109,13 @@ def fused_recurrent_gated_delta_rule_fwd_kernel(
                 i_t = tl.load(num_accepted_tokens + i_n).to(tl.int64) - 1
             else:
                 i_t = 0
-            p_h0 = h0 + tl.load(ssm_state_indices + i_n * stride_indices_seq +
-                                i_t).to(tl.int64) * stride_init_state_token
+            p_h0 = (
+                h0
+                + tl.load(ssm_state_indices + i_n * stride_indices_seq + i_t).to(
+                    tl.int64
+                )
+                * stride_init_state_token
+            )
         else:
             p_h0 = h0 + bos * HV * K * V
         p_h0 = p_h0 + i_hv * K * V + o_k[:, None] * V + o_v[None, :]
@@ -167,13 +170,17 @@ def fused_recurrent_gated_delta_rule_fwd_kernel(
 
         # keep the states for multi-query tokens
         if INPLACE_FINAL_STATE:
-            p_ht = ht + tl.load(ssm_state_indices + i_n * stride_indices_seq +
-                                i_t).to(tl.int64) * stride_final_state_token
+            p_ht = (
+                ht
+                + tl.load(ssm_state_indices + i_n * stride_indices_seq + i_t).to(
+                    tl.int64
+                )
+                * stride_final_state_token
+            )
         else:
             p_ht = ht + (bos + i_t) * stride_final_state_token
         p_ht = p_ht + i_hv * K * V + o_k[:, None] * V + o_v[None, :]
         tl.store(p_ht, b_h.to(p_ht.dtype.element_ty), mask=mask_h)
-
 
 
 def fused_recurrent_gated_delta_rule_fwd(
