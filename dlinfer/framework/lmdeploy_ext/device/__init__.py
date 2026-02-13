@@ -282,6 +282,56 @@ def patch_contiguous_cache_engine():
     cache_engine.CacheEngine.allocate_caches = _cache_engine_allocate_caches
 
 
+##### patch state cache engine #####
+def patch_state_cache_engine():
+    from typing import List, Tuple
+    from lmdeploy.pytorch.engine import cache_engine
+    from lmdeploy.pytorch.engine.cache_engine import CacheDesc
+
+    @staticmethod
+    def _state_cache_engine_allocate_caches(num_caches: int, state_shapes: List[Tuple[Tuple[int], torch.dtype]], device: torch.device):
+        """Allocate cache implement."""
+
+        # only support [DT_FLOAT,DT_INT32,DT_INT64,DT_FLOAT16,DT_INT8,DT_BOOL,DT_BFLOAT16,]
+        cache_dtype = torch.int8
+        if len(state_shapes) == 0 or num_caches == 0:
+            return torch.empty((0, 0), dtype=cache_dtype, device=device), []
+
+        # Ascend kernel causal_comv1d_update_npu requires the shape of conv_cache to be (B, K, D) and continuous in the K dimension
+        cache_descs = []
+        for shape, dtype in state_shapes:
+            if len(shape) == 3:
+                cache_descs.append(CacheDesc((shape[0], shape[2], shape[1]), dtype))
+            else:
+                cache_descs.append(CacheDesc(shape, dtype))
+
+        # get mempool size
+        mem_pool_size = 0
+        for desc in cache_descs:
+            mem_pool_size += desc.aligned_size
+
+        # create pool
+        mem_pool = torch.zeros((num_caches, mem_pool_size), dtype=cache_dtype, device=device)
+
+        # slice caches
+        caches = []
+        remain_pool = mem_pool
+        for desc in cache_descs:
+            cache = remain_pool[:, :desc.size].view(desc.dtype).view((num_caches, *desc.shape))
+            remain_pool = remain_pool[:, desc.aligned_size:]
+            caches.append(cache)
+        return mem_pool, caches
+
+    cache_engine.StateCacheEngine.allocate_caches = _state_cache_engine_allocate_caches
+
+
+def patch_qwen3_next():
+    from lmdeploy.pytorch.models import module_map
+    module_map.DEVICE_SPECIAL_MODULE_MAP['ascend'] = {
+        'Qwen3NextForCausalLM': 'dlinfer.framework.lmdeploy_ext.device.ascend_qwen3_next.Qwen3NextForCausalLM',
+    }
+
+
 @lru_cache(1)
 def import_vendor_module(vendor_name_str):
     if vendor_name_str in vendor:
@@ -296,6 +346,9 @@ def vendor_device_init():
         patch_contiguous_cache_engine()
     patch_dlinfer_moe()
     patch_dlinfer_rotary_embedding()
+    if vendor_name == "ascend":
+        patch_state_cache_engine()
+        patch_qwen3_next()
 
 
 vendor_device_init()
