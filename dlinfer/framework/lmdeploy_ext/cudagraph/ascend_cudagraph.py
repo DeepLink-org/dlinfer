@@ -120,7 +120,9 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
     if x_active_mask is not None:
         input_buffers["x_active_mask"].fill_(0)
         input_buffers["x_active_mask"][:batch_size] = x_active_mask
-    input_buffers["q_start_loc"][:batch_size+1] = q_start_loc
+        
+    if 'state_ids' in kwargs:
+        input_buffers["q_start_loc"][:batch_size+1] = q_start_loc
 
     if inputs_embeds is not None:
         emb_size = inputs_embeds.size(-1)
