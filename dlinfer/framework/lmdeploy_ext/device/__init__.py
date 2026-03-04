@@ -282,6 +282,245 @@ def patch_contiguous_cache_engine():
     cache_engine.CacheEngine.allocate_caches = _cache_engine_allocate_caches
 
 
+##### patch state cache engine #####
+def patch_state_cache_engine():
+    from typing import List, Tuple
+    from lmdeploy.pytorch.engine import cache_engine
+    from lmdeploy.pytorch.engine.cache_engine import CacheDesc
+
+    @staticmethod
+    def _state_cache_engine_allocate_caches(
+        num_caches: int,
+        state_shapes: List[Tuple[Tuple[int], torch.dtype]],
+        device: torch.device,
+    ):
+        """Allocate cache implement."""
+
+        # only support [DT_FLOAT,DT_INT32,DT_INT64,DT_FLOAT16,DT_INT8,DT_BOOL,DT_BFLOAT16,]
+        cache_dtype = torch.int8
+        if len(state_shapes) == 0 or num_caches == 0:
+            return torch.empty((0, 0), dtype=cache_dtype, device=device), []
+
+        # Ascend kernel causal_comv1d_update_npu requires the shape of conv_cache to be (B, K, D) and continuous in the K dimension
+        cache_descs = []
+        for shape, dtype in state_shapes:
+            if len(shape) == 3:
+                cache_descs.append(CacheDesc((shape[0], shape[2], shape[1]), dtype))
+            else:
+                cache_descs.append(CacheDesc(shape, dtype))
+
+        # get mempool size
+        mem_pool_size = 0
+        for desc in cache_descs:
+            mem_pool_size += desc.aligned_size
+
+        # create pool
+        mem_pool = torch.zeros(
+            (num_caches, mem_pool_size), dtype=cache_dtype, device=device
+        )
+
+        # slice caches
+        caches = []
+        remain_pool = mem_pool
+        for desc in cache_descs:
+            cache = (
+                remain_pool[:, : desc.size]
+                .view(desc.dtype)
+                .view((num_caches, *desc.shape))
+            )
+            remain_pool = remain_pool[:, desc.aligned_size :]
+            caches.append(cache)
+        return mem_pool, caches
+
+    cache_engine.StateCacheEngine.allocate_caches = _state_cache_engine_allocate_caches
+
+
+def patch_qwen3_next():
+    from lmdeploy.pytorch.models import module_map
+
+    module_map.DEVICE_SPECIAL_MODULE_MAP["ascend"] = {
+        "Qwen3NextForCausalLM": "dlinfer.framework.lmdeploy_ext.device.ascend_qwen3_next.Qwen3NextForCausalLM",
+    }
+
+
+def patch_gated_delta_net():
+    from typing import Any, Sequence, Tuple
+    from torch.profiler import record_function
+
+    from lmdeploy.pytorch.nn import gated_delta
+    from lmdeploy.pytorch.nn.gated_delta import GatedDeltaMeta
+
+    from dlinfer.vendor.ascend.triton_ops import RMSNormGated
+    from dlinfer.vendor.ascend.triton_ops import (
+        causal_conv1d_fn,
+        causal_conv1d_update_npu,
+    )
+    from dlinfer.vendor.ascend.triton_ops import (
+        chunk_gated_delta_rule,
+        fused_recurrent_gated_delta_rule,
+    )
+
+    class AscendGatedDeltaMeta:
+
+        def __init__(
+            self,
+            num_tokens: int,
+            conv_kernel_size: int,
+            state_ids: torch.Tensor,
+            attn_metadata: Any,
+        ):
+            self.is_decoding = attn_metadata.is_decoding
+            self.cu_seqlens = attn_metadata.q_start_loc
+
+            # state_ids, fill invalid state with 0
+            self.state_ids = state_ids.clamp(0)
+            self.has_initial_state = attn_metadata.has_initial_state
+            self.conv_state_indices = self.state_ids
+
+    def build_rmsnorm_gated(hidden_size: int, eps=1e-6, **kwargs):
+        device = kwargs["device"]
+        return RMSNormGated(hidden_size, eps=eps, norm_before_gate=True, device=device)
+
+    class AscendCausalConv1dFunc:
+
+        def __init__(self, activation: str = "silu"):
+            self.causal_conv1d_fn = causal_conv1d_fn
+            self.causal_conv1d_update = causal_conv1d_update_npu
+            self.activation = activation
+
+        def conv1d_func(
+            self,
+            x: torch.Tensor,
+            weight: torch.Tensor,
+            bias: torch.Tensor,
+            conv_state: torch.Tensor,
+            gated_delta_meta: GatedDeltaMeta,
+        ):
+            """
+            x: (b, seqlen, dim)
+            seqlen: (b)
+            out: (b, seqlen, dim)
+            conv_state: (b, dim, kernel_size)
+            """
+            out = self.causal_conv1d_fn(
+                x.t(),
+                weight,
+                bias,
+                activation=self.activation,
+                conv_states=conv_state.transpose(1, 2),
+                has_initial_state=gated_delta_meta.has_initial_state,
+                cache_indices=gated_delta_meta.conv_state_indices,
+                query_start_loc=gated_delta_meta.cu_seqlens,
+            )
+
+            out = out.t().unsqueeze(0)
+
+            return out, conv_state
+
+        # 替换
+        def conv1d_update(
+            self,
+            x: torch.Tensor,
+            weight: torch.Tensor,
+            bias: torch.Tensor,
+            conv_state: torch.Tensor,
+            conv_state_indices: torch.Tensor,
+        ):
+            out = self.causal_conv1d_update(
+                x,
+                conv_state.transpose(1, 2),
+                weight,
+                bias,
+                self.activation,
+                conv_state_indices=conv_state_indices,
+                validate_data=True,
+            )
+            return out.unsqueeze(0), conv_state
+
+        @record_function("causal_conv1d")
+        def __call__(
+            self,
+            x: torch.Tensor,
+            weight: torch.Tensor,
+            bias: torch.Tensor,
+            conv_state: torch.Tensor,
+            gated_delta_meta: GatedDeltaMeta,
+        ):
+            weight_reshaped = weight.squeeze(1)
+            x = x.squeeze(0)
+
+            if gated_delta_meta.is_decoding:
+                conv_state_indices = gated_delta_meta.conv_state_indices
+                return self.conv1d_update(
+                    x, weight_reshaped, bias, conv_state, conv_state_indices
+                )
+            return self.conv1d_func(
+                x, weight_reshaped, bias, conv_state, gated_delta_meta=gated_delta_meta
+            )
+
+    class AscendGatedDelta:
+
+        def __init__(self, use_qk_l2norm_in_kernel: bool = True):
+            self.chunk_gated_delta_rule = chunk_gated_delta_rule
+            self.fused_recurrent_gated_delta_rule = fused_recurrent_gated_delta_rule
+            self.use_qk_l2norm_in_kernel = use_qk_l2norm_in_kernel
+
+        def __call__(
+            self,
+            query: torch.Tensor,
+            key: torch.Tensor,
+            value: torch.Tensor,
+            g: torch.Tensor,
+            beta: torch.Tensor,
+            recurrent_state: torch.Tensor,
+            gated_delta_meta: GatedDeltaMeta,
+        ):
+            """call."""
+
+            is_decoding = gated_delta_meta.is_decoding
+
+            if is_decoding:
+                core_attn_out, last_recurrent_state = (
+                    self.fused_recurrent_gated_delta_rule(
+                        q=query,
+                        k=key,
+                        v=value,
+                        g=g,
+                        beta=beta,
+                        initial_state=recurrent_state,
+                        inplace_final_state=True,
+                        ssm_state_indices=gated_delta_meta.state_ids,
+                        cu_seqlens=gated_delta_meta.cu_seqlens,
+                        use_qk_l2norm_in_kernel=self.use_qk_l2norm_in_kernel,
+                    )
+                )
+            else:
+                initial_state = recurrent_state[gated_delta_meta.state_ids]
+                initial_state[~gated_delta_meta.has_initial_state, ...] = 0
+                core_attn_out, last_recurrent_state = self.chunk_gated_delta_rule(
+                    q=query,
+                    k=key,
+                    v=value,
+                    g=g,
+                    beta=beta,
+                    initial_state=initial_state,
+                    output_final_state=True,
+                    cu_seqlens=gated_delta_meta.cu_seqlens,
+                    head_first=False,
+                    use_qk_l2norm_in_kernel=self.use_qk_l2norm_in_kernel,
+                )
+                recurrent_state[gated_delta_meta.state_ids] = last_recurrent_state.to(
+                    recurrent_state.dtype
+                )
+
+            return core_attn_out, last_recurrent_state
+
+    gated_delta.GatedDeltaMeta = AscendGatedDeltaMeta
+    gated_delta.CausalConv1dFunc = AscendCausalConv1dFunc
+    gated_delta.GatedDelta = AscendGatedDelta
+    gated_delta.build_rmsnorm_gated = build_rmsnorm_gated
+
+
 @lru_cache(1)
 def import_vendor_module(vendor_name_str):
     if vendor_name_str in vendor:
@@ -296,6 +535,10 @@ def vendor_device_init():
         patch_contiguous_cache_engine()
     patch_dlinfer_moe()
     patch_dlinfer_rotary_embedding()
+    if vendor_name == "ascend":
+        patch_state_cache_engine()
+        patch_qwen3_next()
+        patch_gated_delta_net()
 
 
 vendor_device_init()
