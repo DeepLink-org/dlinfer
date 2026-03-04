@@ -477,11 +477,6 @@ def moe_gating_topk_softmax(
     router_logits: Tensor,
     topk: int,
     moe_metadata: MoeMetadata,
-    # max_tokens_across_dp: int,
-    # pad_size: int,
-    # tp_size: int,
-    # ep_size: int,
-    # tp_rank: int,
 ) -> Tuple[Tensor, Tensor]:
     if moe_metadata.ep_size > 1:
         if moe_metadata.pad_size > 0:
@@ -493,9 +488,24 @@ def moe_gating_topk_softmax(
                 router_logits, moe_metadata.tp_size, dim=0
             )
             router_logits = split_router_logits[moe_metadata.tp_rank]
-    routing_weights, selected_idx, _ = torch.ops.npu.npu_moe_gating_top_k_softmax(
-        router_logits, None, topk
-    )
+    if moe_metadata.router_n_groups > 0:
+        routing_weights, selected_idx, _ = torch.ops.npu.npu_moe_gating_top_k(
+            router_logits,
+            k=topk,
+            bias=None,
+            k_group=moe_metadata.router_n_groups,
+            group_count=moe_metadata.router_n_groups,
+            group_select_mode=0,  # 0: the maximum in the group; 1: topk2.sum
+            renorm=0,  # 0: softmax->topk; 1: topk->softmax
+            norm_type=0,  # 0: softmax; 1: sigmoid
+            out_flag=False,
+            routed_scaling_factor=1,
+            eps=1e-20,
+        )
+    else:
+        routing_weights, selected_idx, _ = torch.ops.npu.npu_moe_gating_top_k_softmax(
+            router_logits, None, topk
+        )
     return routing_weights, selected_idx
 
 
