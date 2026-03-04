@@ -30,6 +30,7 @@ class MoeMetadata:
     x_active_mask: torch.Tensor = None
     moe_group_name: str = None
     expert_ids_per_ep_rank: torch.Tensor = None
+    router_n_groups: int = -1
 
 
 linear_w8a8_scale_type = torch.Tensor
