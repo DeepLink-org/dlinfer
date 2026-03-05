@@ -219,14 +219,6 @@ def patch_state_cache_engine():
     cache_engine.StateCacheEngine.allocate_caches = _state_cache_engine_allocate_caches
 
 
-def patch_qwen3_next():
-    from lmdeploy.pytorch.models import module_map
-
-    module_map.DEVICE_SPECIAL_MODULE_MAP["ascend"] = {
-        "Qwen3NextForCausalLM": "dlinfer.framework.lmdeploy_ext.device.ascend_qwen3_next.Qwen3NextForCausalLM",
-    }
-
-
 def patch_gated_delta_net():
     from typing import Any, Sequence, Tuple
     from torch.profiler import record_function
@@ -419,7 +411,6 @@ def vendor_device_init():
         patch_contiguous_cache_engine()
     if vendor_name == "ascend":
         patch_state_cache_engine()
-        patch_qwen3_next()
         patch_gated_delta_net()
 
 
