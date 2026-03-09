@@ -1,3 +1,8 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# NPU device property helpers for Triton kernels.
+# Adapted from https://github.com/vllm-project/vllm-ascend/blob/main/vllm_ascend/ops/triton/triton_utils.py
+
 from typing import Any, Dict
 
 import torch
