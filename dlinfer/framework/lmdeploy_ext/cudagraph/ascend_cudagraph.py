@@ -100,7 +100,12 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
     num_tokens = input_ids.size(-1)
 
     # fill buffer
-    input_buffers["input_ids"].random_(0, graph_meta.vocab_size)
+    max_num_tokens = input_buffers["input_ids"].size(-1)
+    if num_tokens < max_num_tokens:
+        # Only initialize the padding region to avoid unnecessary work and RNG advancement
+        input_buffers["input_ids"][:, num_tokens:max_num_tokens].random_(
+            0, graph_meta.vocab_size
+        )
     input_buffers["input_ids"][:, :num_tokens] = input_ids
     input_buffers["position_ids"].zero_()
     input_buffers["position_ids"][:, :num_tokens] = position_ids
