@@ -24,9 +24,18 @@ MAX_CORES = 65535
 )
 @triton.jit
 def _rms_norm_fwd_kernel(
-    X, Y, W, B, Z, Rstd,
-    stride_x_row, stride_y_row, stride_z_row,
-    M, N, eps,
+    X,
+    Y,
+    W,
+    B,
+    Z,
+    Rstd,
+    stride_x_row,
+    stride_y_row,
+    stride_z_row,
+    M,
+    N,
+    eps,
     BLOCK_N: tl.constexpr,
     HAS_BIAS: tl.constexpr,
     HAS_Z: tl.constexpr,
@@ -46,7 +55,9 @@ def _rms_norm_fwd_kernel(
         X_base = X + (i * BLOCK_ROWS * stride_x_row) + row * stride_x_row + group * N
         Y_base = Y + (i * BLOCK_ROWS * stride_y_row) + row * stride_y_row + group * N
         if HAS_Z:
-            Z_base = Z + (i * BLOCK_ROWS * stride_z_row) + row * stride_z_row + group * N
+            Z_base = (
+                Z + (i * BLOCK_ROWS * stride_z_row) + row * stride_z_row + group * N
+            )
         Rstd_base = Rstd + (i * BLOCK_ROWS) + group * M
         W_base = W + group * N
         if HAS_BIAS:
@@ -108,10 +119,18 @@ def rmsnorm_fn(
 
     with torch.npu.device(x.device.index):
         _rms_norm_fwd_kernel[grid](
-            x, out, weight, bias, z, rstd,
-            x.stride(0), out.stride(0),
+            x,
+            out,
+            weight,
+            bias,
+            z,
+            rstd,
+            x.stride(0),
+            out.stride(0),
             z.stride(0) if z is not None else 0,
-            M, group_size, eps,
+            M,
+            group_size,
+            eps,
             BLOCK_N=BLOCK_N,
             NORM_BEFORE_GATE=norm_before_gate,
             N_CORES=MAX_CORES,
