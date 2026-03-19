@@ -9,6 +9,7 @@ from typing import Optional
 
 import torch
 from triton_ascend_kernels.attention.fla import chunk_gated_delta_rule_fwd
+from triton_ascend_kernels.norm.l2norm import l2norm_fwd
 
 
 def _contiguous(t):
@@ -45,20 +46,19 @@ def chunk_gated_delta_rule(
         output_final_state: whether to return final state `[N, H, K, V]`.
         cu_seqlens: `[N+1]` for variable-length sequences.
         head_first: kept for API compat, must be False.
-        use_qk_l2norm_in_kernel: kept for API compat, not used.
     Returns:
         (o, final_state): o is `[B, T, H, V]`, final_state is `[N, H, K, V]` or None.
     """
     assert not head_first, "head_first=True is not supported."
     assert q.dtype == k.dtype == v.dtype
-    assert q.dtype != torch.float32, "chunk_gated_delta_rule does not support float32. Please use bfloat16."
+    assert (
+        q.dtype != torch.float32
+    ), "chunk_gated_delta_rule does not support float32. Please use bfloat16."
     assert len(beta.shape) == 3
 
     if cu_seqlens is not None:
         if q.shape[0] != 1:
-            raise ValueError(
-                f"Batch size must be 1 with cu_seqlens, got {q.shape[0]}."
-            )
+            raise ValueError(f"Batch size must be 1 with cu_seqlens, got {q.shape[0]}.")
         if initial_state is not None and initial_state.shape[0] != len(cu_seqlens) - 1:
             raise ValueError(
                 f"initial_state batch ({initial_state.shape[0]}) != num sequences ({len(cu_seqlens) - 1})."
@@ -66,6 +66,10 @@ def chunk_gated_delta_rule(
 
     if scale is None:
         scale = k.shape[-1] ** -0.5
+
+    if use_qk_l2norm_in_kernel:
+        q = l2norm_fwd(q)
+        k = l2norm_fwd(k)
 
     input_dtype = q.dtype
     q = _contiguous(q).to(torch.bfloat16)
@@ -77,7 +81,11 @@ def chunk_gated_delta_rule(
         initial_state = _contiguous(initial_state).to(torch.bfloat16)
 
     o, final_state = chunk_gated_delta_rule_fwd(
-        q=q, k=k, v=v, g=g, beta=beta,
+        q=q,
+        k=k,
+        v=v,
+        g=g,
+        beta=beta,
         scale=scale,
         initial_state=initial_state,
         output_final_state=output_final_state,

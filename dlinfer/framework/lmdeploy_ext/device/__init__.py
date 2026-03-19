@@ -349,8 +349,9 @@ def patch_gated_delta_net():
     )
     from dlinfer.vendor.ascend.triton_ops import (
         chunk_gated_delta_rule,
-        # fused_recurrent_gated_delta_rule,
     )
+
+    from dlinfer.vendor.ascend.triton_ops.fla import l2norm_fwd
 
     class AscendGatedDeltaMeta:
 
@@ -454,11 +455,8 @@ def patch_gated_delta_net():
 
         def __init__(self, use_qk_l2norm_in_kernel: bool = True):
             self.chunk_gated_delta_rule = chunk_gated_delta_rule
-            # self.fused_recurrent_gated_delta_rule = fused_recurrent_gated_delta_rule
             self.use_qk_l2norm_in_kernel = use_qk_l2norm_in_kernel
-            from dlinfer.vendor.ascend.triton_ops.fla.l2norm import l2norm_fwd
             self.l2norm_fwd = l2norm_fwd
-            
 
         def __call__(
             self,
@@ -476,12 +474,11 @@ def patch_gated_delta_net():
 
             if is_decoding:
                 import torch_npu
+
                 indices = gated_delta_meta.state_ids
                 query = self.l2norm_fwd(query)
                 key = self.l2norm_fwd(key)
                 cu_seqlens = gated_delta_meta.cu_seqlens
-                
-                
                 actual_seq_lengths = (cu_seqlens[1:] - cu_seqlens[:-1]).to(torch.int32)
                 # recurrent_state layout: (N, HV, K, V)
                 # CANN op expects: (N, HV, V, K)
@@ -496,11 +493,12 @@ def patch_gated_delta_net():
                     scale=key.shape[-1] ** -0.5,
                     actual_seq_lengths=actual_seq_lengths,
                     ssm_state_indices=torch.arange(
-                        indices.size(0), dtype=torch.int32,
-                        device=indices.device),
+                        indices.size(0), dtype=torch.int32, device=indices.device
+                    ),
                 ).unsqueeze(0)
                 recurrent_state[indices] = state_for_cann.transpose(-1, -2).to(
-                    recurrent_state.dtype)
+                    recurrent_state.dtype
+                )
                 last_recurrent_state = recurrent_state
             else:
                 initial_state = recurrent_state[gated_delta_meta.state_ids]
