@@ -46,11 +46,11 @@ def AscendCudaGraphMixin_make_buffers_cudagraph(
     num_blocks = graph_meta.num_blocks
     device = graph_meta.device
     input_buffers: BuffType = dict()
-    input_buffers["input_ids"] = torch.empty(
-        1, max_tokens, dtype=torch.int32, device=device
+    input_buffers["input_ids"] = torch.zeros(
+        (1, max_tokens), dtype=torch.int32, device=device
     )
 
-    input_buffers["position_ids"] = torch.empty(
+    input_buffers["position_ids"] = torch.zeros(
         (1, max_tokens), dtype=torch.int32, device=device
     )
 
@@ -100,12 +100,23 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
     num_tokens = input_ids.size(-1)
 
     # fill buffer
+    max_num_tokens = input_buffers["input_ids"].size(-1)
+    if num_tokens < max_num_tokens:
+        # Only initialize the padding region to avoid unnecessary work and RNG advancement
+        input_buffers["input_ids"][:, num_tokens:max_num_tokens].random_(
+            0, graph_meta.vocab_size
+        )
     input_buffers["input_ids"][:, :num_tokens] = input_ids
+    input_buffers["position_ids"].zero_()
     input_buffers["position_ids"][:, :num_tokens] = position_ids
+    input_buffers["block_offsets"].zero_()
     input_buffers["block_offsets"][:batch_size, :num_blocks] = block_offsets
+    input_buffers["kv_seqlens"].fill_(0)
     input_buffers["kv_seqlens"][:batch_size] = kv_seqlens
+    input_buffers["kv_start_indices"].fill_(-1)
     input_buffers["kv_start_indices"][:batch_size] = kv_start_indices
     if x_active_mask is not None:
+        input_buffers["x_active_mask"].fill_(0)
         input_buffers["x_active_mask"][:batch_size] = x_active_mask
 
     if inputs_embeds is not None:
@@ -120,10 +131,10 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
     # Use compatible size but cap at graph's max_batchs to avoid buffer overflow
     new_batch_size = min(get_ascend_compatible_size(batch_size), graph_meta.max_batchs)
 
-    attn_metadata.block_offsets = input_buffers["block_offsets"][:new_batch_size]
-    attn_metadata.kv_seqlens = input_buffers["kv_seqlens"][:new_batch_size]
-    attn_metadata.kv_start_indices = input_buffers["kv_start_indices"][:new_batch_size]
-    moe_metadata.x_active_mask = input_buffers["x_active_mask"][:new_batch_size]
+    attn_metadata.block_offsets = input_buffers["block_offsets"]
+    attn_metadata.kv_seqlens = input_buffers["kv_seqlens"]
+    attn_metadata.kv_start_indices = input_buffers["kv_start_indices"]
+    moe_metadata.x_active_mask = input_buffers["x_active_mask"]
 
     new_inputs = dict(
         past_key_values=past_key_values,
@@ -131,11 +142,11 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
         moe_metadata=moe_metadata,
     )
 
-    new_inputs["input_ids"] = input_buffers["input_ids"][:, :new_batch_size]
-    new_inputs["position_ids"] = input_buffers["position_ids"][:, :new_batch_size]
+    new_inputs["input_ids"] = input_buffers["input_ids"]
+    new_inputs["position_ids"] = input_buffers["position_ids"]
 
     if inputs_embeds is not None:
-        new_inputs["inputs_embeds"] = input_buffers["inputs_embeds"][:, :new_batch_size]
+        new_inputs["inputs_embeds"] = input_buffers["inputs_embeds"]
 
     new_inputs.update(kwargs)
 
