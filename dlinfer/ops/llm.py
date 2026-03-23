@@ -268,6 +268,7 @@ def paged_decode_attention(
     value_cache: Tensor,
     block_table: Tensor,
     block_size: int,
+    q_seq_len: Tensor,
     kv_seq_len: Tensor,
     max_kv_seq_len: int,
     num_q_heads: int,
@@ -291,6 +292,7 @@ def paged_decode_attention(
         block_table (Tensor): A tensor that maps each position in the query sequence to the corresponding
                               block in the key/value cache.
         block_size (int): The size of each block in the input sequence.
+        q_seq_len (Tensor): The length of query sequence.
         kv_seq_len (Tensor): The length of each key/value sequence.
         max_kv_seq_len (int): The maximum length of any key/value sequence.
         num_q_heads (int): The number of query heads.
@@ -312,6 +314,7 @@ def paged_decode_attention(
         value_cache,
         block_table,
         block_size,
+        q_seq_len,
         kv_seq_len,
         max_kv_seq_len,
         num_q_heads,

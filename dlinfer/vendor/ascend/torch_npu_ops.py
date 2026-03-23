@@ -351,6 +351,7 @@ def paged_decode_attention(
     value_cache: Tensor,
     block_table: Optional[Tensor],
     block_size: int,
+    q_seq_len: Tensor,
     kv_seq_len: Tensor,
     max_kv_seq_len: int,
     num_q_heads: int,
@@ -383,6 +384,7 @@ def paged_decode_attention(
             scale_value=scale_value,
             block_table=block_table,
             block_size=block_size,
+            q_seq_len=q_seq_len,
             kv_seq_len=kv_seq_len,
             softmax_scale=softmax_scale,
             attn_output=attn_output,
@@ -432,26 +434,25 @@ def paged_prefill_attention(
         )
 
     scale_value = softmax_scale if softmax_scale else 1.0 / math.sqrt(query.shape[-1])
-    query = query.contiguous().view(query.shape[0], 1, -1)
+    query = query.contiguous()
     block_num = key_cache.size(0)
     key_cache = key_cache.view(block_num, block_size, -1)
     value_cache = value_cache.view(block_num, block_size, -1)
 
-    # Note: actual_seq_lengths is not set here because the default query sequence
-    # length per batch is 1, which matches our paged prefill phase assumption.
     attn_output, _ = torch.ops.npu.npu_fused_infer_attention_score(
         query=query,
         key=key_cache,
         value=value_cache,
         atten_mask=attn_mask[0],
         block_table=block_table,
-        input_layout="BSH",
+        input_layout="TND",
         block_size=block_size,
+        actual_seq_lengths=q_seq_len,
         actual_seq_lengths_kv=kv_seq_len,
         num_key_value_heads=num_kv_heads,
         num_heads=num_q_heads,
         scale=scale_value,
-        sparse_mode=0,
+        sparse_mode=3,
     )
 
     return attn_output
