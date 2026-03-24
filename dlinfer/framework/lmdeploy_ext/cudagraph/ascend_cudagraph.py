@@ -123,6 +123,7 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
 
     if "state_ids" in kwargs:
         input_buffers["q_start_loc"][: batch_size + 1] = q_start_loc
+        input_buffers["q_start_loc"][batch_size + 1:] = q_start_loc[-1]
 
     if inputs_embeds is not None:
         emb_size = inputs_embeds.size(-1)
