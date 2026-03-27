@@ -178,48 +178,60 @@ def patch_state_cache_engine():
         state_shapes: List[Tuple[Tuple[int], torch.dtype]],
         device: torch.device,
     ):
-        """Allocate cache implement."""
+        """Allocate cache implement.
 
-        # only support [DT_FLOAT,DT_INT32,DT_INT64,DT_FLOAT16,DT_INT8,DT_BOOL,DT_BFLOAT16,]
+        Each state is allocated as an independent contiguous tensor of shape
+        (num_caches, *shape).  A single shared pool of shape
+        (num_caches, total_pool_size) would give views with stride[0] ==
+        total_pool_size instead of the per-state numel, making every slice
+        non-contiguous and breaking NPU ops that require contiguous input.
+        """
+
         cache_dtype = torch.int8
         if len(state_shapes) == 0 or num_caches == 0:
             return torch.empty((0, 0), dtype=cache_dtype, device=device), []
 
-        # Ascend kernel causal_comv1d_update_npu requires the shape of conv_cache to be (B, K, D) and continuous in the K dimension
-        cache_descs = []
-        for shape, dtype in state_shapes:
-            if len(shape) == 3:
-                cache_descs.append(CacheDesc((shape[0], shape[2], shape[1]), dtype))
-            else:
-                cache_descs.append(CacheDesc(shape, dtype))
+        cache_descs = [CacheDesc(shape, dtype) for shape, dtype in state_shapes]
 
-        # get mempool size
-        mem_pool_size = 0
-        for desc in cache_descs:
-            mem_pool_size += desc.aligned_size
-
-        # create pool
-        mem_pool = torch.zeros(
-            (num_caches, mem_pool_size), dtype=cache_dtype, device=device
-        )
-
-        # slice caches
+        # Allocate each state as a separate contiguous tensor.
         caches = []
-        remain_pool = mem_pool
         for desc in cache_descs:
-            cache = (
-                remain_pool[:, : desc.size]
-                .view(desc.dtype)
-                .view((num_caches, *desc.shape))
-            )
-            remain_pool = remain_pool[:, desc.aligned_size :]
+            cache = torch.zeros((num_caches, *desc.shape), dtype=desc.dtype, device=device)
             caches.append(cache)
+
+        # mem_pool is used by two callers:
+        #   1. get_cache_state_size(): always calls with device='meta' to compute byte
+        #      counts — the tensor is never materialised on a real device.
+        #   2. init_caches(): patched below to zero individual caches directly, so it
+        #      no longer touches mem_pool at all.
+        # Therefore we only need a correctly-sized pool on 'meta'; for real devices we
+        # return an empty placeholder to avoid doubling the state-cache memory footprint.
+        total_bytes = sum(desc.aligned_size for desc in cache_descs)
+        if str(device) == 'meta':
+            mem_pool = torch.empty((num_caches, total_bytes), dtype=cache_dtype, device=device)
+        else:
+            mem_pool = torch.empty(0, dtype=cache_dtype, device=device)
         return mem_pool, caches
 
+    def _state_cache_engine_init_caches(self, idx: torch.Tensor, mask: torch.Tensor):
+        """Initialize state caches by zeroing each individual cache tensor."""
+        if idx is None:
+            return
+        if len(self._state_caches) <= 0:
+            return
+        num_caches = self.cache_config.num_state_caches
+        cache_masks = torch.zeros((num_caches,), dtype=torch.bool, device=idx.device)
+        cache_masks.index_copy_(0, idx, mask)
+        for cache in self._state_caches:
+            reshaped_mask = cache_masks.view((-1,) + (1,) * (cache.dim() - 1))
+            cache.masked_fill_(reshaped_mask, 0)
+
     cache_engine.StateCacheEngine.allocate_caches = _state_cache_engine_allocate_caches
+    cache_engine.StateCacheEngine.init_caches = _state_cache_engine_init_caches
 
 
 def patch_gated_delta_net():
+    import torch_npu
     from typing import Any, Sequence, Tuple
     from torch.profiler import record_function
 
@@ -366,26 +378,22 @@ def patch_gated_delta_net():
                 actual_seq_lengths = (cu_seqlens[1:] - cu_seqlens[:-1]).to(torch.int32)
                 # recurrent_state layout: (N, HV, K, V)
                 # CANN op expects: (N, HV, V, K)
-                state_for_cann = recurrent_state[indices].transpose(-1, -2).contiguous()
+                # state_for_cann = recurrent_state[indices].transpose(-1, -2).contiguous()
+                # print(f"------------------- recurrent_state {recurrent_state.shape} {recurrent_state.is_contiguous()}")
                 core_attn_out = torch_npu.npu_recurrent_gated_delta_rule(
                     query=query.squeeze(0),
                     key=key.squeeze(0),
                     value=value.squeeze(0),
                     g=g.squeeze(0),
                     beta=beta.squeeze(0),
-                    state=state_for_cann,
+                    state=recurrent_state,
                     scale=key.shape[-1] ** -0.5,
                     actual_seq_lengths=actual_seq_lengths,
-                    ssm_state_indices=torch.arange(
-                        indices.size(0), dtype=torch.int32, device=indices.device
-                    ),
+                    ssm_state_indices=indices.to(torch.int32)
                 ).unsqueeze(0)
-                recurrent_state[indices] = state_for_cann.transpose(-1, -2).to(
-                    recurrent_state.dtype
-                )
-                last_recurrent_state = recurrent_state
+                last_recurrent_state = None
             else:
-                initial_state = recurrent_state[gated_delta_meta.state_ids]
+                initial_state = recurrent_state[gated_delta_meta.state_ids].transpose(-1, -2).contiguous()
                 initial_state[~gated_delta_meta.has_initial_state, ...] = 0
                 core_attn_out, last_recurrent_state = self.chunk_gated_delta_rule(
                     q=query,
@@ -399,7 +407,7 @@ def patch_gated_delta_net():
                     head_first=False,
                     use_qk_l2norm_in_kernel=self.use_qk_l2norm_in_kernel,
                 )
-                recurrent_state[gated_delta_meta.state_ids] = last_recurrent_state.to(
+                recurrent_state[gated_delta_meta.state_ids] = last_recurrent_state.transpose(-1, -2).contiguous().to(
                     recurrent_state.dtype
                 )
 
