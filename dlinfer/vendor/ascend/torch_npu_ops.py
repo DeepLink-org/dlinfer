@@ -129,7 +129,9 @@ def apply_rotary_pos_emb(
     query = query.contiguous().unsqueeze(0)
     key = key.contiguous().unsqueeze(0)
     assert len(query.shape) == 4
-    batch, seq_len, _, _ = query.shape
+    batch, seq_len, _, head_size = query.shape
+    rotary_dim = cos.size(-1)
+
     cos = cos.reshape(batch, seq_len, 1, -1)
     sin = sin.reshape(batch, seq_len, 1, -1)
 
@@ -141,9 +143,50 @@ def apply_rotary_pos_emb(
         return (q * cos) + (rotate_half_(q) * sin), (k * cos) + (rotate_half_(k) * sin)
 
     # ascend ops currently only support dim 128
-    if query.shape[-1] != 128 or key.shape[-1] != 128:
-        return apply_rotary_pos_emb_(query, key, cos, sin)
-    return torch.ops.npu.npu_apply_rotary_pos_emb(query, key, cos, sin, "BSND")
+    if rotary_dim == head_size:
+        if head_size == 128:
+            return torch.ops.npu.npu_apply_rotary_pos_emb(query, key, cos, sin, "BSND")
+        else:
+            return apply_rotary_pos_emb_(query, key, cos, sin)
+    elif rotary_dim < head_size:
+
+        q_rot = query[..., :rotary_dim].contiguous()
+        q_pass = query[..., rotary_dim:]
+        k_rot = key[..., :rotary_dim].contiguous()
+        k_pass = key[..., rotary_dim:]
+
+        q_rot, k_rot = apply_rotary_pos_emb_(q_rot, k_rot, cos, sin)
+        q = torch.cat((q_rot, q_pass), dim=-1)
+        k = torch.cat((k_rot, k_pass), dim=-1)
+        return q, k
+
+        # vllm-ascend/vllm_ascend/ops/rotary_embedding.py
+        # num_tokens = query.shape[0]
+        # query = query.view(num_tokens, -1, head_size)
+        # key = key.view(num_tokens, -1, head_size)
+        # q_rot = query[..., :rotary_dim]
+        # q_pass = query[..., rotary_dim:]
+        # k_rot = key[..., :rotary_dim]
+        # k_pass = key[..., rotary_dim:]
+        # q_rot = q_rot.contiguous().view(num_tokens, -1)
+        # k_rot = k_rot.contiguous().view(num_tokens, -1)
+        # torch_npu._npu_rotary_embedding(
+        #     positions,
+        #     q_rot,
+        #     k_rot,
+        #     head_size,
+        #     self.cos_sin_cache,
+        #     is_neox_style,    # True
+        # )
+        # q_rot = q_rot.view(num_tokens, -1, self.rotary_dim)
+        # k_rot = k_rot.view(num_tokens, -1, self.rotary_dim)
+        # q = torch.cat((q_rot, q_pass), dim=-1).reshape(query_shape)
+        # k = torch.cat((k_rot, k_pass), dim=-1).reshape(key_shape)
+        # return q, k
+    else:
+        raise RuntimeError(
+            "apply_rotary_pos_emb does not " "support rotary_dim >xl head_size"
+        )
 
 
 @register_ops(vendor_ops_registry)
@@ -613,6 +656,7 @@ def fused_moe(
     renormalize: bool,
     moe_metadata: MoeMetadata,
 ) -> Tensor:
+    topk_ids = topk_ids.to(torch.int32)
     hidden_states, num_tokens, paded_num_tokens, x_active_mask = moe.moe_prepare(
         hidden_states,
         moe_metadata.x_active_mask,

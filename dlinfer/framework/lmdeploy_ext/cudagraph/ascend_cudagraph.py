@@ -94,6 +94,8 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
     kv_start_indices: Tensor = attn_metadata.kv_start_indices
     moe_metadata = get_step_ctx_manager().current_context().moe_metadata
     x_active_mask: Tensor = moe_metadata.x_active_mask
+    q_start_loc: Tensor = attn_metadata.q_start_loc
+
     input_buffers: BuffType = graph_meta.input_buffers
 
     batch_size, num_blocks = block_offsets.size()
@@ -119,6 +121,10 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
         input_buffers["x_active_mask"].fill_(0)
         input_buffers["x_active_mask"][:batch_size] = x_active_mask
 
+    if "state_ids" in kwargs:
+        input_buffers["q_start_loc"][: batch_size + 1] = q_start_loc
+        input_buffers["q_start_loc"][batch_size + 1:] = q_start_loc[-1]
+
     if inputs_embeds is not None:
         emb_size = inputs_embeds.size(-1)
         if "inputs_embeds" not in input_buffers:
@@ -135,6 +141,7 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
     attn_metadata.kv_seqlens = input_buffers["kv_seqlens"]
     attn_metadata.kv_start_indices = input_buffers["kv_start_indices"]
     moe_metadata.x_active_mask = input_buffers["x_active_mask"]
+    attn_metadata.q_start_loc = input_buffers["q_start_loc"]
 
     new_inputs = dict(
         past_key_values=past_key_values,
