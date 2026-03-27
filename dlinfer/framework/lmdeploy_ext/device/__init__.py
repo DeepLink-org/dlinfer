@@ -305,7 +305,7 @@ def patch_gated_delta_net():
         ):
             out = self.causal_conv1d_update(
                 x,
-                conv_state.transpose(1, 2),
+                conv_state,
                 weight,
                 bias,
                 self.activation,

@@ -515,6 +515,9 @@ def causal_conv1d_update_npu(
     initial_state_idx: Optional[torch.Tensor] = None,
     validate_data=False,
 ):
+    weight = weight.transpose(0, 1).contiguous()
+    # conv_state = conv_state.transpose(1, 2).contiguous()
+    
     if validate_data:
         assert pad_slot_id is not None
         assert x.stride(1) == 1
@@ -527,39 +530,32 @@ def causal_conv1d_update_npu(
     x = x.to(conv_state.dtype)
     unsqueeze = query_start_loc is None and x.dim() == 2
     if unsqueeze:
-        x = x.unsqueeze(-1)
+        x = x.unsqueeze(1)
 
     if query_start_loc is None:
-        batch, dim, seqlen = x.shape
+        batch, seqlen, dim = x.shape
     else:
         assert conv_state_indices is not None
         batch = conv_state_indices.size(0)
         dim = x.size(1)
         seqlen = max_query_len
 
-    _, width = weight.shape
-    num_cache_lines, _, state_len_total = conv_state.size()
-
-    if validate_data:
-        assert dim == weight.size(0)
-        assert conv_state.stride(-2) == 1
-        assert state_len_total >= width - 1
-        assert num_cache_lines >= batch
-        assert weight.stride(1) == 1
+    width, _ = weight.shape
+    num_cache_lines, state_len_total,_ = conv_state.size()
 
     out = x
 
-    stride_w_dim, stride_w_width = weight.stride()
+    stride_w_width, stride_w_dim = weight.stride()
     if query_start_loc is None:
-        stride_x_seq, stride_x_dim, stride_x_token = x.stride()
-        stride_o_seq, stride_o_dim, stride_o_token = out.stride()
+        stride_x_seq, stride_x_token,stride_x_dim = x.stride()
+        stride_o_seq, stride_o_token, stride_o_dim = out.stride()
     else:
         stride_x_token, stride_x_dim = x.stride()
         stride_x_seq = 0
         stride_o_token, stride_o_dim = out.stride()
         stride_o_seq = 0
 
-    stride_istate_seq, stride_istate_dim, stride_istate_token = conv_state.stride()
+    stride_istate_seq, stride_istate_token, stride_istate_dim = conv_state.stride()
     stride_state_indices = (
         conv_state_indices.stride(0) if conv_state_indices is not None else 0
     )
@@ -583,7 +579,7 @@ def causal_conv1d_update_npu(
         b_tile = 4
     else:
         b_tile = 8
-    t_chunk = 20 if block_n == 512 else 48
+    t_chunk = 1 if block_n == 512 else 48
 
     def grid(META):
         return (triton.cdiv(batch, META["B_TILE"]), triton.cdiv(dim, META["BLOCK_N"]))
@@ -631,5 +627,5 @@ def causal_conv1d_update_npu(
     )
 
     if unsqueeze:
-        out = out.squeeze(-1)
+        out = out.squeeze(1)
     return out.to(original_x_dtype)
