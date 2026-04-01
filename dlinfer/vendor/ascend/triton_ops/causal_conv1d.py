@@ -515,8 +515,6 @@ def causal_conv1d_update_npu(
     initial_state_idx: Optional[torch.Tensor] = None,
     validate_data=False,
 ):
-    weight = weight.transpose(0, 1).contiguous()
-    # conv_state = conv_state.transpose(1, 2).contiguous()
     
     if validate_data:
         assert pad_slot_id is not None
