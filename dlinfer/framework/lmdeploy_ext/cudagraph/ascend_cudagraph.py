@@ -75,6 +75,15 @@ def AscendCudaGraphMixin_make_buffers_cudagraph(
     input_buffers["x_active_mask"] = torch.zeros(
         (max_batches), dtype=torch.bool, device=device
     )
+
+    # ssm
+    if graph_meta.is_ssm:
+        input_buffers["state_ids"] = torch.full((max_batches,), -1, dtype=torch.int64, device=device)
+
+    # mrope
+    if graph_meta.use_mrope:
+        input_buffers["mrope_position_ids"] = torch.zeros(3, max_tokens, dtype=torch.int64, device=device)
+
     return input_buffers
 
 
@@ -121,9 +130,14 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
         input_buffers["x_active_mask"].fill_(0)
         input_buffers["x_active_mask"][:batch_size] = x_active_mask
 
-    if "state_ids" in kwargs:
+    # ssm
+    if graph_meta.is_ssm:
         input_buffers["q_start_loc"][: batch_size + 1] = q_start_loc
         input_buffers["q_start_loc"][batch_size + 1:] = q_start_loc[-1]
+        
+        state_ids = kwargs["state_ids"]
+        input_buffers["state_ids"].fill_(-1)
+        input_buffers["state_ids"][:state_ids.size(0)].copy_(state_ids)
 
     if inputs_embeds is not None:
         emb_size = inputs_embeds.size(-1)
@@ -157,6 +171,18 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
 
     new_inputs.update(kwargs)
 
+    # ssm: override kwargs' variable-length state_ids with the fixed-size buffer
+    if graph_meta.is_ssm:
+        new_inputs["state_ids"] = input_buffers["state_ids"]
+
+    # mrope
+    if graph_meta.use_mrope:
+        mrope_position_ids = kwargs.get("mrope_position_ids", None)
+        if mrope_position_ids is not None:
+            input_buffers["mrope_position_ids"].zero_()
+            input_buffers["mrope_position_ids"][:, :num_tokens] = mrope_position_ids
+        new_inputs["mrope_position_ids"] = input_buffers["mrope_position_ids"]
+
     return new_inputs
 
 
@@ -169,6 +195,14 @@ def AscendCudaGraphMixin_update_context_cudagraph(self, graph_meta, context):
     context.q_start_loc = input_buffers["q_start_loc"]
     context.kv_start_indices = input_buffers["kv_start_indices"]
     context.moe_metadata.x_active_mask = input_buffers["x_active_mask"]
+
+    # ssm
+    if graph_meta.is_ssm:
+        context.state_offsets = input_buffers["state_ids"]
+
+    # mrope
+    if graph_meta.use_mrope:
+        context.mrope_position_ids = input_buffers["mrope_position_ids"]
 
 
 CudaGraphMixin.make_buffers_cudagraph = AscendCudaGraphMixin_make_buffers_cudagraph
@@ -193,7 +227,7 @@ def get_ascend_compatible_size(n: int):
     """Get ascend compatible size."""
     if n <= 16:
         n = next_power_of_2(n)
-    elif n <= 256:
+    elif n <= 512:
         n = (n + 15) & ~0xF
     else:
         n = (((n - 1) >> 8) + 1) << 8
@@ -261,6 +295,8 @@ class AscendSingleGraphRunner:
             input_buffers=dict(),
             output_buffers=dict(),
             vocab_size=self.model_config.vocab_size,
+            is_ssm=len(model_config.states_shapes) > 0,
+            use_mrope=model_config.use_mrope,
         )
         self.device = device
         self.max_batches = max_batches
