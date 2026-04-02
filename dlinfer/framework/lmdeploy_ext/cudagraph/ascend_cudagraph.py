@@ -78,11 +78,15 @@ def AscendCudaGraphMixin_make_buffers_cudagraph(
 
     # ssm
     if graph_meta.is_ssm:
-        input_buffers["state_ids"] = torch.full((max_batches,), -1, dtype=torch.int64, device=device)
+        input_buffers["state_ids"] = torch.full(
+            (max_batches,), -1, dtype=torch.int64, device=device
+        )
 
     # mrope
     if graph_meta.use_mrope:
-        input_buffers["mrope_position_ids"] = torch.zeros(3, max_tokens, dtype=torch.int64, device=device)
+        input_buffers["mrope_position_ids"] = torch.zeros(
+            3, max_tokens, dtype=torch.int64, device=device
+        )
 
     return input_buffers
 
@@ -133,11 +137,11 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
     # ssm
     if graph_meta.is_ssm:
         input_buffers["q_start_loc"][: batch_size + 1] = q_start_loc
-        input_buffers["q_start_loc"][batch_size + 1:] = q_start_loc[-1]
-        
+        input_buffers["q_start_loc"][batch_size + 1 :] = q_start_loc[-1]
+
         state_ids = kwargs["state_ids"]
         input_buffers["state_ids"].fill_(-1)
-        input_buffers["state_ids"][:state_ids.size(0)].copy_(state_ids)
+        input_buffers["state_ids"][: state_ids.size(0)].copy_(state_ids)
 
     if inputs_embeds is not None:
         emb_size = inputs_embeds.size(-1)

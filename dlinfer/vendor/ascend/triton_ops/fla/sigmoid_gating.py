@@ -82,7 +82,9 @@ def fused_recurrent_gated_delta_rule_fwd_kernel(
     i_n, i_hv = i_nh // HV, i_nh % HV
     i_h = i_hv // (HV // H)
     if IS_VARLEN:
-        bos, eos = tl.load(cu_seqlens + i_n).to(tl.int64), tl.load(cu_seqlens + i_n + 1).to(tl.int64)
+        bos, eos = tl.load(cu_seqlens + i_n).to(tl.int64), tl.load(
+            cu_seqlens + i_n + 1
+        ).to(tl.int64)
         all = T
         T = eos - bos
     else:
@@ -108,7 +110,11 @@ def fused_recurrent_gated_delta_rule_fwd_kernel(
             else:
                 i_t = 0
             p_h0 = (
-                h0 + tl.load(ssm_state_indices + i_n * stride_indices_seq + i_t).to(tl.int64) * stride_init_state_token
+                h0
+                + tl.load(ssm_state_indices + i_n * stride_indices_seq + i_t).to(
+                    tl.int64
+                )
+                * stride_init_state_token
             )
         else:
             p_h0 = h0 + bos * HV * K * V
@@ -165,7 +171,11 @@ def fused_recurrent_gated_delta_rule_fwd_kernel(
         # keep the states for multi-query tokens
         if INPLACE_FINAL_STATE:
             p_ht = (
-                ht + tl.load(ssm_state_indices + i_n * stride_indices_seq + i_t).to(tl.int64) * stride_final_state_token
+                ht
+                + tl.load(ssm_state_indices + i_n * stride_indices_seq + i_t).to(
+                    tl.int64
+                )
+                * stride_final_state_token
             )
         else:
             p_ht = ht + (bos + i_t) * stride_final_state_token
@@ -248,7 +258,13 @@ def fused_sigmoid_gating_delta_rule_update_kernel(
         idx = tl.load(h0_indices + i_n)
         # if idx >= 0:
         tmp0 = tl.where(idx < 0, 0, idx)
-        p_h0 = h0_source + tmp0 * HV * K * V + i_hv * K * V + o_k[:, None] * V + o_v[None, :]
+        p_h0 = (
+            h0_source
+            + tmp0 * HV * K * V
+            + i_hv * K * V
+            + o_k[:, None] * V
+            + o_v[None, :]
+        )
         temp1 = tl.load(p_h0, mask=mask_h, other=0).to(tl.float32)
         temp2 = tl.zeros_like(temp1)
         value0 = tl.where(idx < 0, temp2, temp1)
@@ -316,7 +332,13 @@ def fused_sigmoid_gating_delta_rule_update_kernel(
     if USE_INITIAL_STATE:
         idx = tl.load(h0_indices + i_n)
         if idx >= 0:
-            p_h0 = h0_source + idx * HV * K * V + i_hv * K * V + o_k[:, None] * V + o_v[None, :]
+            p_h0 = (
+                h0_source
+                + idx * HV * K * V
+                + i_hv * K * V
+                + o_k[:, None] * V
+                + o_v[None, :]
+            )
             tl.store(p_h0, b_h.to(p_h0.dtype.element_ty), mask=mask_h)
 
 

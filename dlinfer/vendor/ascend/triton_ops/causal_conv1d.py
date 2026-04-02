@@ -515,7 +515,6 @@ def causal_conv1d_update_npu(
     initial_state_idx: Optional[torch.Tensor] = None,
     validate_data=False,
 ):
-    
     if validate_data:
         assert pad_slot_id is not None
         assert x.stride(1) == 1
@@ -539,13 +538,13 @@ def causal_conv1d_update_npu(
         seqlen = max_query_len
 
     width, _ = weight.shape
-    num_cache_lines, state_len_total,_ = conv_state.size()
+    num_cache_lines, state_len_total, _ = conv_state.size()
 
     out = x
 
     stride_w_width, stride_w_dim = weight.stride()
     if query_start_loc is None:
-        stride_x_seq, stride_x_token,stride_x_dim = x.stride()
+        stride_x_seq, stride_x_token, stride_x_dim = x.stride()
         stride_o_seq, stride_o_token, stride_o_dim = out.stride()
     else:
         stride_x_token, stride_x_dim = x.stride()
