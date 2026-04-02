@@ -227,7 +227,7 @@ def get_ascend_compatible_size(n: int):
     """Get ascend compatible size."""
     if n <= 16:
         n = next_power_of_2(n)
-    elif n <= 512:
+    elif n <= 256:
         n = (n + 15) & ~0xF
     else:
         n = (((n - 1) >> 8) + 1) << 8
