@@ -495,7 +495,7 @@ def patch_qwen3_5():
         # construction. Storing num_delta_layers as the first shape dim would require a
         # transpose later, producing non-contiguous views.
         cfg.states_shapes = [(conv_state_shape, dtype)] * num_delta_layers + [
-            (recurrent_state_shape, dtype)
+            (recurrent_state_shape, torch.float32)
         ] * num_delta_layers
 
         cfg.is_gated_delta = True
