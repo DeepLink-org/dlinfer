@@ -227,6 +227,7 @@ def paged_decode_attention(
     value_cache: Tensor,
     block_table: Optional[Tensor],
     block_size: int,
+    q_seq_len: Tensor,
     kv_seq_len: Tensor,
     max_kv_seq_len: int,
     num_q_heads: int,

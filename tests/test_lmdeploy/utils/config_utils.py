@@ -29,6 +29,8 @@ def get_torch_model_list(
 
 def get_env_with_replace_home(env_str, home_str):
     env_var = os.getenv(env_str)
+    if env_var is None:
+        return None
     if r"${HOME}" in env_var:
         env_var = env_var.replace(r"${HOME}", home_str)
     if "$HOME" in env_var:
