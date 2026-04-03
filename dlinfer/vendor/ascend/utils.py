@@ -34,5 +34,10 @@ class SocVersion:
 
 
 @lru_cache(maxsize=1)
+def get_cpu_seq_len(seq_len):
+    return seq_len.cpu()
+
+
+@lru_cache(maxsize=1)
 def get_world_size_accros_dp(dp_size, tp_size) -> int:
     return tp_size * dp_size

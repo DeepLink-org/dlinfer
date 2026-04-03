@@ -15,7 +15,7 @@ from dlinfer.utils.type_annotation import (
     MoECommType,
     MoeMetadata,
 )
-from .utils import SocVersion
+from .utils import SocVersion, get_cpu_seq_len
 from .attention import decode_attention, decode_attention_mla
 from . import moe
 
@@ -175,7 +175,7 @@ def prefill_attention(
         mask = attn_mask[0]
     else:
         # Handle qwenvl vision part flash-attention
-        q_seq_len = q_seq_len.cpu()
+        q_seq_len = get_cpu_seq_len(q_seq_len)
         torch.ops.atb._npu_flash_attention_unpad(
             query=query,
             key=key,
