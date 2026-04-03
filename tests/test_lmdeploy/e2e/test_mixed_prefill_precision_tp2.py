@@ -23,16 +23,22 @@ ANSWER_TAG_SEEDS = (
 def _resolve_case_config(config):
     case_config = config.get("mixed_prefill_precision")
     if case_config is None:
-        raise ValueError("missing mixed_prefill_precision config in test_lmdeploy/e2e/config.yaml")
+        raise ValueError(
+            "missing mixed_prefill_precision config in test_lmdeploy/e2e/config.yaml"
+        )
     prompt_token_lengths = case_config.get("prompt_token_lengths")
     if not isinstance(prompt_token_lengths, list) or len(prompt_token_lengths) == 0:
-        raise ValueError("mixed_prefill_precision.prompt_token_lengths must be a non-empty list")
+        raise ValueError(
+            "mixed_prefill_precision.prompt_token_lengths must be a non-empty list"
+        )
     if len(prompt_token_lengths) > len(ANSWER_TAG_SEEDS):
         raise ValueError(
             f"prompt_token_lengths length {len(prompt_token_lengths)} exceeds supported answer tag count {len(ANSWER_TAG_SEEDS)}"
         )
     if case_config["max_batch_size"] < len(prompt_token_lengths):
-        raise ValueError("max_batch_size must be greater than or equal to the number of prompts")
+        raise ValueError(
+            "max_batch_size must be greater than or equal to the number of prompts"
+        )
     return case_config
 
 
@@ -48,10 +54,7 @@ def _token_len(tokenizer, text):
 
 
 def _build_prompt(tokenizer, target_len, answer_tag):
-    prefix = (
-        "下面是一些背景片段，你只需要阅读，不要总结。\n"
-        "背景开始：\n"
-    )
+    prefix = "下面是一些背景片段，你只需要阅读，不要总结。\n" "背景开始：\n"
     suffix = (
         "\n背景结束。\n"
         "请完成下面任务。\n"
@@ -63,7 +66,18 @@ def _build_prompt(tokenizer, target_len, answer_tag):
         "答案："
     )
     filler_unit = "这是一段用于混合prefill精度回归测试的背景信息。"
-    fine_grained_units = ["补充", "说明", "数据", "样例", "文本", "A", "B", "C", "。", "\n"]
+    fine_grained_units = [
+        "补充",
+        "说明",
+        "数据",
+        "样例",
+        "文本",
+        "A",
+        "B",
+        "C",
+        "。",
+        "\n",
+    ]
 
     base_len = _token_len(tokenizer, prefix + suffix)
     if base_len > target_len:
@@ -172,7 +186,9 @@ def test_mixed_prefill_precision_tp2(config, eager_mode):
         outputs = [response.text.strip() for response in responses]
         final_outputs = [_strip_thinking(output) for output in outputs]
 
-        print(f"[mixed-prefill] model_case={case_config['model_case']} mode={mode_name}")
+        print(
+            f"[mixed-prefill] model_case={case_config['model_case']} mode={mode_name}"
+        )
         print(f"[mixed-prefill] prompt_token_lengths={actual_lengths}")
         for idx, (target, output, final_output) in enumerate(
             zip(answer_tags, outputs, final_outputs),
