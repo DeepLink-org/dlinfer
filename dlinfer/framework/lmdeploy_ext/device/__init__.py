@@ -296,9 +296,12 @@ def patch_gated_delta_net():
             out: (b, seqlen, dim)
             conv_state: (b, dim, kernel_size)
             """
+            # In RL, weights are not loaded during warmup, causing the weight shape to mismatch expectations. 
+            # A view operation is needed to adjust the shape.
+            kernel_size = 4
             out = self.causal_conv1d_fn(
                 x.t(),
-                weight.t().contiguous(),
+                weight.t().contiguous().view(-1, kernel_size),
                 bias,
                 activation=self.activation,
                 conv_states=conv_state.transpose(1, 2),
@@ -320,10 +323,13 @@ def patch_gated_delta_net():
             conv_state: torch.Tensor,
             conv_state_indices: torch.Tensor,
         ):
+            # In RL, weights are not loaded during warmup, causing the weight shape to mismatch expectations. 
+            # A view operation is needed to adjust the shape.
+            kernel_size = 4
             out = self.causal_conv1d_update(
                 x,
                 conv_state,
-                weight,
+                weight.view(kernel_size, -1),
                 bias,
                 self.activation,
                 conv_state_indices=conv_state_indices,

@@ -11,6 +11,14 @@ def apply_mlp(
     group_list: torch.Tensor,
     group_list_type: int = 1,
 ):
+
+    # In RL, weights are not loaded during warmup, causing the weight shape to mismatch expectations. 
+    # A view operation is needed to adjust the shape.
+    seqlen, hidden_size = hidden_states.shape
+    num_exp, _, _ = gate_up_weights.shape
+    gate_up_weights = gate_up_weights.view(num_exp, hidden_size, -1)
+    down_weights = down_weights.view(num_exp, -1, hidden_size)
+
     # up sample
     up_proj = torch.ops.npu.npu_grouped_matmul(
         [hidden_states],
