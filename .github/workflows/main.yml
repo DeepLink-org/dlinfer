@@ -56,7 +56,7 @@ jobs:
         run: |
           set -ex
           source /usr/local/Ascend/ascend-toolkit/set_env.sh
-          source /usr/local/Ascend/nnal/atb/set_env.sh
+          source /usr/local/Ascend/cann-8.5.0/share/info/ascendnpu-ir/bin/set_env.sh
           cd ${{ env.CI_PATH }}
           pip uninstall -y dlinfer-ascend
           pip install -r requirements/ascend/full.txt
@@ -82,7 +82,7 @@ jobs:
         run: |
           set -ex
           source /usr/local/Ascend/ascend-toolkit/set_env.sh
-          source /usr/local/Ascend/nnal/atb/set_env.sh
+          source /usr/local/Ascend/cann-8.5.0/share/info/ascendnpu-ir/bin/set_env.sh
           export PYTHONPATH=${{env.LMDEPLOY_PATH }}:$PYTHONPATH
           cd ${{env.CI_PATH }}/tests
           export DLINFER_TEST_DIR=${{env.CI_PATH }}/tests
