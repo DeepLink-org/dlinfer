@@ -2,10 +2,12 @@
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 # SPDX-FileCopyrightText: Songlin Yang, Yu Zhang
 #
-# This file contains code copied from the flash-linear-attention project.
-# The original source code was licensed under the MIT license and included
-# the following copyright notice:
-# Copyright (c) 2023-2025, Songlin Yang, Yu Zhang
+# fused_recurrent_gated_delta_rule_fwd_kernel      : Triton prefill kernel for gated delta rule.
+# fused_sigmoid_gating_delta_rule_update_kernel    : Triton decode kernel for sigmoid-gated delta rule.
+# fused_sigmoid_gating_delta_rule_update           : Python wrapper dispatching the decode kernel.
+#   Adapted from https://github.com/vllm-project/vllm-ascend/blob/main/vllm_ascend/ops/triton/fla/sigmoid_gating.py
+#   Original source: https://github.com/fla-org/flash-linear-attention (MIT License)
+#   Copyright (c) 2023-2025, Songlin Yang, Yu Zhang
 # ruff: noqa: E501
 # mypy: ignore-errors
 
