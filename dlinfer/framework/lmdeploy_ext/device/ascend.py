@@ -134,7 +134,7 @@ def _patched_create_model_inputs_delta(self):
         return output, valid_seqs, invalid_seqs
 
 
-InputsMakerAsync.create_model_inputs_delta = _patched_create_model_inputs_delta
+#InputsMakerAsync.create_model_inputs_delta = _patched_create_model_inputs_delta
 
 
 # patch MoEForwardDPTP
