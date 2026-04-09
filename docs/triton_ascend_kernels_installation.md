@@ -12,10 +12,11 @@
 
 | 依赖包 | 版本要求 |
 |--------|----------|
-| Python | >= 3.8 |
+| CANN | >= 8.5.0 |
+| Python | == 3.11 |
 | triton-ascend | == 3.2.0 |
-| torch | == 2.6.0 |
-| torch_npu | == 2.6.0post3 |
+| torch | == 2.9.0+cpu |
+| torch_npu | == 2.9.0 |
 
 ## 安装步骤
 
@@ -48,12 +49,6 @@ pip install -e ".[dev]"
 # 验证 prefill 阶段的算子
 from triton_ascend_kernels.attention.fla import chunk_gated_delta_rule_fwd
 print("chunk_gated_delta_rule_fwd 导入成功!")
-
-# 验证 decode 阶段的算子
-from triton_ascend_kernels.moe.fused_recurrent import fused_recurrent_gated_delta_rule
-print("fused_recurrent_gated_delta_rule 导入成功!")
-
-print("triton-ascend-kernels 安装成功!")
 ```
 
 ## 在 dlinfer 中使用
@@ -63,7 +58,6 @@ dlinfer 的 `triton_ops` 模块依赖 `triton_ascend_kernels` 提供以下核心
 | 算子 | 来源 | 用途 |
 |------|------|------|
 | `chunk_gated_delta_rule_fwd` | `triton_ascend_kernels.attention.fla` | Prefill 阶段分块注意力 |
-| `fused_recurrent_gated_delta_rule` | `triton_ascend_kernels.moe.fused_recurrent` | Decode 阶段循环更新 |
 
 ## 常见问题
 

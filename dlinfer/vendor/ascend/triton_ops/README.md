@@ -12,7 +12,8 @@ triton_ops/
 ├── triton_utils.py                # NPU device property helpers
 └── fla/
     ├── __init__.py                # FLA submodule entry
-    └── chunk.py                   # Chunked gated delta rule (prefill)
+    ├── chunk.py                   # Chunked gated delta rule (prefill)
+    └── sigmoid_gating.py          # Fused sigmoid-gated delta rule (decode)
 ```
 
 ## Exported Operators
@@ -20,8 +21,9 @@ triton_ops/
 | Operator | File | Phase | Description |
 |----------|------|-------|-------------|
 | `causal_conv1d_fn` | `causal_conv1d.py` | Prefill | Varlen causal conv1d using PyTorch |
-| `causal_conv1d_update_npu` | `causal_conv1d.py` | Decode | Stateful causal conv1d Triton kernel |
+| `causal_conv1d_update_npu` | `causal_conv1d.py` | Decode | Tiled stateful causal conv1d Triton kernel |
 | `chunk_gated_delta_rule` | `fla/chunk.py` | Prefill | Chunked gated delta rule attention |
+| `fused_sigmoid_gating_delta_rule_update` | `fla/sigmoid_gating.py` | Decode | Fused sigmoid-gated delta rule recurrent update |
 | `RMSNormGated` | `rms_norm_gated.py` | Both | Gated RMSNorm layer |
 
 ---
@@ -41,7 +43,15 @@ Implements causal 1D convolution for the convolutional path in Qwen3.5's linear 
 
 **Two Functions**:
 1. `causal_conv1d_fn` (Prefill): Pure PyTorch implementation using `F.conv1d`, handles variable-length sequences via `query_start_loc`
-2. `causal_conv1d_update_npu` (Decode): Triton kernel for single-token or multi-token generation with state management
+2. `causal_conv1d_update_npu` (Decode): Tiled Triton kernel (`_causal_conv1d_update_kernel_npu_tiled`) for single-token or multi-token generation with state management
+
+**Decode Kernel Features** (`causal_conv1d_update_npu`):
+- **Tiled execution**: `B_TILE` × `BLOCK_N` tiling for efficient NPU utilization (targeting 2×40 AI cores)
+- **Variable-length sequences** (`IS_VARLEN`): driven by `query_start_loc`
+- **Speculative decoding** (`IS_SPEC_DECODING`): handles multiple accepted tokens via `num_accepted_tokens`
+- **Automated Page Caching** (`IS_APC_ENABLED`): supports non-contiguous state management via `block_idx_last_scheduled_token` and `initial_state_idx`
+- **Kernel widths 1–6**: compile-time unrolled convolution loop
+- **Optional SiLU activation**
 
 ---
 
@@ -60,11 +70,43 @@ Implements the core linear attention operation for prefill phase using chunked p
 - Processes sequences in chunks for parallelism
 
 **Wrapper Role**:
-`fla/chunk.py` is a thin wrapper that handles input validation, dtype conversion, optional Q/K L2 normalization (`use_qk_l2norm_in_kernel`), and delegates to `triton_ascend_kernels.attention.fla.chunk_gated_delta_rule_fwd`.
+`fla/chunk.py` is a thin wrapper that handles input validation, dtype conversion (to bfloat16), optional Q/K L2 normalization (`use_qk_l2norm_in_kernel`) via `triton_ascend_kernels.norm.l2norm.l2norm_fwd`, and delegates to `triton_ascend_kernels.attention.fla.chunk_gated_delta_rule_fwd`.
 
 ---
 
-### 3. `RMSNormGated`
+### 3. `fused_sigmoid_gating_delta_rule_update`
+
+**File**: `fla/sigmoid_gating.py`
+
+**Source**:
+- Adapted from: https://github.com/vllm-project/vllm-ascend/blob/main/vllm_ascend/ops/triton/fla/sigmoid_gating.py
+- Original: https://github.com/fla-org/flash-linear-attention (MIT)
+- Copyright (c) 2023-2025, Songlin Yang, Yu Zhang
+
+**Purpose**:
+Implements the decode-phase recurrent update for the gated delta rule using a fully fused Triton kernel. This replaces a separate torch_npu op with a native Triton kernel that runs the entire recurrent loop in a single pass.
+
+**Two Kernels**:
+1. `fused_recurrent_gated_delta_rule_fwd_kernel`: General recurrent kernel supporting continuous batching, speculative decoding, and variable-length sequences
+2. `fused_sigmoid_gating_delta_rule_update_kernel`: Decode-optimized kernel that fuses sigmoid gating computation with the recurrent delta rule update
+
+**Key Operations (per token step)**:
+1. Compute gate: `g = -exp(A_log) * softplus(a + dt_bias)` (numerically stable)
+2. Compute beta: `beta = sigmoid(b)`
+3. Apply L2 norm to Q/K if `use_qk_l2norm_in_kernel`
+4. Decay hidden state: `h *= exp(g)`
+5. Delta rule: `v -= sum(h * k, dim=0)`
+6. Update state: `h += k[:, None] * (v * beta)[None, :]`
+7. Output: `o = sum(h * q, dim=0)`
+
+**Features**:
+- **Variable-length sequences** (`IS_VARLEN`): driven by `cu_seqlens`
+- **Continuous batching**: reads/writes hidden states via `h0_indices` for in-place state management
+- In-place state update: the final hidden state is written back to `initial_state_source` indexed by `h0_indices`
+
+---
+
+### 4. `RMSNormGated`
 
 **File**: `rms_norm_gated.py`
 
@@ -86,7 +128,7 @@ Implements RMSNorm (Root Mean Square Normalization) with optional gated SiLU act
 
 ---
 
-### 4. `triton_utils.py` (Helper)
+### 5. `triton_utils.py` (Helper)
 
 **Source**:
 - Adapted from: https://github.com/vllm-project/vllm-ascend/blob/main/vllm_ascend/ops/triton/triton_utils.py
@@ -121,11 +163,11 @@ Output logits
 
 ### Decode Phase
 ```
-New token
+New token(s)
     ↓
 [Causal Conv1D Update] ← causal_conv1d_update_npu
     ↓
-[Delta Rule Update] ← npu_recurrent_gated_delta_rule (torch_npu)
+[Sigmoid-Gated Delta Rule Update] ← fused_sigmoid_gating_delta_rule_update
     ↓
 [Gated RMSNorm] ← RMSNormGated
     ↓
@@ -139,7 +181,7 @@ Output logits
 | Package | Usage |
 |---------|-------|
 | `triton` | Kernel DSL and JIT compilation |
-| `triton_ascend_kernels` | Official Ascend-optimized kernels (prefill attention, recurrent update) |
+| `triton_ascend_kernels` | Official Ascend-optimized kernels (prefill attention, L2 norm) |
 | `torch` | Tensor operations, NPU device management |
 | `torch_npu` | Ascend NPU backend for PyTorch |
 
@@ -149,7 +191,7 @@ Output logits
 
 ### Installing `triton-ascend-kernels`
 
-The core attention kernels (`chunk_gated_delta_rule_fwd`) are provided by the official `triton-ascend-kernels` package.
+The core attention kernels (`chunk_gated_delta_rule_fwd`, `l2norm_fwd`) are provided by the official `triton-ascend-kernels` package.
 
 **Prerequisites**:
 - Python >= 3.8
@@ -167,6 +209,7 @@ pip install -e .
 **Verify installation**:
 ```python
 from triton_ascend_kernels.attention.fla import chunk_gated_delta_rule_fwd
+from triton_ascend_kernels.norm.l2norm import l2norm_fwd
 print("triton-ascend-kernels installed successfully!")
 ```
 
