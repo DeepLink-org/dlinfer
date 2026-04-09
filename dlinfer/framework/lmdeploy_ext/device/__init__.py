@@ -296,12 +296,9 @@ def patch_gated_delta_net():
             out: (b, seqlen, dim)
             conv_state: (b, dim, kernel_size)
             """
-            # In RL, weights are not loaded during warmup, causing the weight shape to mismatch expectations. 
-            # A view operation is needed to adjust the shape.
-            kernel_size = 4
             out = self.causal_conv1d_fn(
                 x.t(),
-                weight.t().contiguous().view(-1, kernel_size),
+                weight,
                 bias,
                 activation=self.activation,
                 conv_states=conv_state.transpose(1, 2),
@@ -323,13 +320,10 @@ def patch_gated_delta_net():
             conv_state: torch.Tensor,
             conv_state_indices: torch.Tensor,
         ):
-            # In RL, weights are not loaded during warmup, causing the weight shape to mismatch expectations. 
-            # A view operation is needed to adjust the shape.
-            kernel_size = 4
             out = self.causal_conv1d_update(
                 x,
                 conv_state,
-                weight.view(kernel_size, -1),
+                weight.t().contiguous(),
                 bias,
                 self.activation,
                 conv_state_indices=conv_state_indices,
@@ -449,7 +443,6 @@ def patch_qwen3_5():
     from lmdeploy.pytorch.configurations.qwen3_next import _check_env_qwen3_next
     from lmdeploy.vl.constants import Modality
 
-    from lmdeploy.pytorch.weight_loader.model_weight_loader import default_weight_loader
     from lmdeploy.pytorch.nn.gated_delta import GatedDeltaMeta, CausalConv1d
     from lmdeploy.pytorch.model_inputs import StepContext
     from lmdeploy.pytorch.configurations.qwen3_5 import Qwen3_5ModelConfigBuilder
@@ -674,21 +667,7 @@ def patch_qwen3_5():
         output = self.out_proj(core_attn_out)
         return output
 
-    def custom_weight_loader(
-        self, param: torch.nn.Parameter, loaded_weight: torch.Tensor
-    ):
-        """Weight loader."""
-        q, k, v = loaded_weight.split(self.split, dim=0)
-        q = q.chunk(self.tp, dim=0)[self.rank]
-        k = k.chunk(self.tp, dim=0)[self.rank]
-        v = v.chunk(self.tp, dim=0)[self.rank]
-        loaded_weight = torch.cat([q, k, v], dim=0)
-        default_weight_loader(param, loaded_weight)
 
-        if param is self.weight:
-            param.data = param.data.transpose(0, 2).contiguous()
-
-    CausalConv1d.weight_loader = custom_weight_loader
     Qwen3_5GatedDeltaNet.forward = custom_forward
     Qwen3_5ModelConfigBuilder.build = custom_build
     Qwen3_5ForConditionalGeneration.prepare_inputs_for_generation = (
