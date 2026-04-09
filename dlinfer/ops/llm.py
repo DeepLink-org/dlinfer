@@ -248,7 +248,6 @@ def fill_kv_cache(
     )
 
 
-"""
 @register_custom_op(
     "dlinfer::paged_decode_attention",
     ["attn_output"],
@@ -262,9 +261,6 @@ def fill_kv_cache(
         "quant_bits": 0,
     },
 )
-"""
-
-
 def paged_decode_attention(
     query: Tensor,
     key_cache: Tensor,
