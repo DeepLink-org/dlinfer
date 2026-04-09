@@ -447,6 +447,7 @@ def patch_qwen3_5():
     from lmdeploy.utils import is_bf16_supported
     from lmdeploy.pytorch.configurations.default import DefaultModelConfigBuilder
     from lmdeploy.pytorch.configurations.qwen3_next import _check_env_qwen3_next
+    from lmdeploy.vl.constants import Modality
 
     from lmdeploy.pytorch.weight_loader.model_weight_loader import default_weight_loader
     from lmdeploy.pytorch.nn.gated_delta import GatedDeltaMeta, CausalConv1d
