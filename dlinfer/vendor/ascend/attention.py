@@ -17,6 +17,7 @@ def decode_attention(
     scale_value: float,
     block_table: Tensor,
     block_size: int,
+    q_seq_len: Tensor,
     kv_seq_len: Tensor,
     softmax_scale: float,
     attn_output: Tensor,
@@ -57,12 +58,11 @@ def decode_attention(
         )
         handle = torch.npu.graph_task_group_end(stream)
         graph_params.handles[num_tokens].append(handle)
-    elif AscendGraphRunner.capturing:
+    else:
         bs, _, dim = query.shape
         block_num = key_cache.size(0)
         query = query.contiguous()
         attn_output = attn_output.contiguous()
-        query = query.view(bs, 1, num_q_heads * dim)
         key_cache = key_cache.view(block_num, block_size, -1)
         value_cache = value_cache.view(block_num, block_size, -1)
         scale_value = softmax_scale if softmax_scale else 1.0 / math.sqrt(dim)
@@ -73,26 +73,14 @@ def decode_attention(
             value=value_cache,
             atten_mask=None,
             block_table=block_table,
-            input_layout="BSH",
+            input_layout="TND",
             block_size=block_size,
-            actual_seq_lengths=None,
+            actual_seq_lengths=q_seq_len,
             actual_seq_lengths_kv=kv_seq_len,
             num_key_value_heads=num_kv_heads,
             num_heads=num_q_heads,
             scale=scale_value,
             sparse_mode=0,
-        )
-    else:
-        torch.ops.atb._npu_paged_attention(
-            query=query,
-            key_cache=key_cache,
-            value_cache=value_cache,
-            num_kv_heads=num_kv_heads,
-            num_heads=num_q_heads,
-            scale_value=scale_value,
-            block_table=block_table,
-            context_lens=kv_seq_len,
-            out=attn_output,
         )
     return attn_output
 
