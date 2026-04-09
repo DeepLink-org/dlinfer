@@ -55,7 +55,7 @@ def test_pipeline_chat_pytorch_ascend_graph(config, common_case_config, model_tp
 @pytest.mark.lmdeploy
 @pytest.mark.vl
 @pytest.mark.graph
-def test_pipeline_vl_pytorch_tp1_ascend_graph(config, model_tp):
+def test_pipeline_vl_pytorch_ascend_graph(config, model_tp):
     model, tp = model_tp
     p = Process(target=run_pipeline_vl_chat_test, args=(config, model, "ascend", False))
     p.start()
