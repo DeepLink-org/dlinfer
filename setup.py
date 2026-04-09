@@ -4,7 +4,6 @@ from setuptools import find_packages
 import yaml
 from skbuild import setup
 
-
 VERSION = "0.2.7"
 
 vendor_dispatch_key_map = {

@@ -13,7 +13,6 @@ from dlinfer.utils.type_annotation import (
 )
 from dlinfer.graph.custom_op import register_custom_op
 
-
 __all__ = [
     "add_rms_norm",
     "apply_rotary_pos_emb",
@@ -248,7 +247,8 @@ def fill_kv_cache(
         quant_bits,
     )
 
-'''
+
+"""
 @register_custom_op(
     "dlinfer::paged_decode_attention",
     ["attn_output"],
@@ -262,7 +262,9 @@ def fill_kv_cache(
         "quant_bits": 0,
     },
 )
-'''
+"""
+
+
 def paged_decode_attention(
     query: Tensor,
     key_cache: Tensor,

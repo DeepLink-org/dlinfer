@@ -20,7 +20,6 @@ from dlinfer.graph.dicp.vendor.AtbGraph.codegen.utils import (
 )
 from dlinfer.vendor.ascend.utils import SocVersion
 
-
 aten = torch.ops.aten
 conversions = {}
 
