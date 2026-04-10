@@ -9,7 +9,7 @@ namespace dicp {
 class ReshapeOperation : public atb::Operation {
 public:
     explicit ReshapeOperation(const std::string& name);
-    ~ReshapeOperation(){};
+    ~ReshapeOperation() {};
     std::string GetName() const override;
     atb::Status Setup(const atb::VariantPack& variantPack, uint64_t& workspaceSize, atb::Context* context) override;
     atb::Status Execute(const atb::VariantPack& variantPack, uint8_t* workspace, uint64_t workspaceSize, atb::Context* context) override;
