@@ -155,37 +155,14 @@ def apply_rotary_pos_emb(
         k_rot = key[..., :rotary_dim].contiguous()
         k_pass = key[..., rotary_dim:]
 
-        q_rot, k_rot = apply_rotary_pos_emb_(q_rot, k_rot, cos, sin)
+        q_rot, k_rot = torch.ops.npu.npu_apply_rotary_pos_emb(q_rot, k_rot, cos, sin, "BSND")
+        
         q = torch.cat((q_rot, q_pass), dim=-1)
         k = torch.cat((k_rot, k_pass), dim=-1)
         return q, k
-
-        # vllm-ascend/vllm_ascend/ops/rotary_embedding.py
-        # num_tokens = query.shape[0]
-        # query = query.view(num_tokens, -1, head_size)
-        # key = key.view(num_tokens, -1, head_size)
-        # q_rot = query[..., :rotary_dim]
-        # q_pass = query[..., rotary_dim:]
-        # k_rot = key[..., :rotary_dim]
-        # k_pass = key[..., rotary_dim:]
-        # q_rot = q_rot.contiguous().view(num_tokens, -1)
-        # k_rot = k_rot.contiguous().view(num_tokens, -1)
-        # torch_npu._npu_rotary_embedding(
-        #     positions,
-        #     q_rot,
-        #     k_rot,
-        #     head_size,
-        #     self.cos_sin_cache,
-        #     is_neox_style,    # True
-        # )
-        # q_rot = q_rot.view(num_tokens, -1, self.rotary_dim)
-        # k_rot = k_rot.view(num_tokens, -1, self.rotary_dim)
-        # q = torch.cat((q_rot, q_pass), dim=-1).reshape(query_shape)
-        # k = torch.cat((k_rot, k_pass), dim=-1).reshape(key_shape)
-        # return q, k
     else:
         raise RuntimeError(
-            "apply_rotary_pos_emb does not " "support rotary_dim >xl head_size"
+            "apply_rotary_pos_emb does not " "support rotary_dim > head_size"
         )
 
 
