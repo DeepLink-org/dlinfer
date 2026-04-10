@@ -252,8 +252,6 @@ def patch_gated_delta_net():
         fused_sigmoid_gating_delta_rule_update,
     )
 
-    from dlinfer.vendor.ascend.triton_ops.fla import l2norm_fwd
-
     class AscendGatedDeltaMeta:
 
         def __init__(
@@ -360,7 +358,6 @@ def patch_gated_delta_net():
             )
             self.chunk_gated_delta_rule = chunk_gated_delta_rule
             self.use_qk_l2norm_in_kernel = use_qk_l2norm_in_kernel
-            self.l2norm_fwd = l2norm_fwd
 
         def __call__(
             self,
