@@ -534,10 +534,12 @@ class GraphParams:
 
 
 _graph_params: Optional[GraphParams] = None
+_graph_capture_sizes: set[int] = None
 
 
 def set_graph_params(aclgraph_capture_sizes: set[int]):
     global _graph_params
+    global _graph_capture_sizes
     if _graph_params is not None:
         raise ValueError("Graph parameters have already been set!")
     _graph_params = GraphParams(
@@ -547,6 +549,7 @@ def set_graph_params(aclgraph_capture_sizes: set[int]):
         attn_params={size: [] for size in aclgraph_capture_sizes},
         is_mla=False,
     )
+    _graph_capture_sizes = aclgraph_capture_sizes
 
 
 def get_graph_params():
@@ -556,6 +559,7 @@ def get_graph_params():
 def clear_graph_params():
     """Clear global graph params and release references to KV cache tensors."""
     global _graph_params
+    global _graph_capture_sizes
     if _graph_params is None:
         return
 
@@ -571,6 +575,10 @@ def clear_graph_params():
         _graph_params.workspaces.clear()
     finally:
         _graph_params = None
+        _graph_capture_sizes = None
+        # 清除 lru_cache，使下次推理时 _get_capture_batch_size_impl
+        # 重新执行并调用 set_graph_params 干净重建
+        _get_capture_batch_size_impl.cache_clear()
 
 
 def update_attn_params(update_stream, forward_meta, runtime_size):
