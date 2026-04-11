@@ -26,7 +26,8 @@ def run_pipeline_chat_test(
 ):
     log_path = config.get("log_path")
     tp = get_tp_num(config, model_case)
-    model_name = model_name = get_model_name(model_case)
+    mode_str = "eager" if eager_mode else "graph"
+    model_name = get_model_name(model_case)
     model_path = config.get("model_path")
     if use_local_model is True:
         hf_path = model_path + "/" + model_case
@@ -49,7 +50,10 @@ def run_pipeline_chat_test(
                 "pipeline",
                 "config",
                 "pytorch",
-                model_case.split("/")[1] + ".log",
+                model_case.split("/")[1],
+                f"tp{tp}",
+                mode_str,
+                ".log",
             ]
         ),
     )
@@ -65,7 +69,7 @@ def run_pipeline_chat_test(
     )
     file.writelines(log_string)
     print("log config: ", log_string)
-    file.close
+    file.close()
 
     for case in cases_info.keys():
         if ("coder" in model_case or "CodeLlama" in model_case) and "code" not in case:
@@ -80,6 +84,8 @@ def run_pipeline_chat_test(
                     "chat",
                     "pytorch",
                     model_case.split("/")[1],
+                    f"tp{tp}",
+                    mode_str,
                     case + ".log",
                 ]
             ),
@@ -108,9 +114,11 @@ def run_pipeline_chat_test(
 
 
 def assert_pipeline_chat_log(
-    config, cases_info, model_case, device_type, use_pytest=True
+    config, cases_info, model_case, device_type, eager_mode=True, use_pytest=True
 ):
     log_path = config.get("log_path")
+    tp = get_tp_num(config, model_case)
+    mode_str = "eager" if eager_mode else "graph"
 
     config_log = os.path.join(
         log_path,
@@ -120,7 +128,10 @@ def assert_pipeline_chat_log(
                 "pipeline",
                 "config",
                 "pytorch",
-                model_case.split("/")[1] + ".log",
+                model_case.split("/")[1],
+                f"tp{tp}",
+                mode_str,
+                ".log",
             ]
         ),
     )
@@ -142,6 +153,8 @@ def assert_pipeline_chat_log(
                         "chat",
                         "pytorch",
                         model_case.split("/")[1],
+                        f"tp{tp}",
+                        mode_str,
                         case + ".log",
                     ]
                 ),
@@ -151,17 +164,21 @@ def assert_pipeline_chat_log(
                 pipeline_chat_log, attachment_type=allure.attachment_type.TEXT
             )
 
-            with open(pipeline_chat_log, "r") as f:
-                lines = f.readlines()
+            if not os.path.exists(pipeline_chat_log):
+                msg = f"Log file not found: {pipeline_chat_log}"
+                result = False
+            else:
+                with open(pipeline_chat_log, "r") as f:
+                    lines = f.readlines()
 
-                for line in lines:
-                    if "result:False, reason:" in line:
-                        result = False
-                        msg = line
-                        break
-                    if "result:True, reason:" in line and result is False:
-                        result = True
-                        msg = ""
+                    for line in lines:
+                        if "result:False, reason:" in line:
+                            result = False
+                            msg = line
+                            break
+                        if "result:True, reason:" in line and result is False:
+                            result = True
+                            msg = ""
             if use_pytest:
                 with assume:
                     assert result, msg
@@ -184,6 +201,7 @@ REMOTE_PIC2 = (
 def run_pipeline_vl_chat_test(config, model_case, device_type, eager_mode=True):
     log_path = config.get("log_path")
     tp = get_tp_num(config, model_case)
+    mode_str = "eager" if eager_mode else "graph"
     model_path = config.get("model_path")
     PIC1 = config.get("LOCAL_PIC1", REMOTE_PIC1)
     PIC2 = config.get("LOCAL_PIC2", REMOTE_PIC2)
@@ -204,7 +222,12 @@ def run_pipeline_vl_chat_test(config, model_case, device_type, eager_mode=True):
     print("log config: ", log_string)
 
     pipeline_chat_log = os.path.join(
-        log_path, device_type + "_pipeline_vl_chat_" + model_case.split("/")[1] + ".log"
+        log_path,
+        device_type
+        + "_pipeline_vl_chat_"
+        + model_case.split("/")[1]
+        + f"tp{tp}_{mode_str}"
+        + ".log",
     )
     file = open(pipeline_chat_log, "w")
 
@@ -298,29 +321,43 @@ def run_pipeline_vl_chat_test(config, model_case, device_type, eager_mode=True):
     torch.cuda.empty_cache()
 
 
-def assert_pipeline_vl_chat_log(config, model_case, device_type, use_pytest=True):
+def assert_pipeline_vl_chat_log(
+    config, model_case, device_type, eager_mode=True, use_pytest=True
+):
     log_path = config.get("log_path")
+    tp = get_tp_num(config, model_case)
+    mode_str = "eager" if eager_mode else "graph"
 
     pipeline_chat_log = os.path.join(
-        log_path, device_type + "_pipeline_vl_chat_" + model_case.split("/")[1] + ".log"
+        log_path,
+        device_type
+        + "_pipeline_vl_chat_"
+        + model_case.split("/")[1]
+        + f"tp{tp}_{mode_str}"
+        + ".log",
     )
 
     allure.attach.file(pipeline_chat_log, attachment_type=allure.attachment_type.TEXT)
 
+    log_results = []
     msg = "result is empty, please check again"
     result = False
-    with open(pipeline_chat_log, "r") as f:
-        lines = f.readlines()
-        for line in lines:
-            if "result:False, reason:" in line:
-                result = False
-                msg = line
-                break
-            if "result:True, reason:" in line and result is False:
-                result = True
-                msg = ""
 
-    log_results = []
+    if not os.path.exists(pipeline_chat_log):
+        msg = f"Log file not found: {pipeline_chat_log}"
+        result = False
+    else:
+        with open(pipeline_chat_log, "r") as f:
+            lines = f.readlines()
+            for line in lines:
+                if "result:False, reason:" in line:
+                    result = False
+                    msg = line
+                    break
+                if "result:True, reason:" in line and result is False:
+                    result = True
+                    msg = ""
+
     if use_pytest:
         with assume:
             assert result, msg

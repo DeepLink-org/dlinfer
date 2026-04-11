@@ -20,10 +20,8 @@ multiprocessing.set_start_method("spawn", force=True)
 @pytest.mark.flaky(reruns=0)
 @pytest.mark.lmdeploy
 @pytest.mark.chat
-@pytest.mark.parametrize(
-    "model", get_torch_model_list(tp_num=1, graph_mode=False, model_type="chat_model")
-)
-def test_pipeline_chat_pytorch_tp1_ascend_eager(config, common_case_config, model):
+def test_pipeline_chat_pytorch_ascend_eager(config, common_case_config, model_tp):
+    model, tp = model_tp
     p = Process(
         target=run_pipeline_chat_test,
         args=(config, common_case_config, model, "ascend", True),
@@ -32,24 +30,7 @@ def test_pipeline_chat_pytorch_tp1_ascend_eager(config, common_case_config, mode
     p.join()
 
     # assert script
-    assert_pipeline_chat_log(config, common_case_config, model, "ascend")
-
-
-"""
-@pytest.mark.flaky(reruns=0)
-@pytest.mark.lmdeploy
-@pytest.mark.vl
-@pytest.mark.parametrize(
-    "model", get_torch_model_list(tp_num=1, graph_mode=False, model_type="vl_model")
-)
-def test_pipeline_vl_pytorch_tp1_ascend_eager(config, model):
-    p = Process(target=run_pipeline_vl_chat_test, args=(config, model, "ascend", True))
-    p.start()
-    p.join()
-
-    # assert script
-    assert_pipeline_vl_chat_log(config, model, "ascend", True)
-"""
+    assert_pipeline_chat_log(config, common_case_config, model, "ascend", True)
 
 
 @pytest.mark.usefixtures("common_case_config")
@@ -57,10 +38,8 @@ def test_pipeline_vl_pytorch_tp1_ascend_eager(config, model):
 @pytest.mark.lmdeploy
 @pytest.mark.chat
 @pytest.mark.graph
-@pytest.mark.parametrize(
-    "model", get_torch_model_list(tp_num=1, graph_mode=True, model_type="chat_model")
-)
-def test_pipeline_chat_pytorch_tp1_ascend_graph(config, common_case_config, model):
+def test_pipeline_chat_pytorch_ascend_graph(config, common_case_config, model_tp):
+    model, tp = model_tp
     p = Process(
         target=run_pipeline_chat_test,
         args=(config, common_case_config, model, "ascend", False),
@@ -69,20 +48,18 @@ def test_pipeline_chat_pytorch_tp1_ascend_graph(config, common_case_config, mode
     p.join()
 
     # assert script
-    assert_pipeline_chat_log(config, common_case_config, model, "ascend")
+    assert_pipeline_chat_log(config, common_case_config, model, "ascend", False)
 
 
 @pytest.mark.flaky(reruns=0)
 @pytest.mark.lmdeploy
 @pytest.mark.vl
 @pytest.mark.graph
-@pytest.mark.parametrize(
-    "model", get_torch_model_list(tp_num=1, graph_mode=True, model_type="vl_model")
-)
-def test_pipeline_vl_pytorch_tp1_ascend_graph(config, model):
+def test_pipeline_vl_pytorch_ascend_graph(config, model_tp):
+    model, tp = model_tp
     p = Process(target=run_pipeline_vl_chat_test, args=(config, model, "ascend", False))
     p.start()
     p.join()
 
     # assert script
-    assert_pipeline_vl_chat_log(config, model, "ascend", True)
+    assert_pipeline_vl_chat_log(config, model, "ascend", False, True)
