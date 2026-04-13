@@ -155,8 +155,10 @@ def apply_rotary_pos_emb(
         k_rot = key[..., :rotary_dim].contiguous()
         k_pass = key[..., rotary_dim:]
 
-        q_rot, k_rot = torch.ops.npu.npu_apply_rotary_pos_emb(q_rot, k_rot, cos, sin, "BSND")
-        
+        q_rot, k_rot = torch.ops.npu.npu_apply_rotary_pos_emb(
+            q_rot, k_rot, cos, sin, "BSND"
+        )
+
         q = torch.cat((q_rot, q_pass), dim=-1)
         k = torch.cat((k_rot, k_pass), dim=-1)
         return q, k
