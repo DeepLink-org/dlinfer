@@ -1,10 +1,11 @@
 import math
 import torch
+import torch_npu
 from dlinfer.utils.type_annotation import Tensor, Optional
 from dlinfer.framework.lmdeploy_ext.cudagraph.ascend_cudagraph import (
     AscendGraphRunner,
     get_graph_params,
-    aclgraph_use_torch_npu_update,
+    update_graph_params_workspaces,
 )
 
 
@@ -22,40 +23,85 @@ def decode_attention(
     softmax_scale: float,
     attn_output: Tensor,
 ):
-    if AscendGraphRunner.capturing and not aclgraph_use_torch_npu_update():
+    query = query.contiguous()
+    attn_output = attn_output.contiguous()
+    scale_value = softmax_scale if softmax_scale else 1.0 / math.sqrt(query.shape[-1])
+    if AscendGraphRunner.capturing:
         graph_params = get_graph_params()
         num_tokens = query.shape[0]
         stream = torch.npu.current_stream()
+
+        bs, _, dim = query.shape
+        block_num = key_cache.size(0)
+        query = query.contiguous()
+        attn_output = attn_output.contiguous()
+        key_cache = key_cache.view(block_num, block_size, -1)
+        value_cache = value_cache.view(block_num, block_size, -1)
+        scale_value = softmax_scale if softmax_scale else 1.0 / math.sqrt(dim)
+        # attn_output = attn_output.view(bs, 1, num_q_heads * dim)
+        softmax_lse = torch.empty(1, dtype=query.dtype, device=query.device)
+
+        # Get workspace from cache or calculate it if not present.
+        workspace = graph_params.workspaces.get(num_tokens)
+        if workspace is None:
+            workspace = torch_npu._npu_fused_infer_attention_score_get_max_workspace(
+                query=query,
+                key=key_cache,
+                value=value_cache,
+                atten_mask=None,
+                block_table=block_table,
+                input_layout="TND",
+                block_size=block_size,
+                actual_seq_lengths=q_seq_len,
+                actual_seq_lengths_kv=kv_seq_len,
+                num_key_value_heads=num_kv_heads,
+                num_heads=num_q_heads,
+                scale=scale_value,
+                sparse_mode=0,
+            )
+            update_graph_params_workspaces(num_tokens, workspace)
+
         event = torch.npu.ExternalEvent()
         event.wait(stream)
         event.reset(stream)
         graph_params.events[num_tokens].append(event)
         graph_params.attn_params[num_tokens].append(
             (
-                query,
-                key_cache,
-                value_cache,
+                query,  # [bs, 1, num_q_heads * dim]
+                key_cache,  # [block_num, block_size, kv_hidden]
+                value_cache,  # [block_num, block_size, kv_hidden]
                 num_kv_heads,
                 num_q_heads,
                 scale_value,
+                block_size,
                 block_table,
+                q_seq_len,
                 kv_seq_len,
-                attn_output,
+                attn_output,  # [bs, 1, num_q_heads * dim]
+                softmax_lse,
             )
         )
         graph_params.is_mla = False
         torch.npu.graph_task_group_begin(stream)
-        torch.ops.atb._npu_paged_attention(
+
+        torch.ops.npu.npu_fused_infer_attention_score.out(
             query=query,
-            key_cache=key_cache,
-            value_cache=value_cache,
-            num_kv_heads=num_kv_heads,
-            num_heads=num_q_heads,
-            scale_value=scale_value,
+            key=key_cache,
+            value=value_cache,
+            atten_mask=None,
             block_table=block_table,
-            context_lens=kv_seq_len,
-            out=attn_output,
+            input_layout="TND",
+            block_size=block_size,
+            actual_seq_lengths=q_seq_len,
+            actual_seq_lengths_kv=kv_seq_len,
+            num_key_value_heads=num_kv_heads,
+            num_heads=num_q_heads,
+            scale=scale_value,
+            sparse_mode=0,
+            workspace=workspace,
+            out=[attn_output, softmax_lse],
         )
+
         handle = torch.npu.graph_task_group_end(stream)
         graph_params.handles[num_tokens].append(handle)
     else:

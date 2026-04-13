@@ -88,7 +88,7 @@ class GraphTransformer:
             else:
                 continue
             if "val" in n.meta and test_infer:
-                (n_meta_val, fake_val) = (
+                n_meta_val, fake_val = (
                     ((n.meta["val"],), (fake_value,))
                     if not isinstance(n.meta["val"], (Tuple, List))
                     else (n.meta["val"], fake_value)

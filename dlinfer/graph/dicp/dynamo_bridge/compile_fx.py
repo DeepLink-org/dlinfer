@@ -21,7 +21,6 @@ from dlinfer.graph.dicp.dynamo_bridge.torch_version import (
     is_torch_210_or_higher,
 )
 
-
 log = logging.getLogger(__name__)
 
 dynamo_logging = import_module("torch._dynamo.logging")
