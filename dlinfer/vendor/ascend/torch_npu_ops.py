@@ -129,7 +129,9 @@ def apply_rotary_pos_emb(
     query = query.contiguous().unsqueeze(0)
     key = key.contiguous().unsqueeze(0)
     assert len(query.shape) == 4
-    batch, seq_len, _, _ = query.shape
+    batch, seq_len, _, head_size = query.shape
+    rotary_dim = cos.size(-1)
+
     cos = cos.reshape(batch, seq_len, 1, -1)
     sin = sin.reshape(batch, seq_len, 1, -1)
 
@@ -141,9 +143,50 @@ def apply_rotary_pos_emb(
         return (q * cos) + (rotate_half_(q) * sin), (k * cos) + (rotate_half_(k) * sin)
 
     # ascend ops currently only support dim 128
-    if query.shape[-1] != 128 or key.shape[-1] != 128:
-        return apply_rotary_pos_emb_(query, key, cos, sin)
-    return torch.ops.npu.npu_apply_rotary_pos_emb(query, key, cos, sin, "BSND")
+    if rotary_dim == head_size:
+        if head_size == 128:
+            return torch.ops.npu.npu_apply_rotary_pos_emb(query, key, cos, sin, "BSND")
+        else:
+            return apply_rotary_pos_emb_(query, key, cos, sin)
+    elif rotary_dim < head_size:
+
+        q_rot = query[..., :rotary_dim].contiguous()
+        q_pass = query[..., rotary_dim:]
+        k_rot = key[..., :rotary_dim].contiguous()
+        k_pass = key[..., rotary_dim:]
+
+        q_rot, k_rot = apply_rotary_pos_emb_(q_rot, k_rot, cos, sin)
+        q = torch.cat((q_rot, q_pass), dim=-1)
+        k = torch.cat((k_rot, k_pass), dim=-1)
+        return q, k
+
+        # vllm-ascend/vllm_ascend/ops/rotary_embedding.py
+        # num_tokens = query.shape[0]
+        # query = query.view(num_tokens, -1, head_size)
+        # key = key.view(num_tokens, -1, head_size)
+        # q_rot = query[..., :rotary_dim]
+        # q_pass = query[..., rotary_dim:]
+        # k_rot = key[..., :rotary_dim]
+        # k_pass = key[..., rotary_dim:]
+        # q_rot = q_rot.contiguous().view(num_tokens, -1)
+        # k_rot = k_rot.contiguous().view(num_tokens, -1)
+        # torch_npu._npu_rotary_embedding(
+        #     positions,
+        #     q_rot,
+        #     k_rot,
+        #     head_size,
+        #     self.cos_sin_cache,
+        #     is_neox_style,    # True
+        # )
+        # q_rot = q_rot.view(num_tokens, -1, self.rotary_dim)
+        # k_rot = k_rot.view(num_tokens, -1, self.rotary_dim)
+        # q = torch.cat((q_rot, q_pass), dim=-1).reshape(query_shape)
+        # k = torch.cat((k_rot, k_pass), dim=-1).reshape(key_shape)
+        # return q, k
+    else:
+        raise RuntimeError(
+            "apply_rotary_pos_emb does not " "support rotary_dim >xl head_size"
+        )
 
 
 @register_ops(vendor_ops_registry)
@@ -351,6 +394,7 @@ def paged_decode_attention(
     value_cache: Tensor,
     block_table: Optional[Tensor],
     block_size: int,
+    q_seq_len: Tensor,
     kv_seq_len: Tensor,
     max_kv_seq_len: int,
     num_q_heads: int,
@@ -383,6 +427,7 @@ def paged_decode_attention(
             scale_value=scale_value,
             block_table=block_table,
             block_size=block_size,
+            q_seq_len=q_seq_len,
             kv_seq_len=kv_seq_len,
             softmax_scale=softmax_scale,
             attn_output=attn_output,
@@ -432,26 +477,25 @@ def paged_prefill_attention(
         )
 
     scale_value = softmax_scale if softmax_scale else 1.0 / math.sqrt(query.shape[-1])
-    query = query.contiguous().view(query.shape[0], 1, -1)
+    query = query.contiguous()
     block_num = key_cache.size(0)
     key_cache = key_cache.view(block_num, block_size, -1)
     value_cache = value_cache.view(block_num, block_size, -1)
 
-    # Note: actual_seq_lengths is not set here because the default query sequence
-    # length per batch is 1, which matches our paged prefill phase assumption.
     attn_output, _ = torch.ops.npu.npu_fused_infer_attention_score(
         query=query,
         key=key_cache,
         value=value_cache,
         atten_mask=attn_mask[0],
         block_table=block_table,
-        input_layout="BSH",
+        input_layout="TND",
         block_size=block_size,
+        actual_seq_lengths=q_seq_len,
         actual_seq_lengths_kv=kv_seq_len,
         num_key_value_heads=num_kv_heads,
         num_heads=num_q_heads,
         scale=scale_value,
-        sparse_mode=0,
+        sparse_mode=3,
     )
 
     return attn_output
@@ -613,6 +657,7 @@ def fused_moe(
     renormalize: bool,
     moe_metadata: MoeMetadata,
 ) -> Tensor:
+    topk_ids = topk_ids.to(torch.int32)
     hidden_states, num_tokens, paded_num_tokens, x_active_mask = moe.moe_prepare(
         hidden_states,
         moe_metadata.x_active_mask,

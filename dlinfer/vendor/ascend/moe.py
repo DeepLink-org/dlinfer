@@ -14,7 +14,7 @@ def apply_mlp(
     # up sample
     up_proj = torch.ops.npu.npu_grouped_matmul(
         [hidden_states],
-        [gate_up_weights],
+        [gate_up_weights.transpose(1, 2)],
         group_list=group_list,
         split_item=2,
         group_type=0,
@@ -27,7 +27,7 @@ def apply_mlp(
     # down sample
     down_proj = torch.ops.npu.npu_grouped_matmul(
         [gate_cache],
-        [down_weights],
+        [down_weights.transpose(1, 2)],
         group_list=group_list,
         split_item=2,
         group_type=0,

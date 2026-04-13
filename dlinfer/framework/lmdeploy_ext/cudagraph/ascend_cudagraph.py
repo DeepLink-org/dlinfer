@@ -1,6 +1,7 @@
 # Copyright (c) 2024, OpenMMLab and DeepLink. All rights reserved.
 # this file implements the cudagraph for ascend backend.
 import functools
+import gc
 from typing import Any, Dict, List, Optional
 from dataclasses import dataclass
 from contextlib import ExitStack
@@ -22,6 +23,18 @@ from lmdeploy.utils import get_logger
 
 logger = get_logger("dlinfer")
 BuffType = Dict[str, Tensor]
+
+_graph_capture_sizes: set[int] = None
+
+
+_global_update_stream: Optional[torch.npu.Stream] = None
+
+
+def _get_global_update_stream() -> torch.npu.Stream:
+    global _global_update_stream
+    if _global_update_stream is None:
+        _global_update_stream = torch.npu.Stream()
+    return _global_update_stream
 
 
 # AscendCudaGraphMixin methods for cudagraph buffer management.
@@ -63,6 +76,19 @@ def AscendCudaGraphMixin_make_buffers_cudagraph(
     input_buffers["x_active_mask"] = torch.zeros(
         (max_batches), dtype=torch.bool, device=device
     )
+
+    # ssm
+    if graph_meta.is_ssm:
+        input_buffers["state_ids"] = torch.full(
+            (max_batches,), -1, dtype=torch.int64, device=device
+        )
+
+    # mrope
+    if graph_meta.use_mrope:
+        input_buffers["mrope_position_ids"] = torch.zeros(
+            3, max_tokens, dtype=torch.int64, device=device
+        )
+
     return input_buffers
 
 
@@ -82,6 +108,8 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
     kv_start_indices: Tensor = attn_metadata.kv_start_indices
     moe_metadata = get_step_ctx_manager().current_context().moe_metadata
     x_active_mask: Tensor = moe_metadata.x_active_mask
+    q_start_loc: Tensor = attn_metadata.q_start_loc
+
     input_buffers: BuffType = graph_meta.input_buffers
 
     batch_size, num_blocks = block_offsets.size()
@@ -107,6 +135,15 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
         input_buffers["x_active_mask"].fill_(0)
         input_buffers["x_active_mask"][:batch_size] = x_active_mask
 
+    # ssm
+    if graph_meta.is_ssm:
+        input_buffers["q_start_loc"][: batch_size + 1] = q_start_loc
+        input_buffers["q_start_loc"][batch_size + 1 :] = q_start_loc[-1]
+
+        state_ids = kwargs["state_ids"]
+        input_buffers["state_ids"].fill_(-1)
+        input_buffers["state_ids"][: state_ids.size(0)].copy_(state_ids)
+
     if inputs_embeds is not None:
         emb_size = inputs_embeds.size(-1)
         if "inputs_embeds" not in input_buffers:
@@ -123,6 +160,7 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
     attn_metadata.kv_seqlens = input_buffers["kv_seqlens"]
     attn_metadata.kv_start_indices = input_buffers["kv_start_indices"]
     moe_metadata.x_active_mask = input_buffers["x_active_mask"]
+    attn_metadata.q_start_loc = input_buffers["q_start_loc"]
 
     new_inputs = dict(
         past_key_values=past_key_values,
@@ -138,6 +176,18 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
 
     new_inputs.update(kwargs)
 
+    # ssm: override kwargs' variable-length state_ids with the fixed-size buffer
+    if graph_meta.is_ssm:
+        new_inputs["state_ids"] = input_buffers["state_ids"]
+
+    # mrope
+    if graph_meta.use_mrope:
+        mrope_position_ids = kwargs.get("mrope_position_ids", None)
+        if mrope_position_ids is not None:
+            input_buffers["mrope_position_ids"].zero_()
+            input_buffers["mrope_position_ids"][:, :num_tokens] = mrope_position_ids
+        new_inputs["mrope_position_ids"] = input_buffers["mrope_position_ids"]
+
     return new_inputs
 
 
@@ -150,6 +200,14 @@ def AscendCudaGraphMixin_update_context_cudagraph(self, graph_meta, context):
     context.q_start_loc = input_buffers["q_start_loc"]
     context.kv_start_indices = input_buffers["kv_start_indices"]
     context.moe_metadata.x_active_mask = input_buffers["x_active_mask"]
+
+    # ssm
+    if graph_meta.is_ssm:
+        context.state_offsets = input_buffers["state_ids"]
+
+    # mrope
+    if graph_meta.use_mrope:
+        context.mrope_position_ids = input_buffers["mrope_position_ids"]
 
 
 CudaGraphMixin.make_buffers_cudagraph = AscendCudaGraphMixin_make_buffers_cudagraph
@@ -242,6 +300,8 @@ class AscendSingleGraphRunner:
             input_buffers=dict(),
             output_buffers=dict(),
             vocab_size=self.model_config.vocab_size,
+            is_ssm=len(model_config.states_shapes) > 0,
+            use_mrope=model_config.use_mrope,
         )
         self.device = device
         self.max_batches = max_batches
@@ -271,6 +331,7 @@ class AscendSingleGraphRunner:
             AscendGraphRunner.capturing = True
             with torch.npu.graph(
                 aclgraph,
+                #auto_dispatch_capture=True,
                 pool=self.pool,
                 stream=current_stream,
             ):
@@ -292,6 +353,13 @@ class AscendSingleGraphRunner:
         self.model.update_context_cudagraph(self.meta, context)
         torch.npu.synchronize()
         self._graph.replay()
+        '''
+        self._graph.update(
+            cpu_update_input=[
+                {"actual_seq_lengths_kv": self.meta.input_buffers["kv_seqlens"]}
+            ]
+        )
+        '''
         update_attn_params(self.update_stream, self.meta, self.max_tokens)
         output_buffers = self.meta.output_buffers
         output = self.model.get_outputs_cudagraph(output_buffers, **kwargs)
@@ -303,6 +371,7 @@ class AscendSingleGraphRunner:
             try:
                 if hasattr(self._graph, "reset"):
                     self._graph.reset()
+                del self._graph
             finally:
                 self._graph = None
 
@@ -338,9 +407,11 @@ class AscendGraphRunner(GraphRunner):
         self.num_blocks = cache_config.num_gpu_blocks
         self.enable_graph = self.check_enable_graph()
         self.graph_pool_handle = torch.cuda.graph_pool_handle()
+        # 每次实例化创建独立 pool；reset() 中会在释放旧 pool 后重新创建
         self._runner_map: Dict[Any, AscendSingleGraphRunner] = dict()
         self.has_try_compile_model: bool = False
-        self.update_stream = torch.npu.Stream()
+        self.update_stream = _get_global_update_stream()
+        self._is_reset = False
 
     def check_enable_graph(self):
         """Check enable graph."""
@@ -422,15 +493,37 @@ class AscendGraphRunner(GraphRunner):
 
     def reset(self):
         """Remove all graphs and related resources to prevent hanging on exit."""
+        if self._is_reset:
+            return
+        self._is_reset = True
+ 
+        # 1. Synchronize update_stream first to drain any pending
+        #    graph_task_update / event.record work.
+        try:
+            self.update_stream.synchronize()
+        except Exception as e:
+            logger.warning(f"AscendGraphRunner.reset: update_stream sync: {e!r}")
+
+        # 2. Full device synchronize.
+        try:
+            torch.npu.synchronize()
+        except Exception as e:
+            logger.warning(f"AscendGraphRunner.reset: pre-sync error: {e!r}")
+        # 3. Destroy NPU graphs BEFORE clearing graph_params so that
+        #    AclmdlRIDestroy can clean up event/handle associations while
+        #    the Python references still exist.
+ 
         for _, runner in self._runner_map.items():
             try:
                 runner.reset()
             except Exception as e:
                 logger.warning(f"AscendGraphRunner.reset: runner.reset error: {e!r}")
         self._runner_map.clear()
+        # 4. Now safe to release Python references to events/handles.
         clear_graph_params()
-        self.graph_pool_handle = None
+        gc.collect()
         torch.npu.empty_cache()
+        torch.npu.synchronize()
 
     def __del__(self):
         """Best-effort cleanup when graph runner is GC-ed."""
@@ -471,6 +564,7 @@ _graph_params: Optional[GraphParams] = None
 
 def set_graph_params(aclgraph_capture_sizes: set[int]):
     global _graph_params
+    global _graph_capture_sizes
     if _graph_params is not None:
         raise ValueError("Graph parameters have already been set!")
     _graph_params = GraphParams(
@@ -480,6 +574,7 @@ def set_graph_params(aclgraph_capture_sizes: set[int]):
         attn_params={size: [] for size in aclgraph_capture_sizes},
         is_mla=False,
     )
+    _graph_capture_sizes = aclgraph_capture_sizes
 
 
 def get_graph_params():
@@ -495,6 +590,7 @@ def update_graph_params_workspaces(num_tokens: int, workspace: torch.Tensor):
 def clear_graph_params():
     """Clear global graph params and release references to KV cache tensors."""
     global _graph_params
+    global _graph_capture_sizes
     if _graph_params is None:
         return
 
@@ -510,6 +606,8 @@ def clear_graph_params():
         _graph_params.workspaces.clear()
     finally:
         _graph_params = None
+        _graph_capture_sizes = None
+        _get_capture_batch_size_impl.cache_clear()
 
 
 def update_attn_params(update_stream, forward_meta, runtime_size):
@@ -539,6 +637,7 @@ def update_decode_attention_params(update_stream, forward_meta, param, handle, e
         scale_value,
         block_size,
         block_table,
+        q_seqlens,
         kv_seq_len,
         attn_output,
         softmax_lse,
@@ -547,15 +646,15 @@ def update_decode_attention_params(update_stream, forward_meta, param, handle, e
     workspace = get_graph_params().workspaces.get(runtime_size)
     with torch.npu.stream(update_stream):
         torch.npu.graph_task_update_begin(update_stream, handle)
-        torch_npu.npu_fused_infer_attention_score.out(
+        torch.ops.npu.npu_fused_infer_attention_score.out(
             query=query,
             key=key_cache,
             value=value_cache,
             atten_mask=None,
             block_table=block_table,
-            input_layout="BSH",
+            input_layout="TND",
             block_size=block_size,
-            actual_seq_lengths=None,
+            actual_seq_lengths=q_seqlens,
             actual_seq_lengths_kv=kv_seq_len,
             num_key_value_heads=num_kv_heads,
             num_heads=num_q_heads,

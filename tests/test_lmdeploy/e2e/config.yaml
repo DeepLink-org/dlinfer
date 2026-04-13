@@ -21,3 +21,19 @@ pytorch_vl_model:
     - internvl_model/InternVL2-26B
     - internvl_model/InternVL3-8B
     - qwen_model/Qwen2-VL-7B-Instruct
+
+mixed_prefill_precision:
+    model_case: qwen_model/Qwen3-30B-A3B-Instruct-2507
+    tp: 2
+    session_len: 8192
+    max_batch_size: 8
+    max_prefill_token_num: 2048
+    prompt_token_lengths:
+        - 3000
+        - 4000
+        - 5000
+        - 200
+        - 200
+        - 200
+        - 200
+        - 200
