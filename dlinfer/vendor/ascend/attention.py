@@ -38,7 +38,7 @@ def decode_attention(
         key_cache = key_cache.view(block_num, block_size, -1)
         value_cache = value_cache.view(block_num, block_size, -1)
         scale_value = softmax_scale if softmax_scale else 1.0 / math.sqrt(dim)
-        #attn_output = attn_output.view(bs, 1, num_q_heads * dim)
+        # attn_output = attn_output.view(bs, 1, num_q_heads * dim)
         softmax_lse = torch.empty(1, dtype=query.dtype, device=query.device)
 
         # Get workspace from cache or calculate it if not present.
@@ -67,9 +67,9 @@ def decode_attention(
         graph_params.events[num_tokens].append(event)
         graph_params.attn_params[num_tokens].append(
             (
-                query,           # [bs, 1, num_q_heads * dim]
-                key_cache,       # [block_num, block_size, kv_hidden]
-                value_cache,     # [block_num, block_size, kv_hidden]
+                query,  # [bs, 1, num_q_heads * dim]
+                key_cache,  # [block_num, block_size, kv_hidden]
+                value_cache,  # [block_num, block_size, kv_hidden]
                 num_kv_heads,
                 num_q_heads,
                 scale_value,
@@ -77,7 +77,7 @@ def decode_attention(
                 block_table,
                 q_seq_len,
                 kv_seq_len,
-                attn_output, # [bs, 1, num_q_heads * dim]
+                attn_output,  # [bs, 1, num_q_heads * dim]
                 softmax_lse,
             )
         )

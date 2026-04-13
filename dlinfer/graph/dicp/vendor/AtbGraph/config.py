@@ -5,7 +5,6 @@ from dlinfer.graph.dicp.dynamo_bridge.decompositions import (
     register_decomposition_for_dicp,
 )
 
-
 aten = torch.ops.aten
 
 

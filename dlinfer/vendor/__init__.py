@@ -5,7 +5,6 @@ from functools import lru_cache
 import yaml
 import torch
 
-
 vendor_ops_registry = dict()
 vendor_is_initialized = False
 vendor_name_file = Path(__file__).parent / "vendor.yaml"

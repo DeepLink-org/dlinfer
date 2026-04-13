@@ -331,7 +331,7 @@ class AscendSingleGraphRunner:
             AscendGraphRunner.capturing = True
             with torch.npu.graph(
                 aclgraph,
-                #auto_dispatch_capture=True,
+                # auto_dispatch_capture=True,
                 pool=self.pool,
                 stream=current_stream,
             ):
@@ -353,13 +353,13 @@ class AscendSingleGraphRunner:
         self.model.update_context_cudagraph(self.meta, context)
         torch.npu.synchronize()
         self._graph.replay()
-        '''
+        """
         self._graph.update(
             cpu_update_input=[
                 {"actual_seq_lengths_kv": self.meta.input_buffers["kv_seqlens"]}
             ]
         )
-        '''
+        """
         update_attn_params(self.update_stream, self.meta, self.max_tokens)
         output_buffers = self.meta.output_buffers
         output = self.model.get_outputs_cudagraph(output_buffers, **kwargs)
@@ -496,7 +496,7 @@ class AscendGraphRunner(GraphRunner):
         if self._is_reset:
             return
         self._is_reset = True
- 
+
         # 1. Synchronize update_stream first to drain any pending
         #    graph_task_update / event.record work.
         try:
@@ -512,7 +512,7 @@ class AscendGraphRunner(GraphRunner):
         # 3. Destroy NPU graphs BEFORE clearing graph_params so that
         #    AclmdlRIDestroy can clean up event/handle associations while
         #    the Python references still exist.
- 
+
         for _, runner in self._runner_map.items():
             try:
                 runner.reset()
@@ -627,7 +627,9 @@ def update_attn_params(update_stream, forward_meta, runtime_size):
             )
 
 
-def update_decode_attention_params(update_stream, forward_meta, param, handle, event, runtime_size):
+def update_decode_attention_params(
+    update_stream, forward_meta, param, handle, event, runtime_size
+):
     (
         query,
         key_cache,

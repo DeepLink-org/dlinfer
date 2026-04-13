@@ -664,7 +664,6 @@ def patch_qwen3_5():
         output = self.out_proj(core_attn_out)
         return output
 
-
     Qwen3_5GatedDeltaNet.forward = custom_forward
     Qwen3_5ModelConfigBuilder.build = custom_build
     Qwen3_5ForConditionalGeneration.prepare_inputs_for_generation = (
