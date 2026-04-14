@@ -4,6 +4,7 @@ import math
 import os
 import torch
 import weakref
+import torch.nn.functional as F
 from typing import Callable, List
 
 from lmdeploy.pytorch.models.chatglm2 import SelfAttention
@@ -169,8 +170,6 @@ class AscendMoEForwardDPTP:
         self, hidden_states: torch.Tensor, out_states: torch.Tensor, tp_sizes: List[int]
     ):
         """Reduce scatter."""
-        import torch.nn.functional as F
-
         hidden_states_list = list(hidden_states.split(tp_sizes, -2))
         cur_out_states = hidden_states_list[self.gather_rank]
         out_states.copy_(cur_out_states)

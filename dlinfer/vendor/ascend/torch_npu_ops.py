@@ -658,7 +658,14 @@ def fused_moe(
     moe_metadata: MoeMetadata,
 ) -> Tensor:
     topk_ids = topk_ids.to(torch.int32)
-    hidden_states, num_tokens, paded_num_tokens, x_active_mask = moe.moe_prepare(
+    (
+        hidden_states,
+        num_tokens,
+        paded_num_tokens,
+        x_active_mask,
+        topk_ids,
+        topk_weights,
+    ) = moe.moe_prepare(
         hidden_states,
         moe_metadata.x_active_mask,
         moe_metadata.pad_size,
@@ -666,6 +673,8 @@ def fused_moe(
         moe_metadata.ep_size,
         moe_metadata.tp_rank,
         moe_metadata.moe_comm_type,
+        topk_ids,
+        topk_weights,
     )
 
     if moe_metadata.moe_comm_type == MoECommType.MC2:
