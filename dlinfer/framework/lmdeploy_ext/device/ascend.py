@@ -1,10 +1,7 @@
 # Copyright (c) 2024, DeepLink. All rights reserved.
 import functools
-import math
-import os
 import torch
 import weakref
-import torch.nn.functional as F
 from typing import Callable, List
 
 from lmdeploy.pytorch.models.chatglm2 import SelfAttention
