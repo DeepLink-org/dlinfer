@@ -404,7 +404,7 @@ def patch_gated_delta_net():
                 core_attn_out, last_recurrent_state = self.chunk_gated_delta_rule(
                     q=query,
                     k=key,
-                    v=value,
+                    v=value.contiguous(),
                     g=g,
                     beta=beta,
                     initial_state=initial_state,

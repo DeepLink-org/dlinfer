@@ -12,12 +12,6 @@ from triton_ascend_kernels.attention.fla import chunk_gated_delta_rule_fwd
 from triton_ascend_kernels.norm.l2norm import l2norm_fwd
 
 
-def _contiguous(t):
-    if not t.is_contiguous():
-        t = t.contiguous()
-    return t
-
-
 def chunk_gated_delta_rule(
     q: torch.Tensor,
     k: torch.Tensor,
@@ -72,14 +66,6 @@ def chunk_gated_delta_rule(
         k = l2norm_fwd(k)
 
     input_dtype = q.dtype
-    q = _contiguous(q).to(torch.bfloat16)
-    k = _contiguous(k).to(torch.bfloat16)
-    v = _contiguous(v).to(torch.bfloat16)
-    g = _contiguous(g).to(torch.bfloat16)
-    beta = _contiguous(beta).to(torch.bfloat16)
-    if initial_state is not None:
-        initial_state = _contiguous(initial_state).to(torch.bfloat16)
-
     o, final_state = chunk_gated_delta_rule_fwd(
         q=q,
         k=k,
