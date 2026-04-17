@@ -173,38 +173,13 @@ class AscendMoEForwardDPTP:
         hidden_states_list = list(hidden_states.split(tp_sizes, -2))
         cur_out_states = hidden_states_list[self.gather_rank]
         out_states.copy_(cur_out_states)
-
-        # When tp_sizes are non-uniform, pad pieces to uniform size before reduce_scatter.
-        max_sz = max(tp_sizes)
-        need_pad = max_sz > min(tp_sizes)
-        if need_pad:
-            hidden_states_list = [
-                (
-                    F.pad(piece, (0, 0, 0, max_sz - piece.shape[-2]))
-                    if piece.shape[-2] < max_sz
-                    else piece
-                )
-                for piece in hidden_states_list
-            ]
-            hidden_states_list = [
-                item for item in hidden_states_list for _ in range(self.attn_tp)
-            ]
-            # Clone this rank's padded contribution so the recv buffer holds the correct
-            # data and is not aliased with other entries in hidden_states_list.
-            recv = hidden_states_list[self.rank].clone()
-            hidden_states_list[self.rank] = recv
-            dist.reduce_scatter(
-                recv, hidden_states_list, group=self.tp_group, async_op=False
-            )
-            out_states.copy_(recv.narrow(-2, 0, out_states.shape[-2]))
-        else:
-            hidden_states_list = [
-                item for item in hidden_states_list for _ in range(self.attn_tp)
-            ]
-            hidden_states_list[self.rank] = out_states
-            dist.reduce_scatter(
-                out_states, hidden_states_list, group=self.tp_group, async_op=False
-            )
+        hidden_states_list = [
+            item for item in hidden_states_list for _ in range(self.attn_tp)
+        ]
+        hidden_states_list[self.rank] = out_states
+        dist.reduce_scatter(
+            out_states, hidden_states_list, group=self.tp_group, async_op=False
+        )
         return out_states
 
     def _gemm_and_reduce_scatter(
