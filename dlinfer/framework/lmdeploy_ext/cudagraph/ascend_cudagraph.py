@@ -54,26 +54,36 @@ def AscendCudaGraphMixin_make_buffers_cudagraph(
         (1, max_tokens), dtype=torch.int32, device=device
     )
 
+    # multi-token decode expands block_offsets per-token, so size by
+    # max_tokens; for single-token decode max_tokens == max_batches so
+    # this is backward-compatible.
     input_buffers["block_offsets"] = torch.zeros(
-        (max_batches, num_blocks), dtype=torch.int32, device=device
+        (max_tokens, num_blocks), dtype=torch.int32, device=device
     )
 
     input_buffers["q_seqlens"] = torch.ones(
         max_batches, dtype=torch.int32, device=device
     )
 
-    input_buffers["kv_seqlens"] = torch.ones(max_batches, dtype=torch.int32)
+    # kv_seqlens and kv_start_indices are per-token for paged-prefill
+    # (multi-token decode); use max_tokens to accommodate both cases.
+    input_buffers["kv_seqlens"] = torch.ones(max_tokens, dtype=torch.int32)
 
     input_buffers["q_start_loc"] = torch.arange(
         max_batches + 1, dtype=torch.int32, device=device
     )
 
     input_buffers["kv_start_indices"] = -torch.ones(
-        (max_batches), dtype=torch.int32, device=device
+        (max_tokens), dtype=torch.int32, device=device
     )
 
     input_buffers["x_active_mask"] = torch.zeros(
         (max_batches), dtype=torch.bool, device=device
+    )
+
+    # actual_seq_lengths_q for multi-token decode (CPU tensor, cumulative)
+    input_buffers["actual_seq_lengths_q"] = torch.zeros(
+        max_batches, dtype=torch.int32
     )
 
     # ssm
@@ -111,8 +121,11 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
 
     input_buffers: BuffType = graph_meta.input_buffers
 
-    batch_size, num_blocks = block_offsets.size()
+    expanded_batch_size, num_blocks = block_offsets.size()
     num_tokens = input_ids.size(-1)
+    # q_seqlens is per-sequence (not expanded), so its size gives the
+    # true number of sequences even for multi-token decode.
+    num_seqs = kv_seqlens.size(0)
 
     # fill buffer
     max_num_tokens = input_buffers["input_ids"].size(-1)
@@ -125,19 +138,26 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
     input_buffers["position_ids"].zero_()
     input_buffers["position_ids"][:, :num_tokens] = position_ids
     input_buffers["block_offsets"].zero_()
-    input_buffers["block_offsets"][:batch_size, :num_blocks] = block_offsets
+    input_buffers["block_offsets"][:expanded_batch_size, :num_blocks] = block_offsets
     input_buffers["kv_seqlens"].fill_(0)
-    input_buffers["kv_seqlens"][:batch_size] = kv_seqlens
+    input_buffers["kv_seqlens"][:num_seqs] = kv_seqlens
     input_buffers["kv_start_indices"].fill_(-1)
-    input_buffers["kv_start_indices"][:batch_size] = kv_start_indices
+    input_buffers["kv_start_indices"][:kv_start_indices.size(0)] = kv_start_indices
     if x_active_mask is not None:
         input_buffers["x_active_mask"].fill_(0)
-        input_buffers["x_active_mask"][:batch_size] = x_active_mask
+        input_buffers["x_active_mask"][:x_active_mask.size(0)] = x_active_mask
+
+    # multi-token decode: fill actual_seq_lengths_q
+    actual_seq_lengths_q = getattr(attn_metadata, 'actual_seq_lengths_q', None)
+    if actual_seq_lengths_q is not None:
+        input_buffers["actual_seq_lengths_q"].zero_()
+        input_buffers["actual_seq_lengths_q"][:actual_seq_lengths_q.size(0)] = actual_seq_lengths_q
+        attn_metadata.actual_seq_lengths_q = input_buffers["actual_seq_lengths_q"]
 
     # ssm
     if graph_meta.is_ssm:
-        input_buffers["q_start_loc"][: batch_size + 1] = q_start_loc
-        input_buffers["q_start_loc"][batch_size + 1 :] = q_start_loc[-1]
+        input_buffers["q_start_loc"][: num_seqs + 1] = q_start_loc
+        input_buffers["q_start_loc"][num_seqs + 1 :] = q_start_loc[-1]
 
         state_ids = kwargs["state_ids"]
         input_buffers["state_ids"].fill_(-1)
@@ -153,7 +173,9 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
         input_buffers["inputs_embeds"][:, :num_tokens] = inputs_embeds
     # create inputs
     # Use compatible size but cap at graph's max_batchs to avoid buffer overflow
-    new_batch_size = min(get_ascend_compatible_size(batch_size), graph_meta.max_batchs)
+    # For multi-token decode, expanded_batch_size is per-token, so we
+    # compute padded size from the true sequence count.
+    new_batch_size = min(get_ascend_compatible_size(num_seqs), graph_meta.max_batchs)
 
     attn_metadata.block_offsets = input_buffers["block_offsets"]
     attn_metadata.kv_seqlens = input_buffers["kv_seqlens"]
@@ -352,10 +374,15 @@ class AscendSingleGraphRunner:
         self.model.update_context_cudagraph(self.meta, context)
         if aclgraph_use_torch_npu_update():
             self._graph.replay()
+            update_dict = {
+                "actual_seq_lengths_kv": self.meta.input_buffers["kv_seqlens"],
+            }
+            # multi-token decode also needs actual_seq_lengths updated
+            actual_seq_lengths_q = self.meta.input_buffers.get("actual_seq_lengths_q")
+            if actual_seq_lengths_q is not None and actual_seq_lengths_q.any():
+                update_dict["actual_seq_lengths"] = actual_seq_lengths_q
             self._graph.update(
-                cpu_update_input=[
-                    {"actual_seq_lengths_kv": self.meta.input_buffers["kv_seqlens"]}
-                ]
+                cpu_update_input=[update_dict]
             )
         else:
             update_attn_params(self.update_stream, self.meta, self.max_tokens)
@@ -427,34 +454,74 @@ class AscendGraphRunner(GraphRunner):
     def get_graph_key(
         self,
         input_ids: torch.Tensor,
+        attn_metadata: Any,
         **kwargs,
     ):
         """Get graph key."""
         context = self.ctx_mgr.current_context()
         is_decoding = context.is_decoding
-        num_tokens = input_ids.numel()
         meta = self.get_meta()
         enable_microbatch = get_step_ctx_manager().current_context().enable_microbatch
+
+        if is_decoding:
+            batch_size = None
+            q_seqlens = None
+            if attn_metadata is not None:
+                q_seqlens = getattr(attn_metadata, "q_seqlens", None)
+            if q_seqlens is None:
+                q_seqlens = getattr(context, "q_seqlens", None)
+            if q_seqlens is not None:
+                batch_size = q_seqlens.size(0)
+            elif kwargs.get("state_ids", None) is not None:
+                batch_size = kwargs["state_ids"].size(0)
+
+            if batch_size is not None and batch_size > 0 and input_ids.size(-1) % batch_size == 0:
+                query_len = input_ids.size(-1) // batch_size
+                if meta.padding_batch_size is None:
+                    new_batch_size = self._get_capture_tokens(batch_size)
+                else:
+                    padding_num_tokens = meta.padding_batch_size
+                    padding_batch_size = (padding_num_tokens + query_len - 1) // query_len
+                    new_batch_size = self._get_capture_tokens(padding_batch_size)
+                return (new_batch_size, is_decoding, enable_microbatch, query_len)
+
+        num_tokens = input_ids.numel()
         if meta.padding_batch_size is None:
             new_num_tokens = self._get_capture_tokens(num_tokens)
         else:
             new_num_tokens = self._get_capture_tokens(meta.padding_batch_size)
-        return (new_num_tokens, is_decoding, enable_microbatch)
+        return (new_num_tokens, is_decoding, enable_microbatch, 1)
 
     def __call__(self, **kwargs):
         """call."""
+        import os as _os
+        _debug_graph = _os.environ.get('LMDEPLOY_DEBUG_GRAPH', '0') == '1'
         enable_graph = self.enable_graph(**kwargs)
 
         if not enable_graph:
+            if _debug_graph:
+                print(f'[GRAPH_DEBUG] eager path (enable_graph=False)', flush=True)
             with record_function("forward_eager"):
                 ret = self.model(**kwargs)
                 return self.model.make_output_buffers(ret)
 
+        if _debug_graph:
+            print(f'[GRAPH_DEBUG] graph path', flush=True)
         graph_key = self.get_graph_key(**kwargs)
-        max_tokens = graph_key[0]
+        max_batches = graph_key[0]
         is_decoding = graph_key[1]
+        decode_query_len = graph_key[3]
+        if is_decoding:
+            max_tokens = max_batches * decode_query_len
+        else:
+            max_tokens = max_batches
+            max_batches = self.max_batches
         if graph_key not in self._runner_map:
-            max_batches = max_tokens if is_decoding else self.max_batches
+            if _debug_graph:
+                print(f'[GRAPH_DEBUG] capturing new graph: key={graph_key} '
+                      f'max_batches={max_batches} max_tokens={max_tokens} '
+                      f'is_decoding={is_decoding} decode_query_len={decode_query_len}',
+                      flush=True)
             runner = AscendSingleGraphRunner(
                 self.model,
                 max_batches=max_batches,
@@ -468,6 +535,9 @@ class AscendGraphRunner(GraphRunner):
             )
             runner.capture(**kwargs)
             self._runner_map[graph_key] = runner
+            if _debug_graph:
+                print(f'[GRAPH_DEBUG] graph captured OK, total graphs={len(self._runner_map)}',
+                      flush=True)
         else:
             runner = self._runner_map[graph_key]
         output = runner.forward(**kwargs)
@@ -534,12 +604,10 @@ class GraphParams:
 
 
 _graph_params: Optional[GraphParams] = None
-_graph_capture_sizes: set[int] = None
 
 
 def set_graph_params(aclgraph_capture_sizes: set[int]):
     global _graph_params
-    global _graph_capture_sizes
     if _graph_params is not None:
         raise ValueError("Graph parameters have already been set!")
     _graph_params = GraphParams(
@@ -549,7 +617,6 @@ def set_graph_params(aclgraph_capture_sizes: set[int]):
         attn_params={size: [] for size in aclgraph_capture_sizes},
         is_mla=False,
     )
-    _graph_capture_sizes = aclgraph_capture_sizes
 
 
 def get_graph_params():
@@ -559,7 +626,6 @@ def get_graph_params():
 def clear_graph_params():
     """Clear global graph params and release references to KV cache tensors."""
     global _graph_params
-    global _graph_capture_sizes
     if _graph_params is None:
         return
 
@@ -575,10 +641,6 @@ def clear_graph_params():
         _graph_params.workspaces.clear()
     finally:
         _graph_params = None
-        _graph_capture_sizes = None
-        # 清除 lru_cache，使下次推理时 _get_capture_batch_size_impl
-        # 重新执行并调用 set_graph_params 干净重建
-        _get_capture_batch_size_impl.cache_clear()
 
 
 def update_attn_params(update_stream, forward_meta, runtime_size):
