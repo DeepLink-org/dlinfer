@@ -263,6 +263,7 @@ def patch_gated_delta_net():
         ):
             self.is_decoding = attn_metadata.is_decoding
             self.cu_seqlens = attn_metadata.q_start_loc
+            self.is_multi_token_decoding = getattr(attn_metadata, 'is_multi_token_decoding', False)
 
             # state_ids, fill invalid state with 0
             self.state_ids = state_ids.clamp(0)
@@ -341,8 +342,34 @@ def patch_gated_delta_net():
             weight_reshaped = weight.squeeze(1)
             x = x.squeeze(0)
 
-            if gated_delta_meta.is_decoding:
+            is_multi_token_decode = (
+                not gated_delta_meta.is_decoding
+                and getattr(gated_delta_meta, 'is_multi_token_decoding', False)
+            )
+
+            if gated_delta_meta.is_decoding or is_multi_token_decode:
                 conv_state_indices = gated_delta_meta.conv_state_indices
+                # causal_conv1d_update_npu supports multi-token via
+                # seqlen > 1 in the Triton kernel's for-loop.
+                # For multi-token, x shape is (batch * seqlen, dim);
+                # reshape to (batch, seqlen, dim) for the update kernel.
+                if is_multi_token_decode:
+                    cu = gated_delta_meta.cu_seqlens
+                    num_seqs = cu.size(0) - 1
+                    seqlen = x.size(0) // num_seqs
+                    if seqlen > 1:
+                        x = x.view(num_seqs, seqlen, -1).contiguous()
+                        out = self.causal_conv1d_update(
+                            x,
+                            conv_state,
+                            weight_reshaped.t().contiguous(),
+                            bias,
+                            self.activation,
+                            conv_state_indices=conv_state_indices,
+                            validate_data=False,
+                        )
+                        out = out.reshape(-1, out.size(-1)).unsqueeze(0)
+                        return out, conv_state
                 return self.conv1d_update(
                     x, weight_reshaped, bias, conv_state, conv_state_indices
                 )
@@ -374,8 +401,12 @@ def patch_gated_delta_net():
             """call."""
 
             is_decoding = gated_delta_meta.is_decoding
+            is_multi_token_decode = (
+                not is_decoding
+                and getattr(gated_delta_meta, 'is_multi_token_decoding', False)
+            )
 
-            if is_decoding:
+            if is_decoding or is_multi_token_decode:
                 indices = gated_delta_meta.state_ids
                 cu_seqlens = gated_delta_meta.cu_seqlens
                 core_attn_out = self.fused_sigmoid_gating_delta_rule_update(
@@ -431,6 +462,36 @@ def import_vendor_module(vendor_name_str):
         importlib.import_module(f".{vendor_name_str}", __package__)
 
 
+def patch_attention_is_tp():
+    """Monkey-patch Qwen3_5Attention to skip TP head division for draft model.
+
+    The MTP draft model uses is_tp=False to keep full head counts on each
+    rank. Qwen3_5Attention already passes is_tp to build_qkv_proj and
+    build_o_proj, but Attention.__init__ always calls _update_num_heads.
+    We temporarily replace _update_num_heads with an identity function
+    during Qwen3_5Attention.__init__ when is_tp=False.
+    """
+    from lmdeploy.pytorch.nn import attention as _attn_mod
+    from lmdeploy.pytorch.models import qwen3_5
+
+    _orig_update = _attn_mod._update_num_heads
+    _identity_update = lambda nh, nkv: (nh, nkv)
+    _orig_init = qwen3_5.Qwen3_5Attention.__init__
+
+    def _patched_init(self, config, layer_idx, dtype=None, device=None,
+                      prefix='', is_tp=True):
+        if not is_tp:
+            _attn_mod._update_num_heads = _identity_update
+        try:
+            _orig_init(self, config, layer_idx, dtype=dtype, device=device,
+                       prefix=prefix, is_tp=is_tp)
+        finally:
+            if not is_tp:
+                _attn_mod._update_num_heads = _orig_update
+
+    qwen3_5.Qwen3_5Attention.__init__ = _patched_init
+
+
 def patch_qwen3_5():
     import torch
     from typing import List
@@ -451,6 +512,8 @@ def patch_qwen3_5():
     @classmethod
     def custom_build(cls, hf_config, model_path: str = None, tp: int = 1, **kwargs):
         """build."""
+        is_draft_model = kwargs.get("is_draft_model", False)
+        spec_method = kwargs.get("spec_method", None)
         text_config = hf_config.text_config
         # propagate quantization_config from top-level hf_config into text_config
         quantization_config = getattr(hf_config, "quantization_config", None)
@@ -499,6 +562,23 @@ def patch_qwen3_5():
         cfg.check_env_func = _check_env_qwen3_next
 
         cfg.use_mrope = True
+
+        # Speculative decoding support
+        if spec_method is not None:
+            assert spec_method == "qwen3_5_mtp"
+            cfg.model_paradigm = "ar_spec"
+
+        if is_draft_model:
+            hf_config.architectures = ["Qwen3_5MTPModel"]
+            if getattr(hf_config, "auto_map", None):
+                hf_config.auto_map = {}
+            cfg.model_paradigm = "ar_spec"
+            cfg.num_layers = text_config.mtp_num_hidden_layers
+            cfg.states_shapes = []
+            # Draft model uses is_tp=False — each rank runs the full model
+            # independently, so keep the replicated KV head count for correct
+            # cache allocation.
+
         return cfg
 
     def custom_prepare_inputs_for_generation(
@@ -671,6 +751,107 @@ def patch_qwen3_5():
     )
 
 
+def patch_ray_init():
+    """Monkey-patch lmdeploy's init_ray_cluster to register custom NPU resources.
+
+    Ray does not auto-detect Ascend NPUs; without registering custom resources
+    at ray.init() time, placement groups requesting ``{'NPU': 1}`` never schedule
+    on a fresh local cluster.
+    """
+    import os
+    import logging
+    import lmdeploy.pytorch.ray as _ray_mod
+
+    logger = logging.getLogger('dlinfer.ray')
+    _orig_init_ray_cluster = _ray_mod.init_ray_cluster
+
+    def _infer_local_ray_custom_resources(device_type, world_size):
+        if device_type == 'ascend':
+            n = None
+            try:
+                npu_mod = getattr(torch, 'npu', None)
+                if npu_mod is not None and callable(getattr(npu_mod, 'device_count', None)):
+                    n = int(npu_mod.device_count())
+                    if n <= 0:
+                        n = None
+            except Exception:
+                n = None
+            if n is None:
+                vis = os.environ.get('ASCEND_RT_VISIBLE_DEVICES', '').strip()
+                if vis:
+                    n = len([x for x in vis.split(',') if x.strip() != ''])
+            if n is None or n <= 0:
+                n = int(world_size)
+                logger.warning(
+                    'Could not detect NPU count; registering Ray resource NPU=%d '
+                    'from world_size.', n)
+            return {'NPU': float(n)}
+        if device_type == 'camb':
+            n = None
+            try:
+                mlu = getattr(torch, 'mlu', None)
+                if mlu is not None and callable(getattr(mlu, 'device_count', None)):
+                    n = int(mlu.device_count())
+                    if n <= 0:
+                        n = None
+            except Exception:
+                n = None
+            if n is None or n <= 0:
+                n = int(world_size)
+                logger.warning('Could not detect MLU count; registering MLU=%d.', n)
+            return {'MLU': float(n)}
+        return None
+
+    def _patched_init_ray_cluster(world_size, ray_address=None, dp=1, device_type='cuda'):
+        """Same as original but registers custom resources at ray.init() for local clusters."""
+        import ray
+        if not ray.is_initialized():
+            num_cpus = world_size
+            object_store_memory = _ray_mod._get_obj_store_memory(dp=dp)
+            init_kwargs = dict(
+                ignore_reinit_error=True,
+                num_cpus=num_cpus,
+                object_store_memory=object_store_memory,
+            )
+            if ray_address is not None:
+                init_kwargs['address'] = ray_address
+            if ray_address is None:
+                custom_res = _infer_local_ray_custom_resources(device_type, world_size)
+                if custom_res:
+                    init_kwargs['resources'] = custom_res
+            try:
+                ray.init(**init_kwargs)
+            except ValueError as e:
+                if e.args is not None and len(e.args) >= 1 and e.args[
+                        0] == 'When connecting to an existing cluster, num_cpus and num_gpus must not be provided.':
+                    ray.init(address=ray_address, ignore_reinit_error=True)
+                else:
+                    raise
+
+        # Remaining logic unchanged from original init_ray_cluster
+        device_str = _ray_mod.get_device_str(device_type)
+        current_placement_group = ray.util.get_current_placement_group()
+        owned_pg = False
+        if not current_placement_group:
+            num_devices_in_cluster = ray.cluster_resources().get(device_str, 0)
+            if world_size > num_devices_in_cluster:
+                _ray_mod.logger.warning(
+                    'The number of required %ss exceeds the total '
+                    'number of available %ss in the placement group.', device_str, device_str)
+            placement_group_specs = [{device_str: 1.0} for _ in range(world_size)]
+            current_ip = ray.util.get_node_ip_address()
+            placement_group_specs[0][f'node:{current_ip}'] = 0.001
+            current_placement_group = ray.util.placement_group(placement_group_specs, strategy='PACK')
+            _ray_mod._wait_until_pg_ready(current_placement_group)
+            owned_pg = True
+
+        assert current_placement_group is not None
+        placement_group = current_placement_group
+        return placement_group, owned_pg
+
+    _ray_mod.init_ray_cluster = _patched_init_ray_cluster
+
+
 def vendor_device_init():
     import_vendor_module(vendor_name)
     patch_compiled_func()
@@ -679,8 +860,10 @@ def vendor_device_init():
         patch_contiguous_cache_engine()
     if vendor_name == "ascend":
         patch_state_cache_engine()
-        patch_gated_delta_net()
+        patch_gated_delta_net()      # MUST be before patch_attention_is_tp
+        patch_attention_is_tp()
         patch_qwen3_5()
+        patch_ray_init()
 
 
 vendor_device_init()
