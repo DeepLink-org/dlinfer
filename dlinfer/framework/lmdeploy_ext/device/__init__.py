@@ -237,6 +237,7 @@ def patch_spec_decode_runtime():
 
     def _maybe_snapshot_main_states(self, model_inputs):
         self._main_state_snapshot = None
+        self._main_state_ids = None
         self._main_replay_inputs = None
         state_cache_engine = getattr(self, "main_state_cache_engine", None)
         main_model = getattr(self, "main_model", None)
@@ -247,7 +248,16 @@ def patch_spec_decode_runtime():
         mem_pool = getattr(state_cache_engine, "mem_pool", None)
         if mem_pool is None or mem_pool.numel() == 0:
             return
-        self._main_state_snapshot = mem_pool.clone()
+        state_offsets = getattr(model_inputs, "state_offsets", None)
+        if state_offsets is None:
+            return
+        active_state_ids = state_offsets[state_offsets >= 0]
+        if active_state_ids.numel() == 0:
+            return
+        active_state_ids = active_state_ids.to(device=mem_pool.device, dtype=torch.long)
+        # Only snapshot rows touched by the current batch.
+        self._main_state_ids = active_state_ids
+        self._main_state_snapshot = mem_pool.index_select(0, active_state_ids).clone()
         self._main_replay_inputs = model_inputs.clone()
 
     def _build_replay_inputs(self, model_inputs, output_token_ids):
@@ -284,8 +294,9 @@ def patch_spec_decode_runtime():
 
     def _maybe_replay_main_states(self, extra_inputs):
         state_snapshot = getattr(self, "_main_state_snapshot", None)
+        state_ids = getattr(self, "_main_state_ids", None)
         replay_template = getattr(self, "_main_replay_inputs", None)
-        if state_snapshot is None or replay_template is None:
+        if state_snapshot is None or state_ids is None or replay_template is None:
             return
         try:
             if extra_inputs.num_rejected_tokens is None or not torch.any(extra_inputs.num_rejected_tokens > 0):
@@ -300,7 +311,7 @@ def patch_spec_decode_runtime():
             if main_model is None or main_cache_engine is None or state_cache_engine is None:
                 return
 
-            state_cache_engine.mem_pool.copy_(state_snapshot)
+            state_cache_engine.mem_pool.index_copy_(0, state_ids, state_snapshot)
             from lmdeploy.pytorch.engine.model_agent.agent import model_forward as _main_model_forward
 
             _main_model_forward(
@@ -312,6 +323,7 @@ def patch_spec_decode_runtime():
             )
         finally:
             self._main_state_snapshot = None
+            self._main_state_ids = None
             self._main_replay_inputs = None
 
     def _patched_build_cache_engine(self):
