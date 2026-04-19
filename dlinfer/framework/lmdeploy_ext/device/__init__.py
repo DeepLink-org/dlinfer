@@ -100,6 +100,277 @@ def patch_async_sampling_logits():
     BaseModelAgent.async_sampling_logits = async_sampling_logits
 
 
+def patch_rejection_sampler():
+    from lmdeploy.pytorch.spec_decode import reject_sampler as _reject_sampler_mod
+    _orig_rejection_sample = _reject_sampler_mod.rejection_sample
+
+    def _patched_rejection_sample(
+        target_logits,
+        draft_token_ids,
+        bonus_token_ids,
+        sampling_inputs,
+        draft_probs=None,
+    ):
+        if sampling_inputs.max_top_k == 1:
+            return _orig_rejection_sample(
+                target_logits,
+                draft_token_ids,
+                bonus_token_ids,
+                sampling_inputs,
+                draft_probs=draft_probs,
+            )
+
+        assert draft_probs is None or draft_probs.is_contiguous()
+        if not draft_token_ids.is_contiguous():
+            draft_token_ids = draft_token_ids.contiguous()
+
+        if not target_logits.is_contiguous():
+            target_logits = target_logits.contiguous()
+
+        batch_size, num_spec_tokens = draft_token_ids.shape
+        device = target_logits.device
+
+        output_token_ids = torch.full(
+            (batch_size, num_spec_tokens + 1),
+            _reject_sampler_mod.PLACEHOLDER_TOKEN_ID,
+            dtype=torch.long,
+            device=device,
+        )
+
+        target_probs = target_logits.softmax(dim=-1, dtype=torch.float32)
+        if sampling_inputs.top_k is not None:
+            is_greedy = (sampling_inputs.top_k == 1)
+            if not torch.is_tensor(is_greedy):
+                is_greedy = torch.full(
+                    (batch_size,), bool(is_greedy), dtype=torch.bool, device=device
+                )
+            else:
+                is_greedy = is_greedy.to(device=device, dtype=torch.bool)
+        else:
+            is_greedy = torch.zeros(batch_size, dtype=torch.bool, device=device)
+
+        target_argmax = target_probs.argmax(dim=-1)
+        uniform_probs = torch.rand(
+            (batch_size, num_spec_tokens), dtype=torch.float64, device=device
+        )
+        inv_q = torch.empty(
+            (batch_size, target_probs.shape[-1]), dtype=torch.float32, device=device
+        )
+        inv_q.exponential_()
+        inv_q = inv_q.reciprocal()
+
+        recovered_token_ids = torch.empty(
+            (batch_size, num_spec_tokens), dtype=torch.long, device=device
+        )
+        zero = target_probs.new_tensor(0.0)
+        for batch_idx in range(batch_size):
+            if bool(is_greedy[batch_idx].item()):
+                continue
+            batch_inv_q = inv_q[batch_idx]
+            for pos in range(num_spec_tokens):
+                draft_token_id = draft_token_ids[batch_idx, pos]
+                if draft_probs is None:
+                    prob = target_probs[batch_idx, pos].clone()
+                    prob[draft_token_id] = 0.0
+                else:
+                    prob = torch.maximum(
+                        target_probs[batch_idx, pos] - draft_probs[batch_idx, pos],
+                        zero,
+                    )
+                recovered_token_ids[batch_idx, pos] = torch.argmax(prob * batch_inv_q)
+
+        for batch_idx in range(batch_size):
+            rejected = False
+            if bool(is_greedy[batch_idx].item()):
+                for pos in range(num_spec_tokens):
+                    token_id = target_argmax[batch_idx, pos]
+                    output_token_ids[batch_idx, pos] = token_id
+                    if draft_token_ids[batch_idx, pos] != token_id:
+                        rejected = True
+                        break
+            else:
+                for pos in range(num_spec_tokens):
+                    draft_token_id = draft_token_ids[batch_idx, pos]
+                    if draft_probs is None:
+                        draft_prob = 1.0
+                    else:
+                        draft_prob = float(
+                            draft_probs[batch_idx, pos, draft_token_id].item()
+                        )
+                    target_prob = float(
+                        target_probs[batch_idx, pos, draft_token_id].item()
+                    )
+                    uniform_prob = float(uniform_probs[batch_idx, pos].item())
+                    if draft_prob > 0 and target_prob / draft_prob >= uniform_prob:
+                        token_id = draft_token_id
+                    else:
+                        token_id = recovered_token_ids[batch_idx, pos]
+                        rejected = True
+                    output_token_ids[batch_idx, pos] = token_id
+                    if rejected:
+                        break
+
+            if not rejected:
+                output_token_ids[batch_idx, num_spec_tokens] = bonus_token_ids[batch_idx]
+
+        return _reject_sampler_mod._extract_outputs(output_token_ids, num_spec_tokens)
+
+    _reject_sampler_mod.rejection_sample = _patched_rejection_sample
+
+
+def patch_spec_decode_runtime():
+    from torch.profiler import record_function
+    from lmdeploy.pytorch.engine.model_agent import BaseModelAgent
+    from lmdeploy.pytorch.spec_decode.spec_agent import SpecModelAgent
+
+    _orig_build_cache_engine = BaseModelAgent.build_cache_engine
+    _orig_forward_impl = BaseModelAgent._forward_impl
+
+    def _is_ascend_agent(agent):
+        return getattr(getattr(agent, "backend_config", None), "device_type", None) == "ascend"
+
+    def _set_main_runtime(self, model, cache_engine, state_cache_engine, stream):
+        self.main_model = model
+        self.main_cache_engine = cache_engine
+        self.main_state_cache_engine = state_cache_engine
+        self.main_stream = stream
+
+    def _maybe_snapshot_main_states(self, model_inputs):
+        self._main_state_snapshot = None
+        self._main_replay_inputs = None
+        state_cache_engine = getattr(self, "main_state_cache_engine", None)
+        main_model = getattr(self, "main_model", None)
+        if state_cache_engine is None or main_model is None:
+            return
+        if not model_inputs.is_decoding or model_inputs.max_q_seqlen <= 1:
+            return
+        mem_pool = getattr(state_cache_engine, "mem_pool", None)
+        if mem_pool is None or mem_pool.numel() == 0:
+            return
+        self._main_state_snapshot = mem_pool.clone()
+        self._main_replay_inputs = model_inputs.clone()
+
+    def _build_replay_inputs(self, model_inputs, output_token_ids):
+        valid_mask = output_token_ids.ge(0)
+        seq_length = valid_mask.sum(dim=-1).to(model_inputs.seq_length.dtype)
+        if torch.any(seq_length <= 0):
+            return None
+
+        replay_ids = [row[mask] for row, mask in zip(output_token_ids, valid_mask)]
+        input_ids = torch.cat(replay_ids, dim=0).unsqueeze(0)
+
+        mrope_pos_ids = model_inputs.mrope_pos_ids
+        if mrope_pos_ids is not None:
+            mrope_chunks = []
+            reshaped = mrope_pos_ids.unflatten(1, (-1, model_inputs.max_q_seqlen))
+            for batch_idx, replay_len in enumerate(seq_length.tolist()):
+                mrope_chunks.append(reshaped[:, batch_idx, :replay_len])
+            mrope_pos_ids = torch.cat(mrope_chunks, dim=1)
+
+        max_q_seqlen = int(seq_length.max().item())
+        max_kv_seqlen = int((model_inputs.history_lengths + seq_length).max().item())
+        sum_kv_seqlen = int((model_inputs.history_lengths + seq_length).sum().item())
+        return model_inputs.clone(
+            input_ids=input_ids,
+            seq_length=seq_length,
+            max_q_seqlen=max_q_seqlen,
+            max_kv_seqlen=max_kv_seqlen,
+            sum_kv_seqlen=sum_kv_seqlen,
+            target_hidden_states=None,
+            target_position_ids=None,
+            target_inputs_embeds=None,
+            mrope_pos_ids=mrope_pos_ids,
+        )
+
+    def _maybe_replay_main_states(self, extra_inputs):
+        state_snapshot = getattr(self, "_main_state_snapshot", None)
+        replay_template = getattr(self, "_main_replay_inputs", None)
+        if state_snapshot is None or replay_template is None:
+            return
+        try:
+            if extra_inputs.num_rejected_tokens is None or not torch.any(extra_inputs.num_rejected_tokens > 0):
+                return
+            replay_inputs = self._build_replay_inputs(replay_template, extra_inputs.output_token_ids)
+            if replay_inputs is None:
+                return
+
+            main_model = getattr(self, "main_model", None)
+            main_cache_engine = getattr(self, "main_cache_engine", None)
+            state_cache_engine = getattr(self, "main_state_cache_engine", None)
+            if main_model is None or main_cache_engine is None or state_cache_engine is None:
+                return
+
+            state_cache_engine.mem_pool.copy_(state_snapshot)
+            from lmdeploy.pytorch.engine.model_agent.agent import model_forward as _main_model_forward
+
+            _main_model_forward(
+                main_model,
+                replay_inputs,
+                main_cache_engine,
+                state_cache_engine,
+                stream=getattr(self, "main_stream", None),
+            )
+        finally:
+            self._main_state_snapshot = None
+            self._main_replay_inputs = None
+
+    def _patched_build_cache_engine(self):
+        if _is_ascend_agent(self):
+            state_shapes = getattr(self.model_config, "states_shapes", [])
+            self.cache_config.states_shapes = state_shapes
+            if self.cache_config.num_state_caches is None and len(state_shapes) > 0:
+                self.cache_config.num_state_caches = int(self.cache_config.max_batches + 1)
+
+        _orig_build_cache_engine(self)
+
+        if (
+            _is_ascend_agent(self)
+            and self.spec_agent is not None
+            and self.spec_agent.is_enabled()
+        ):
+            self.spec_agent.set_main_runtime(
+                self.patched_model,
+                self.cache_engine,
+                self.state_cache_engine,
+                self.stream,
+            )
+
+    def _patched_forward_impl(self, inputs):
+        if (
+            _is_ascend_agent(self)
+            and self.spec_agent is not None
+            and self.spec_agent.is_enabled()
+        ):
+            self.spec_agent.maybe_snapshot_main_states(inputs)
+        return _orig_forward_impl(self, inputs)
+
+    async def _patched_async_model_forward(
+        self,
+        model_inputs,
+        extra_inputs,
+        sampling_inputs,
+    ):
+        with record_function("spec_rejection_sampling"):
+            draft_extra_inputs = await self._rejection_sampling(
+                model_inputs, extra_inputs, sampling_inputs
+            )
+        self._maybe_replay_main_states(draft_extra_inputs)
+        draft_model_inputs, draft_extra_inputs = self._prepare_inputs_from_main(
+            model_inputs, draft_extra_inputs
+        )
+        return await self._async_model_forward(
+            draft_model_inputs, draft_extra_inputs, sampling_inputs
+        )
+
+    BaseModelAgent.build_cache_engine = _patched_build_cache_engine
+    BaseModelAgent._forward_impl = _patched_forward_impl
+    SpecModelAgent.set_main_runtime = _set_main_runtime
+    SpecModelAgent.maybe_snapshot_main_states = _maybe_snapshot_main_states
+    SpecModelAgent._build_replay_inputs = _build_replay_inputs
+    SpecModelAgent._maybe_replay_main_states = _maybe_replay_main_states
+    SpecModelAgent.async_model_forward = _patched_async_model_forward
+
+
 ##### patch cache engine #####
 def patch_contiguous_cache_engine():
     from lmdeploy.pytorch.config import CacheConfig, ModelConfig
@@ -241,6 +512,7 @@ def patch_gated_delta_net():
 
     from lmdeploy.pytorch.nn import gated_delta
     from lmdeploy.pytorch.nn.gated_delta import GatedDeltaMeta
+    from lmdeploy.pytorch.model_inputs import get_step_ctx_manager
 
     from dlinfer.vendor.ascend.triton_ops import RMSNormGated
     from dlinfer.vendor.ascend.triton_ops import (
@@ -249,6 +521,7 @@ def patch_gated_delta_net():
     )
     from dlinfer.vendor.ascend.triton_ops import (
         chunk_gated_delta_rule,
+        fused_recurrent_gated_delta_rule,
         fused_sigmoid_gating_delta_rule_update,
     )
 
@@ -261,14 +534,44 @@ def patch_gated_delta_net():
             state_ids: torch.Tensor,
             attn_metadata: Any,
         ):
-            self.is_decoding = attn_metadata.is_decoding
-            self.cu_seqlens = attn_metadata.q_start_loc
             self.is_multi_token_decoding = getattr(attn_metadata, 'is_multi_token_decoding', False)
+            # Keep decode semantics for linear-attention state updates even when
+            # full attention uses a prefill-style TND verify path.
+            self.is_decoding = attn_metadata.is_decoding or self.is_multi_token_decoding
+            self.cu_seqlens = attn_metadata.q_start_loc
+            self.num_spec_tokens = get_step_ctx_manager().build_ctx.num_spec_tokens
+
+            query_lens = None
+            num_seqs = 1
+            if self.cu_seqlens is not None:
+                query_lens = torch.diff(self.cu_seqlens).to(torch.int32)
+                num_seqs = max(int(self.cu_seqlens.numel()) - 1, 1)
+            self.max_query_len = max(num_tokens // num_seqs, 1)
+            self.cache_seqlens = None
+            self.spec_state_offsets = None
+            kv_seqlens_device = getattr(attn_metadata, 'kv_seqlens_device', None)
+            if query_lens is not None and kv_seqlens_device is not None:
+                kv_seqlens = kv_seqlens_device.to(dtype=torch.int32)
+                self.cache_seqlens = (kv_seqlens - query_lens).contiguous()
+                if self.num_spec_tokens > 0 and not self.is_decoding:
+                    state_slots = 1 + self.num_spec_tokens
+                    self.spec_state_offsets = (
+                        torch.remainder(self.cache_seqlens, state_slots),
+                        torch.remainder(kv_seqlens, state_slots),
+                    )
+            self.num_accepted_tokens = getattr(attn_metadata, 'num_accepted_tokens', None)
+            if self.num_accepted_tokens is None and self.is_multi_token_decoding and query_lens is not None:
+                self.num_accepted_tokens = torch.ones(query_lens.size(0), dtype=torch.int32, device=self.cu_seqlens.device)
+            elif self.num_accepted_tokens is not None:
+                self.num_accepted_tokens = self.num_accepted_tokens.to(
+                    device=self.cu_seqlens.device if self.cu_seqlens is not None else state_ids.device,
+                    dtype=torch.int32,
+                ).contiguous()
 
             # state_ids, fill invalid state with 0
             self.state_ids = state_ids.clamp(0)
             self.has_initial_state = attn_metadata.has_initial_state
-            self.conv_state_indices = self.state_ids
+            self.conv_state_indices = self.state_ids.to(torch.int32)
 
     def build_rmsnorm_gated(hidden_size: int, eps=1e-6, **kwargs):
         device = kwargs["device"]
@@ -318,7 +621,17 @@ def patch_gated_delta_net():
             bias: torch.Tensor,
             conv_state: torch.Tensor,
             conv_state_indices: torch.Tensor,
+            gated_delta_meta: GatedDeltaMeta,
         ):
+            update_kwargs = {}
+            validate_data = True
+            if getattr(gated_delta_meta, 'is_multi_token_decoding', False):
+                update_kwargs.update(
+                    num_accepted_tokens=gated_delta_meta.num_accepted_tokens,
+                    query_start_loc=gated_delta_meta.cu_seqlens,
+                    max_query_len=gated_delta_meta.max_query_len,
+                )
+                validate_data = False
             out = self.causal_conv1d_update(
                 x,
                 conv_state,
@@ -326,7 +639,8 @@ def patch_gated_delta_net():
                 bias,
                 self.activation,
                 conv_state_indices=conv_state_indices,
-                validate_data=True,
+                validate_data=validate_data,
+                **update_kwargs,
             )
             return out.unsqueeze(0), conv_state
 
@@ -342,36 +656,10 @@ def patch_gated_delta_net():
             weight_reshaped = weight.squeeze(1)
             x = x.squeeze(0)
 
-            is_multi_token_decode = (
-                not gated_delta_meta.is_decoding
-                and getattr(gated_delta_meta, 'is_multi_token_decoding', False)
-            )
-
-            if gated_delta_meta.is_decoding or is_multi_token_decode:
+            if gated_delta_meta.is_decoding:
                 conv_state_indices = gated_delta_meta.conv_state_indices
-                # causal_conv1d_update_npu supports multi-token via
-                # seqlen > 1 in the Triton kernel's for-loop.
-                # For multi-token, x shape is (batch * seqlen, dim);
-                # reshape to (batch, seqlen, dim) for the update kernel.
-                if is_multi_token_decode:
-                    cu = gated_delta_meta.cu_seqlens
-                    num_seqs = cu.size(0) - 1
-                    seqlen = x.size(0) // num_seqs
-                    if seqlen > 1:
-                        x = x.view(num_seqs, seqlen, -1).contiguous()
-                        out = self.causal_conv1d_update(
-                            x,
-                            conv_state,
-                            weight_reshaped.t().contiguous(),
-                            bias,
-                            self.activation,
-                            conv_state_indices=conv_state_indices,
-                            validate_data=False,
-                        )
-                        out = out.reshape(-1, out.size(-1)).unsqueeze(0)
-                        return out, conv_state
                 return self.conv1d_update(
-                    x, weight_reshaped, bias, conv_state, conv_state_indices
+                    x, weight_reshaped, bias, conv_state, conv_state_indices, gated_delta_meta
                 )
             return self.conv1d_func(
                 x, weight_reshaped, bias, conv_state, gated_delta_meta=gated_delta_meta
@@ -380,11 +668,31 @@ def patch_gated_delta_net():
     class AscendGatedDelta:
 
         def __init__(self, use_qk_l2norm_in_kernel: bool = True):
+            self.fused_recurrent_gated_delta_rule = fused_recurrent_gated_delta_rule
             self.fused_sigmoid_gating_delta_rule_update = (
                 fused_sigmoid_gating_delta_rule_update
             )
             self.chunk_gated_delta_rule = chunk_gated_delta_rule
             self.use_qk_l2norm_in_kernel = use_qk_l2norm_in_kernel
+
+        @staticmethod
+        def _get_decode_state_indices(
+            state_ids: torch.Tensor,
+            cache_seqlens: torch.Tensor,
+            num_slots: int,
+            query_len: int,
+        ) -> torch.Tensor:
+            """Map LMDeploy's per-sequence slot layout to per-token state ids."""
+            token_offsets = torch.arange(
+                query_len,
+                device=cache_seqlens.device,
+                dtype=torch.int64,
+            )
+            slot_offsets = torch.remainder(
+                cache_seqlens.to(torch.int64)[:, None] + token_offsets[None],
+                num_slots,
+            )
+            return (state_ids.to(torch.int64)[:, None] * num_slots + slot_offsets).contiguous()
 
         def __call__(
             self,
@@ -401,14 +709,53 @@ def patch_gated_delta_net():
             """call."""
 
             is_decoding = gated_delta_meta.is_decoding
-            is_multi_token_decode = (
-                not is_decoding
-                and getattr(gated_delta_meta, 'is_multi_token_decoding', False)
-            )
+            is_multi_token_decode = getattr(gated_delta_meta, 'is_multi_token_decoding', False)
+            beta = b.sigmoid()
+            # If the model is loaded in fp16, without the .float() here, A might be -inf
+            g = (-A_log.float().exp()) * F.softplus(a.float() + dt_bias)
 
-            if is_decoding or is_multi_token_decode:
+            if is_decoding:
                 indices = gated_delta_meta.state_ids
                 cu_seqlens = gated_delta_meta.cu_seqlens
+                if is_multi_token_decode:
+                    query_len = gated_delta_meta.max_query_len
+                    state_slots = recurrent_state.size(1)
+                    flat_recurrent_state = recurrent_state.view(-1, *recurrent_state.shape[2:])
+                    state_indices = self._get_decode_state_indices(
+                        indices,
+                        gated_delta_meta.cache_seqlens,
+                        state_slots,
+                        query_len,
+                    )
+                    core_attn_out, _ = self.fused_recurrent_gated_delta_rule(
+                        q=query.contiguous(),
+                        k=key.contiguous(),
+                        v=value.contiguous(),
+                        g=g.contiguous(),
+                        beta=beta.contiguous(),
+                        initial_state=flat_recurrent_state,
+                        inplace_final_state=True,
+                        cu_seqlens=cu_seqlens,
+                        ssm_state_indices=state_indices,
+                        num_accepted_tokens=gated_delta_meta.num_accepted_tokens,
+                        use_qk_l2norm_in_kernel=self.use_qk_l2norm_in_kernel,
+                    )
+                    return core_attn_out, None
+
+                # Single-token decode: use the optimized update kernel
+                initial_state_source = recurrent_state
+                initial_state_indices = indices
+                if recurrent_state.dim() == 5:
+                    state_slots = recurrent_state.size(1)
+                    flat_recurrent_state = recurrent_state.view(-1, *recurrent_state.shape[2:])
+                    slot_offsets = torch.remainder(
+                        gated_delta_meta.cache_seqlens.to(torch.int64),
+                        state_slots,
+                    )
+                    initial_state_source = flat_recurrent_state
+                    initial_state_indices = (
+                        indices.to(torch.int64) * state_slots + slot_offsets
+                    ).contiguous()
                 core_attn_out = self.fused_sigmoid_gating_delta_rule_update(
                     A_log=A_log,
                     dt_bias=dt_bias,
@@ -417,8 +764,8 @@ def patch_gated_delta_net():
                     v=value.contiguous(),
                     a=a.contiguous(),
                     b=b.contiguous(),
-                    initial_state_source=recurrent_state,
-                    initial_state_indices=indices,
+                    initial_state_source=initial_state_source,
+                    initial_state_indices=initial_state_indices,
                     cu_seqlens=cu_seqlens,
                     use_qk_l2norm_in_kernel=True,
                     softplus_beta=1.0,
@@ -426,11 +773,11 @@ def patch_gated_delta_net():
                 )
                 last_recurrent_state = None
             else:
-                beta = b.sigmoid()
-                # If the model is loaded in fp16, without the .float() here, A might be -inf
-                g = (-A_log.float().exp()) * F.softplus(a.float() + dt_bias)
-
-                initial_state = recurrent_state[gated_delta_meta.state_ids]
+                if gated_delta_meta.spec_state_offsets is not None:
+                    read_offsets, write_offsets = gated_delta_meta.spec_state_offsets
+                    initial_state = recurrent_state[gated_delta_meta.state_ids, read_offsets]
+                else:
+                    initial_state = recurrent_state[gated_delta_meta.state_ids]
                 initial_state[~gated_delta_meta.has_initial_state, ...] = 0
                 core_attn_out, last_recurrent_state = self.chunk_gated_delta_rule(
                     q=query,
@@ -444,9 +791,14 @@ def patch_gated_delta_net():
                     head_first=False,
                     use_qk_l2norm_in_kernel=self.use_qk_l2norm_in_kernel,
                 )
-                recurrent_state[gated_delta_meta.state_ids] = last_recurrent_state.to(
-                    recurrent_state.dtype
-                )
+                if gated_delta_meta.spec_state_offsets is not None:
+                    recurrent_state[gated_delta_meta.state_ids, write_offsets] = last_recurrent_state.to(
+                        recurrent_state.dtype
+                    )
+                else:
+                    recurrent_state[gated_delta_meta.state_ids] = last_recurrent_state.to(
+                        recurrent_state.dtype
+                    )
 
             return core_attn_out, last_recurrent_state
 
@@ -514,6 +866,7 @@ def patch_qwen3_5():
         """build."""
         is_draft_model = kwargs.get("is_draft_model", False)
         spec_method = kwargs.get("spec_method", None)
+        num_spec_tokens = kwargs.get("num_spec_tokens", 0)
         text_config = hf_config.text_config
         # propagate quantization_config from top-level hf_config into text_config
         quantization_config = getattr(hf_config, "quantization_config", None)
@@ -538,11 +891,14 @@ def patch_qwen3_5():
         key_dim = head_k_dim * num_k_heads
         value_dim = head_v_dim * num_v_heads
         conv_dim = key_dim * 2 + value_dim
-        conv_kernel_size = text_config.linear_conv_kernel_dim
+        conv_kernel_size = text_config.linear_conv_kernel_dim + num_spec_tokens
 
         # Ascend Patch
         conv_state_shape = (conv_kernel_size, conv_dim)
-        recurrent_state_shape = (num_v_heads, head_k_dim, head_v_dim)
+        if num_spec_tokens > 0:
+            recurrent_state_shape = (1 + num_spec_tokens, num_v_heads, head_k_dim, head_v_dim)
+        else:
+            recurrent_state_shape = (num_v_heads, head_k_dim, head_v_dim)
 
         device_type = kwargs.get("device_type", "cuda")
         if is_bf16_supported(device_type):
@@ -859,6 +1215,8 @@ def vendor_device_init():
     if vendor_name in ["camb", "ascend"]:
         patch_contiguous_cache_engine()
     if vendor_name == "ascend":
+        patch_rejection_sampler()
+        patch_spec_decode_runtime()
         patch_state_cache_engine()
         patch_gated_delta_net()      # MUST be before patch_attention_is_tp
         patch_attention_is_tp()

@@ -37,6 +37,26 @@ def aclgraph_use_torch_npu_update():
 
 
 # AscendCudaGraphMixin methods for cudagraph buffer management.
+def AscendCudaGraphMixin_support_cuda_graph(
+    self,
+    input_ids: Tensor,
+    position_ids: Tensor,
+    past_key_values: List[List[Tensor]],
+    attn_metadata: Any = None,
+    inputs_embeds: Tensor = None,
+    **kwargs,
+):
+    """Allow multi-token decode graph only when runtime length updates exist."""
+    if attn_metadata is None:
+        return False
+
+    is_decoding = getattr(attn_metadata, "is_decoding", False)
+    is_multi_token = getattr(attn_metadata, "is_multi_token_decoding", False)
+    if is_multi_token and not aclgraph_use_torch_npu_update():
+        return False
+    return is_decoding or is_multi_token
+
+
 def AscendCudaGraphMixin_make_buffers_cudagraph(
     self, graph_meta: CudaGraphMeta, *args, **kwargs
 ) -> BuffType:
@@ -54,20 +74,20 @@ def AscendCudaGraphMixin_make_buffers_cudagraph(
         (1, max_tokens), dtype=torch.int32, device=device
     )
 
-    # multi-token decode expands block_offsets per-token, so size by
-    # max_tokens; for single-token decode max_tokens == max_batches so
-    # this is backward-compatible.
+    # TND paged attention consumes block tables per sequence. Keep the graph
+    # buffer batch-shaped even when one decode step contains multiple query
+    # tokens per sequence.
     input_buffers["block_offsets"] = torch.zeros(
-        (max_tokens, num_blocks), dtype=torch.int32, device=device
+        (max_batches, num_blocks), dtype=torch.int32, device=device
     )
 
-    input_buffers["q_seqlens"] = torch.ones(
+    input_buffers["q_seqlens"] = torch.ones(max_batches, dtype=torch.int32)
+
+    # actual_seq_lengths_kv is also tracked per sequence in the TND path.
+    input_buffers["kv_seqlens"] = torch.ones(max_batches, dtype=torch.int32)
+    input_buffers["kv_seqlens_device"] = torch.ones(
         max_batches, dtype=torch.int32, device=device
     )
-
-    # kv_seqlens and kv_start_indices are per-token for paged-prefill
-    # (multi-token decode); use max_tokens to accommodate both cases.
-    input_buffers["kv_seqlens"] = torch.ones(max_tokens, dtype=torch.int32)
 
     input_buffers["q_start_loc"] = torch.arange(
         max_batches + 1, dtype=torch.int32, device=device
@@ -77,8 +97,9 @@ def AscendCudaGraphMixin_make_buffers_cudagraph(
         (max_tokens), dtype=torch.int32, device=device
     )
 
+    # MoE routing still reasons in token space for multi-token verify.
     input_buffers["x_active_mask"] = torch.zeros(
-        (max_batches), dtype=torch.bool, device=device
+        (max_tokens), dtype=torch.bool, device=device
     )
 
     # actual_seq_lengths_q for multi-token decode (CPU tensor, cumulative)
@@ -90,6 +111,9 @@ def AscendCudaGraphMixin_make_buffers_cudagraph(
     if graph_meta.is_ssm:
         input_buffers["state_ids"] = torch.full(
             (max_batches,), -1, dtype=torch.int64, device=device
+        )
+        input_buffers["num_accepted_tokens"] = torch.ones(
+            max_batches, dtype=torch.int32, device=device
         )
 
     # mrope
@@ -121,11 +145,9 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
 
     input_buffers: BuffType = graph_meta.input_buffers
 
-    expanded_batch_size, num_blocks = block_offsets.size()
+    num_seqs, num_blocks = block_offsets.size()
     num_tokens = input_ids.size(-1)
-    # q_seqlens is per-sequence (not expanded), so its size gives the
-    # true number of sequences even for multi-token decode.
-    num_seqs = kv_seqlens.size(0)
+    q_seqlens: Tensor = attn_metadata.q_seqlens
 
     # fill buffer
     max_num_tokens = input_buffers["input_ids"].size(-1)
@@ -137,10 +159,16 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
     input_buffers["input_ids"][:, :num_tokens] = input_ids
     input_buffers["position_ids"].zero_()
     input_buffers["position_ids"][:, :num_tokens] = position_ids
+    input_buffers["q_seqlens"].fill_(1)
+    input_buffers["q_seqlens"][: q_seqlens.size(0)] = q_seqlens
     input_buffers["block_offsets"].zero_()
-    input_buffers["block_offsets"][:expanded_batch_size, :num_blocks] = block_offsets
+    input_buffers["block_offsets"][:num_seqs, :num_blocks] = block_offsets
     input_buffers["kv_seqlens"].fill_(0)
     input_buffers["kv_seqlens"][:num_seqs] = kv_seqlens
+    input_buffers["kv_seqlens_device"].fill_(0)
+    input_buffers["kv_seqlens_device"][:num_seqs].copy_(
+        kv_seqlens.to(device=input_buffers["kv_seqlens_device"].device)
+    )
     input_buffers["kv_start_indices"].fill_(-1)
     input_buffers["kv_start_indices"][:kv_start_indices.size(0)] = kv_start_indices
     if x_active_mask is not None:
@@ -152,16 +180,51 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
     if actual_seq_lengths_q is not None:
         input_buffers["actual_seq_lengths_q"].zero_()
         input_buffers["actual_seq_lengths_q"][:actual_seq_lengths_q.size(0)] = actual_seq_lengths_q
+        # TND graph replay uses fixed-size query buffers. Pad the cumulative
+        # query lengths to the compatible graph batch so the final element
+        # still matches the captured query token count.
+        if actual_seq_lengths_q.numel() > 0:
+            pad_query_len = torch.diff(
+                actual_seq_lengths_q,
+                prepend=actual_seq_lengths_q.new_zeros(1),
+            )[-1]
+            last_q = input_buffers["actual_seq_lengths_q"][actual_seq_lengths_q.size(0) - 1]
+            for idx in range(actual_seq_lengths_q.size(0), input_buffers["actual_seq_lengths_q"].size(0)):
+                last_q = last_q + pad_query_len
+                input_buffers["actual_seq_lengths_q"][idx] = last_q
+            input_buffers["q_seqlens"].copy_(input_buffers["actual_seq_lengths_q"])
         attn_metadata.actual_seq_lengths_q = input_buffers["actual_seq_lengths_q"]
 
     # ssm
     if graph_meta.is_ssm:
-        input_buffers["q_start_loc"][: num_seqs + 1] = q_start_loc
-        input_buffers["q_start_loc"][num_seqs + 1 :] = q_start_loc[-1]
+        input_buffers["q_start_loc"].fill_(0)
+        input_buffers["q_start_loc"][: q_start_loc.size(0)] = q_start_loc
+        if actual_seq_lengths_q is not None and q_start_loc.numel() > 1:
+            pad_query_len = q_start_loc[-1] - q_start_loc[-2]
+            last_q = q_start_loc[-1]
+            for idx in range(q_start_loc.size(0), input_buffers["q_start_loc"].size(0)):
+                last_q = last_q + pad_query_len
+                input_buffers["q_start_loc"][idx] = last_q
+        else:
+            input_buffers["q_start_loc"][q_start_loc.size(0):] = q_start_loc[-1]
 
         state_ids = kwargs["state_ids"]
         input_buffers["state_ids"].fill_(-1)
         input_buffers["state_ids"][: state_ids.size(0)].copy_(state_ids)
+
+        num_accepted_tokens = getattr(attn_metadata, "num_accepted_tokens", None)
+        input_buffers["num_accepted_tokens"].fill_(1)
+        if num_accepted_tokens is not None:
+            input_buffers["num_accepted_tokens"][: num_accepted_tokens.size(0)].copy_(
+                num_accepted_tokens.to(
+                    device=input_buffers["num_accepted_tokens"].device,
+                    dtype=input_buffers["num_accepted_tokens"].dtype,
+                )
+            )
+        attn_metadata.num_accepted_tokens = input_buffers["num_accepted_tokens"]
+        # Keep linear-attention state math on the fixed graph buffer so its
+        # per-sequence cache lengths stay aligned with padded q_start_loc.
+        attn_metadata.kv_seqlens_device = input_buffers["kv_seqlens_device"]
 
     if inputs_embeds is not None:
         emb_size = inputs_embeds.size(-1)
@@ -171,12 +234,7 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
                 1, max_num_tokens, emb_size
             )
         input_buffers["inputs_embeds"][:, :num_tokens] = inputs_embeds
-    # create inputs
-    # Use compatible size but cap at graph's max_batchs to avoid buffer overflow
-    # For multi-token decode, expanded_batch_size is per-token, so we
-    # compute padded size from the true sequence count.
-    new_batch_size = min(get_ascend_compatible_size(num_seqs), graph_meta.max_batchs)
-
+    attn_metadata.q_seqlens = input_buffers["q_seqlens"]
     attn_metadata.block_offsets = input_buffers["block_offsets"]
     attn_metadata.kv_seqlens = input_buffers["kv_seqlens"]
     attn_metadata.kv_start_indices = input_buffers["kv_start_indices"]
@@ -231,6 +289,7 @@ def AscendCudaGraphMixin_update_context_cudagraph(self, graph_meta, context):
         context.mrope_position_ids = input_buffers["mrope_position_ids"]
 
 
+CudaGraphMixin.support_cuda_graph = AscendCudaGraphMixin_support_cuda_graph
 CudaGraphMixin.make_buffers_cudagraph = AscendCudaGraphMixin_make_buffers_cudagraph
 CudaGraphMixin.fill_buffers_cudagraph = AscendCudaGraphMixin_fill_buffers_cudagraph
 CudaGraphMixin.update_context_cudagraph = AscendCudaGraphMixin_update_context_cudagraph
@@ -385,7 +444,7 @@ class AscendSingleGraphRunner:
                 cpu_update_input=[update_dict]
             )
         else:
-            update_attn_params(self.update_stream, self.meta, self.max_tokens)
+            update_attn_params(self.update_stream, self.meta, self.max_batches)
             self._graph.replay()
         output_buffers = self.meta.output_buffers
         output = self.model.get_outputs_cudagraph(output_buffers, **kwargs)
@@ -494,19 +553,13 @@ class AscendGraphRunner(GraphRunner):
 
     def __call__(self, **kwargs):
         """call."""
-        import os as _os
-        _debug_graph = _os.environ.get('LMDEPLOY_DEBUG_GRAPH', '0') == '1'
         enable_graph = self.enable_graph(**kwargs)
 
         if not enable_graph:
-            if _debug_graph:
-                print(f'[GRAPH_DEBUG] eager path (enable_graph=False)', flush=True)
             with record_function("forward_eager"):
                 ret = self.model(**kwargs)
                 return self.model.make_output_buffers(ret)
 
-        if _debug_graph:
-            print(f'[GRAPH_DEBUG] graph path', flush=True)
         graph_key = self.get_graph_key(**kwargs)
         max_batches = graph_key[0]
         is_decoding = graph_key[1]
@@ -517,11 +570,6 @@ class AscendGraphRunner(GraphRunner):
             max_tokens = max_batches
             max_batches = self.max_batches
         if graph_key not in self._runner_map:
-            if _debug_graph:
-                print(f'[GRAPH_DEBUG] capturing new graph: key={graph_key} '
-                      f'max_batches={max_batches} max_tokens={max_tokens} '
-                      f'is_decoding={is_decoding} decode_query_len={decode_query_len}',
-                      flush=True)
             runner = AscendSingleGraphRunner(
                 self.model,
                 max_batches=max_batches,
@@ -535,9 +583,6 @@ class AscendGraphRunner(GraphRunner):
             )
             runner.capture(**kwargs)
             self._runner_map[graph_key] = runner
-            if _debug_graph:
-                print(f'[GRAPH_DEBUG] graph captured OK, total graphs={len(self._runner_map)}',
-                      flush=True)
         else:
             runner = self._runner_map[graph_key]
         output = runner.forward(**kwargs)
