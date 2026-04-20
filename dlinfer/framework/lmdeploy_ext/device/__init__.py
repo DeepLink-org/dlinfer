@@ -637,8 +637,8 @@ def patch_qwen3_5():
         # If the model is loaded in fp16, without the .float() here, A might be -inf
         # g = self.get_A_log_exp() * F.softplus(a.float() + self.dt_bias)
         # if self.kv_ratio > 1:
-            # query = query.repeat_interleave(self.kv_ratio, dim=-2)
-            # key = key.repeat_interleave(self.kv_ratio, dim=-2)
+        # query = query.repeat_interleave(self.kv_ratio, dim=-2)
+        # key = key.repeat_interleave(self.kv_ratio, dim=-2)
 
         core_attn_out, recurrent_state = self.gated_delta(
             query.contiguous(),
