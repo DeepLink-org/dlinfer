@@ -235,22 +235,13 @@ def patch_state_cache_engine():
 
 
 def patch_gated_delta_net():
+    import torch
     import torch.nn.functional as F
     from typing import Any, Sequence, Tuple
     from torch.profiler import record_function
 
     from lmdeploy.pytorch.nn import gated_delta
     from lmdeploy.pytorch.nn.gated_delta import GatedDeltaMeta
-
-    from dlinfer.vendor.ascend.triton_ops import RMSNormGated
-    from dlinfer.vendor.ascend.triton_ops import (
-        causal_conv1d_fn,
-        causal_conv1d_update_npu,
-    )
-    from dlinfer.vendor.ascend.triton_ops import (
-        chunk_gated_delta_rule,
-        fused_sigmoid_gating_delta_rule_update,
-    )
 
     class AscendGatedDeltaMeta:
 
@@ -270,14 +261,34 @@ def patch_gated_delta_net():
             self.conv_state_indices = self.state_ids
 
     def build_rmsnorm_gated(hidden_size: int, eps=1e-6, **kwargs):
+        try:
+            from dlinfer.vendor.ascend.triton_ops import RMSNormGated
+        except Exception:
+            raise RuntimeError(
+                "Triton is not installed or Ascend triton_ops failed to load. "
+                "Please install triton-ascend to use this feature."
+            )
+
         device = kwargs["device"]
         return RMSNormGated(hidden_size, eps=eps, norm_before_gate=True, device=device)
 
     class AscendCausalConv1dFunc:
 
         def __init__(self, activation: str = "silu"):
-            self.causal_conv1d_fn = causal_conv1d_fn
-            self.causal_conv1d_update = causal_conv1d_update_npu
+            try:
+                from dlinfer.vendor.ascend.triton_ops import (
+                    causal_conv1d_fn,
+                    causal_conv1d_update_npu,
+                )
+
+                self.causal_conv1d_fn = causal_conv1d_fn
+                self.causal_conv1d_update = causal_conv1d_update_npu
+            except Exception:
+                raise RuntimeError(
+                    "Triton is not installed or Ascend triton_ops failed to load. "
+                    "Please install triton-ascend to use this feature."
+                )
+
             self.activation = activation
 
         def conv1d_func(
@@ -353,10 +364,22 @@ def patch_gated_delta_net():
     class AscendGatedDelta:
 
         def __init__(self, use_qk_l2norm_in_kernel: bool = True):
-            self.fused_sigmoid_gating_delta_rule_update = (
-                fused_sigmoid_gating_delta_rule_update
-            )
-            self.chunk_gated_delta_rule = chunk_gated_delta_rule
+            try:
+                from dlinfer.vendor.ascend.triton_ops import (
+                    chunk_gated_delta_rule,
+                    fused_sigmoid_gating_delta_rule_update,
+                )
+
+                self.chunk_gated_delta_rule = chunk_gated_delta_rule
+                self.fused_sigmoid_gating_delta_rule_update = (
+                    fused_sigmoid_gating_delta_rule_update
+                )
+            except Exception:
+                raise RuntimeError(
+                    "Triton is not installed or Ascend triton_ops failed to load. "
+                    "Please install triton-ascend and triton-ascend-kernels to use this feature."
+                )
+
             self.use_qk_l2norm_in_kernel = use_qk_l2norm_in_kernel
 
         def __call__(
