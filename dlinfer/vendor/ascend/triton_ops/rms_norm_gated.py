@@ -12,6 +12,7 @@ import torch
 import torch.nn as nn
 import triton
 import triton.language as tl
+import torch.nn.functional as F
 
 MAX_CORES = 65535
 
