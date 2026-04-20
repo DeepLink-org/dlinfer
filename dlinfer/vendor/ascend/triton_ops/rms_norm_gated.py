@@ -164,12 +164,7 @@ class RMSNormGated(nn.Module):
         torch.nn.init.ones_(self.weight)
 
     def forward(self, x, z=None):
-        return rmsnorm_fn(
-            x,
-            self.weight,
-            self.bias,
-            z=z,
-            eps=self.eps,
-            group_size=self.group_size,
-            norm_before_gate=self.norm_before_gate,
-        )
+        input_dtype = x.dtype
+        x = torch.ops.npu.npu_rms_norm(x, self.weight, self.eps)[0]
+        out = x * F.silu(z.to(torch.float32))
+        return out.to(input_dtype)
