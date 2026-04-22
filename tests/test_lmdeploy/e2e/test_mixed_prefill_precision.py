@@ -145,7 +145,7 @@ def _strip_thinking(text):
     [True, False],
     ids=["eager", "graph"],
 )
-def test_mixed_prefill_precision_tp2(config, eager_mode):
+def test_mixed_prefill_precision(config, eager_mode):
     case_config = _resolve_case_config(config)
     model_path = _resolve_model_path(config["model_path"], case_config["model_case"])
     prompts, actual_lengths, answer_tags = _build_prompts(model_path, case_config)

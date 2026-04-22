@@ -23,7 +23,7 @@ pytorch_chat_model:
 pytorch_vl_model:
     - internvl_model/InternVL3_5-38B-Instruct
     - internvl_model/InternVL3_5-8B-Instruct
-    - qwen_model/Qwen2.5-VL-7B-Instruct
+    # - qwen_model/Qwen2.5-VL-7B-Instruct
     - qwen_model/Qwen3-VL-8B-Instruct
     - qwen_model/Qwen3-VL-30B-A3B-Instruct
 
