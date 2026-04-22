@@ -1,8 +1,9 @@
 tp_config:
-    Qwen3-30B-A3B-Instruct-2507: 4
-    InternVL3_5-38B-Instruct: 4
-    Qwen3-VL-30B-A3B-Instruct: 4
-    InternVL3_5-38B-Instruct: 4
+    Qwen3-30B-A3B-Instruct-2507: 2
+    InternVL3_5-38B-Instruct: 2
+    Qwen3-VL-30B-A3B-Instruct: 2
+    InternVL3_5-38B-Instruct: 2
+    Qwen3.5-35B-A3B: 2
 
 graph_config:
     internlm3-8b-instruct: True

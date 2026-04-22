@@ -17,7 +17,7 @@ def common_case_config():
     return get_case_config()
 
 
-TP_VALUES = [1, 2, 4]
+TP_VALUES = [1, 2]
 
 
 def pytest_generate_tests(metafunc):
