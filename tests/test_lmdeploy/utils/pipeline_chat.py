@@ -23,6 +23,7 @@ def run_pipeline_chat_test(
     device_type,
     eager_mode=True,
     use_local_model: bool = True,
+    block_size: int = 128,
 ):
     log_path = config.get("log_path")
     tp = get_tp_num(config, model_case)
@@ -34,7 +35,10 @@ def run_pipeline_chat_test(
     else:
         hf_path = model_case
     backend_config = PytorchEngineConfig(
-        tp=tp, device_type=device_type, eager_mode=eager_mode
+        tp=tp,
+        device_type=device_type,
+        eager_mode=eager_mode,
+        block_size=block_size,
     )
     print("backend_config: ", backend_config)
     pipe = pipeline(hf_path, backend_config=backend_config)
