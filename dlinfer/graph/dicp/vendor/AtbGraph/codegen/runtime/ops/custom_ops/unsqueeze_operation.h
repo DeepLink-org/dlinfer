@@ -14,7 +14,7 @@ namespace dicp {
 class UnsqueezeOperation : public ReshapeOperation {
 public:
     explicit UnsqueezeOperation(const std::string& name, std::vector<int64_t> unsqueezeDim);
-    ~UnsqueezeOperation() {};
+    ~UnsqueezeOperation(){};
     atb::Status InferShape(const atb::SVector<atb::TensorDesc>& inTensorDescs, atb::SVector<atb::TensorDesc>& outTensorDescs) const override;
 
 private:
