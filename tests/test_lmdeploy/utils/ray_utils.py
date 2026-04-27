@@ -41,7 +41,7 @@ def restart_ray_with_npu(npu: int) -> None:
     time.sleep(5)
     print(f"[ray] starting head with NPU={npu}")
     _ray(
-        ["start", "--head", f"--resources={{\"NPU\": {npu}}}"],
+        ["start", "--head", f'--resources={{"NPU": {npu}}}'],
         env_extra={"RAY_EXPERIMENTAL_NOSET_ASCEND_RT_VISIBLE_DEVICES": "1"},
     )
     time.sleep(3)
