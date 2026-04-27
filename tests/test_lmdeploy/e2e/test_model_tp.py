@@ -4,14 +4,14 @@ from multiprocessing import Process
 
 import pytest
 
-from test_lmdeploy.utils.config_utils import get_torch_model_list
-from test_lmdeploy.utils.pipeline_chat import (
+from ..utils.config_utils import get_torch_model_list
+from ..utils.pipeline_chat import (
     assert_pipeline_chat_log,
     assert_pipeline_vl_chat_log,
     run_pipeline_chat_test,
     run_pipeline_vl_chat_test,
 )
-from test_lmdeploy.utils.ray_utils import cleanup_ray, join_or_kill, restart_ray_with_npu
+from ..utils.ray_utils import cleanup_ray, join_or_kill, restart_ray_with_npu
 
 multiprocessing.set_start_method("spawn", force=True)
 

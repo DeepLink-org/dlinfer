@@ -6,7 +6,7 @@ import pytest
 import torch
 
 from lmdeploy import GenerationConfig, PytorchEngineConfig, Tokenizer, pipeline
-from test_lmdeploy.utils.ray_utils import cleanup_ray, restart_ray_with_npu
+from ..utils.ray_utils import cleanup_ray, restart_ray_with_npu
 
 ANSWER_TAG_SEEDS = (
     "OK_314159",

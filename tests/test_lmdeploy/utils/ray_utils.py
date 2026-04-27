@@ -1,5 +1,5 @@
 # Copyright (c) 2024, DeepLink. All rights reserved.
-import os
+import subprocess
 import time
 from multiprocessing import Process
 
@@ -9,6 +9,17 @@ import pytest
 # Ray placement group creation has a 1800s internal timeout; set this
 # higher so pytest gets a clean failure rather than an invisible hang.
 DEFAULT_SUBPROCESS_TIMEOUT = 300
+
+_DEVNULL = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
+
+
+def _ray(args: list[str], env_extra: dict | None = None) -> None:
+    import os
+
+    env = os.environ.copy()
+    if env_extra:
+        env.update(env_extra)
+    subprocess.run(["ray"] + args, env=env, **_DEVNULL)
 
 
 def restart_ray_with_npu(npu: int) -> None:
@@ -25,18 +36,21 @@ def restart_ray_with_npu(npu: int) -> None:
     gets one device (e.g., worker 1 → ASCEND_RT_VISIBLE_DEVICES=7), causing
     lmdeploy's set_device(local_rank=1) to fail since only index 0 is valid.
     """
-    os.system("ray stop --force")
+    print(f"[ray] stopping existing cluster")
+    _ray(["stop", "--force"])
     time.sleep(5)
-    os.system(
-        f"RAY_EXPERIMENTAL_NOSET_ASCEND_RT_VISIBLE_DEVICES=1 "
-        f"ray start --head --resources='{{\"NPU\": {npu}}}'"
+    print(f"[ray] starting head with NPU={npu}")
+    _ray(
+        ["start", "--head", f"--resources={{\"NPU\": {npu}}}"],
+        env_extra={"RAY_EXPERIMENTAL_NOSET_ASCEND_RT_VISIBLE_DEVICES": "1"},
     )
     time.sleep(3)
 
 
 def cleanup_ray() -> None:
     """Force-stop all Ray processes after a test."""
-    os.system("ray stop --force")
+    print("[ray] cleaning up cluster")
+    _ray(["stop", "--force"])
     time.sleep(3)
 
 
