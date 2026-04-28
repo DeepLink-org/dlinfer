@@ -214,7 +214,8 @@ def run_pipeline_vl_chat_test(config, model_case, device_type, eager_mode=True):
         tp=tp, session_len=8192, device_type=device_type, eager_mode=eager_mode
     )
     print("backend_config: ", backend_config)
-    pipe = pipeline(hf_path, backend_config=backend_config)
+    gen_config = GenerationConfig(top_k=1)
+    pipe = pipeline(hf_path, backend_config=backend_config, gen_config=gen_config)
 
     log_string = "\n".join(
         [
