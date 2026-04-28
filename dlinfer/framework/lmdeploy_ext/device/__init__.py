@@ -366,7 +366,7 @@ def patch_spec_decode_runtime():
             draft_extra_inputs = await self._rejection_sampling(
                 model_inputs, extra_inputs, sampling_inputs
             )
-        self._maybe_replay_main_states(draft_extra_inputs)
+        # self._maybe_replay_main_states(draft_extra_inputs)
         draft_model_inputs, draft_extra_inputs = self._prepare_inputs_from_main(
             model_inputs, draft_extra_inputs
         )
@@ -533,8 +533,8 @@ def patch_gated_delta_net():
     )
     from dlinfer.vendor.ascend.triton_ops import (
         chunk_gated_delta_rule,
-        fused_recurrent_gated_delta_rule,
         fused_sigmoid_gating_delta_rule_update,
+        fused_recurrent_gated_delta_rule,
     )
 
     class AscendGatedDeltaMeta:
@@ -739,6 +739,7 @@ def patch_gated_delta_net():
                         state_slots,
                         query_len,
                     )
+                    state_indices, _ = torch.sort(state_indices, dim=1)
                     core_attn_out, _ = self.fused_recurrent_gated_delta_rule(
                         q=query.contiguous(),
                         k=key.contiguous(),
@@ -786,8 +787,7 @@ def patch_gated_delta_net():
                 last_recurrent_state = None
             else:
                 if gated_delta_meta.spec_state_offsets is not None:
-                    read_offsets, write_offsets = gated_delta_meta.spec_state_offsets
-                    initial_state = recurrent_state[gated_delta_meta.state_ids, read_offsets]
+                    initial_state = recurrent_state[gated_delta_meta.state_ids, 0].transpose(-1, -2).contiguous()
                 else:
                     initial_state = recurrent_state[gated_delta_meta.state_ids]
                 initial_state[~gated_delta_meta.has_initial_state, ...] = 0
@@ -804,7 +804,7 @@ def patch_gated_delta_net():
                     use_qk_l2norm_in_kernel=self.use_qk_l2norm_in_kernel,
                 )
                 if gated_delta_meta.spec_state_offsets is not None:
-                    recurrent_state[gated_delta_meta.state_ids, write_offsets] = last_recurrent_state.to(
+                    recurrent_state[gated_delta_meta.state_ids, 0] = last_recurrent_state.transpose(-1, -2).to(
                         recurrent_state.dtype
                     )
                 else:
