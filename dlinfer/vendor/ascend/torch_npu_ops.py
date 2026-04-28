@@ -1,5 +1,4 @@
 # Copyright (c) 2024, DeepLink. All rights reserved.
-import os
 import math
 import torch
 import torch.distributed as dist
@@ -457,6 +456,69 @@ def paged_prefill_attention(
 
     scale_value = softmax_scale if softmax_scale else 1.0 / math.sqrt(query.shape[-1])
     query = query.contiguous()
+    if q_seq_len.dim() != 1 or kv_seq_len.dim() != 1:
+        raise ValueError("TND paged prefill expects 1D actual_seq_lengths tensors.")
+    if block_table.size(0) != q_seq_len.numel() or kv_seq_len.numel() != q_seq_len.numel():
+        raise ValueError("TND paged prefill expects per-sequence block_table and kv_seq_len.")
+    q_seq_len_cpu = get_cpu_seq_len(q_seq_len)
+    kv_seq_len_cpu = get_cpu_seq_len(kv_seq_len)
+    if (
+        q_seq_len_cpu.numel() > 0
+        and int(q_seq_len_cpu.max().item()) > 1
+        and torch.any(kv_seq_len_cpu > q_seq_len_cpu)
+    ):
+        # Ascend TND fused infer attention is still unstable for speculative
+        # multi-token verify. Fall back to token-wise paged decode semantics so
+        # each speculative token only attends to history plus accepted prefix.
+        q_seq_len_per_seq = torch.diff(
+            q_seq_len_cpu,
+            prepend=q_seq_len_cpu.new_zeros(1),
+        )
+        history_lens = kv_seq_len_cpu - q_seq_len_per_seq
+        expanded_kv_seq_len = torch.cat([
+            torch.arange(
+                int(history_len.item()) + 1,
+                int(final_len.item()) + 1,
+                dtype=kv_seq_len_cpu.dtype,
+            )
+            for history_len, final_len in zip(history_lens, kv_seq_len_cpu)
+        ])
+        expanded_q_seq_len = torch.arange(
+            1,
+            expanded_kv_seq_len.numel() + 1,
+            dtype=q_seq_len_cpu.dtype,
+        )
+        expanded_block_table = block_table.repeat_interleave(
+            q_seq_len_per_seq.to(device=block_table.device, dtype=torch.int64),
+            dim=0,
+        )
+        key_headsize, value_headsize = key_cache.shape[-1], value_cache.shape[-1]
+        if key_headsize == value_headsize:
+            return decode_attention(
+                query=query,
+                key_cache=key_cache,
+                value_cache=value_cache,
+                num_q_heads=num_q_heads,
+                num_kv_heads=num_kv_heads,
+                scale_value=scale_value,
+                block_table=expanded_block_table,
+                block_size=block_size,
+                q_seq_len=expanded_q_seq_len,
+                kv_seq_len=expanded_kv_seq_len,
+                softmax_scale=softmax_scale,
+                attn_output=attn_output,
+            )
+        return decode_attention_mla(
+            query=query,
+            key_cache=key_cache,
+            num_kv_heads=num_kv_heads,
+            num_q_heads=num_q_heads,
+            scale_value=scale_value,
+            block_table=expanded_block_table,
+            kv_seq_len=expanded_kv_seq_len,
+            mla_vheadsize=value_cache.shape[-1],
+            attn_output=attn_output,
+        )
     block_num = key_cache.size(0)
     key_cache = key_cache.view(block_num, block_size, -1)
     value_cache = value_cache.view(block_num, block_size, -1)
