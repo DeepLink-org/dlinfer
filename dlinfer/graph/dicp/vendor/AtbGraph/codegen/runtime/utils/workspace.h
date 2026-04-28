@@ -10,7 +10,7 @@ namespace dicp {
 class Workspace {
 public:
     Workspace();
-    ~Workspace() {};
+    ~Workspace(){};
     void* GetWorkspaceBuffer(uint64_t bufferSize);
 
 private:

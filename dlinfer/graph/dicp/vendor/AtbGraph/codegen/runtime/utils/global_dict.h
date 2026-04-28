@@ -11,7 +11,7 @@ namespace dicp {
 class GlobalDict {
 public:
     GlobalDict();
-    ~GlobalDict() {};
+    ~GlobalDict(){};
     void Register(const std::string& key);
     void Set(const std::string& key);
     std::unordered_map<std::string, int>& GetData();

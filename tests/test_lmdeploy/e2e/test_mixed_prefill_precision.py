@@ -5,8 +5,8 @@ from pathlib import Path
 import pytest
 import torch
 
-import dlinfer
 from lmdeploy import GenerationConfig, PytorchEngineConfig, Tokenizer, pipeline
+from ..utils.ray_utils import cleanup_ray, restart_ray_with_npu
 
 ANSWER_TAG_SEEDS = (
     "OK_314159",
@@ -145,8 +145,9 @@ def _strip_thinking(text):
     [True, False],
     ids=["eager", "graph"],
 )
-def test_mixed_prefill_precision_tp2(config, eager_mode):
+def test_mixed_prefill_precision(config, eager_mode):
     case_config = _resolve_case_config(config)
+    restart_ray_with_npu(case_config["tp"])
     model_path = _resolve_model_path(config["model_path"], case_config["model_case"])
     prompts, actual_lengths, answer_tags = _build_prompts(model_path, case_config)
     model_name = Path(case_config["model_case"]).name
@@ -236,3 +237,4 @@ def test_mixed_prefill_precision_tp2(config, eager_mode):
         gc.collect()
         if hasattr(torch, "npu"):
             torch.npu.empty_cache()
+        cleanup_ray()

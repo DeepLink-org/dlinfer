@@ -15,7 +15,7 @@ namespace dicp {
 class ViewOperation : public ReshapeOperation {
 public:
     explicit ViewOperation(const std::string& name, std::vector<int64_t> viewShape);
-    ~ViewOperation() {};
+    ~ViewOperation(){};
     atb::Status InferShape(const atb::SVector<atb::TensorDesc>& inTensorDescs, atb::SVector<atb::TensorDesc>& outTensorDescs) const override;
 
 private:

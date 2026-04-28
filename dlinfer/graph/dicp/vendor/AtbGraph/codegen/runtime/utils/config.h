@@ -7,7 +7,7 @@ namespace dicp {
 class Config {
 public:
     Config();
-    ~Config() {};
+    ~Config(){};
     uint64_t WorkspaceBufferSize();
 
 private:
