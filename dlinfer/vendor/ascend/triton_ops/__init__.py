@@ -12,9 +12,7 @@ __all__ = [
 ]
 
 from .fla.chunk import chunk_gated_delta_rule
-from .fla.sigmoid_gating import (
-    fused_recurrent_gated_delta_rule,
-    fused_sigmoid_gating_delta_rule_update,
-)
+from .fla.sigmoid_gating import fused_sigmoid_gating_delta_rule_update
+from .fla.fused_recurrent import fused_recurrent_gated_delta_rule
 from .rms_norm_gated import RMSNormGated
 from .causal_conv1d import causal_conv1d_fn, causal_conv1d_update_npu
