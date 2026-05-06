@@ -44,18 +44,29 @@ def moe_prepare(
     ep_size: int,
     tp_rank: int,
     moe_comm_type: MoECommType,
+    topk_ids: torch.Tensor = None,
+    topk_weights: torch.Tensor = None,
 ):
     if ep_size <= 1:
-        return hidden_states, None, None, None
+        return hidden_states, None, None, None, topk_ids, topk_weights
     num_tokens = hidden_states.size(0)
-    # pad hidden_states
+    # When tp_size > 1, topk_ids may need TP-splitting. Models using
+    # moe_gating_topk_softmax already split there; detect by comparing
+    # with the original (pre-pad) token count.
+    need_topk_split = (
+        topk_ids is not None and tp_size > 1 and topk_ids.shape[0] == num_tokens
+    )
+    # pad hidden_states (and topk tensors if needed)
     if pad_size > 0:
         if moe_comm_type == MoECommType.MC2:
             x_active_mask = torch.nn.functional.pad(
                 x_active_mask, (0, pad_size), value=False
             )
         hidden_states = torch.nn.functional.pad(hidden_states, (0, 0, 0, pad_size))
-    # split hidden_states and x_active_mask if tp_size > 1
+        if need_topk_split:
+            topk_ids = torch.nn.functional.pad(topk_ids, (0, 0, 0, pad_size))
+            topk_weights = torch.nn.functional.pad(topk_weights, (0, 0, 0, pad_size))
+    # split hidden_states, x_active_mask, and topk tensors if tp_size > 1
     paded_num_tokens = hidden_states.size(0)
     if tp_size > 1:
         split_hidden_states = torch.tensor_split(hidden_states, tp_size, dim=0)
@@ -63,7 +74,17 @@ def moe_prepare(
         if moe_comm_type == MoECommType.MC2:
             split_x_active_mask = torch.tensor_split(x_active_mask, tp_size, dim=0)
             x_active_mask = split_x_active_mask[tp_rank]
-    return hidden_states, num_tokens, paded_num_tokens, x_active_mask
+        if need_topk_split:
+            topk_ids = torch.tensor_split(topk_ids, tp_size, dim=0)[tp_rank]
+            topk_weights = torch.tensor_split(topk_weights, tp_size, dim=0)[tp_rank]
+    return (
+        hidden_states,
+        num_tokens,
+        paded_num_tokens,
+        x_active_mask,
+        topk_ids,
+        topk_weights,
+    )
 
 
 def moe_finalize(
