@@ -41,7 +41,7 @@ def run_pipeline_chat_test(
         block_size=block_size,
     )
     print("backend_config: ", backend_config)
-    pipe = pipeline(hf_path, backend_config=backend_config)
+    pipe = pipeline(hf_path, backend_config=backend_config, trust_remote_code=True)
 
     # run testcases
     gen_config = GenerationConfig(top_k=1)
@@ -67,7 +67,9 @@ def run_pipeline_chat_test(
             "reproduce config info:",
             "engine_config = " + str(backend_config),
             "gen_config = " + str(gen_config),
-            'pipe = pipeline("' + hf_path + '",  backend_config=engine_config)',
+            'pipe = pipeline("'
+            + hf_path
+            + '",  backend_config=engine_config, trust_remote_code=True)',
             'res = pipe("Hi, pls introduce shanghai", gen_config=gen_config)',
         ]
     )
@@ -215,13 +217,20 @@ def run_pipeline_vl_chat_test(config, model_case, device_type, eager_mode=True):
     )
     print("backend_config: ", backend_config)
     gen_config = GenerationConfig(top_k=1)
-    pipe = pipeline(hf_path, backend_config=backend_config, gen_config=gen_config)
+    pipe = pipeline(
+        hf_path,
+        backend_config=backend_config,
+        gen_config=gen_config,
+        trust_remote_code=True,
+    )
 
     log_string = "\n".join(
         [
             "reproduce config info:",
             "engine_config = " + str(backend_config),
-            'pipe = pipeline("' + hf_path + '",  backend_config=engine_config)',
+            'pipe = pipeline("'
+            + hf_path
+            + '",  backend_config=engine_config, trust_remote_code=True)',
         ]
     )
     print("log config: ", log_string)
