@@ -1,5 +1,5 @@
 ---
-name: support-new-model-zh
+name: support-new-model
 description: 在国产 AI 硬件上通过 dlinfer 适配一个新模型
   （该模型已在 lmdeploy CUDA backend 上支持）。
 ---

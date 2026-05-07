@@ -1,5 +1,5 @@
 ---
-name: precision-align-zh
+name: precision-align
 description: 诊断并修复 lmdeploy+dlinfer 在国产 AI 硬件上的精度问题，
   通过与参考实现对比找到偏差根因。
 ---
