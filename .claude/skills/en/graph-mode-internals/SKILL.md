@@ -104,7 +104,7 @@ subsequent encounters it replays the cached graph.
 | Category | Shape changes with batch size? | Needs buffer? |
 |---|---|---|
 | KV cache (`past_key_values`) | No — allocated once at max size | No |
-| `q_seqlens`, `q_start_loc`, `block_offsets`, `kv_start_indices`, `input_ids`, … | Yes | Yes |
+| `q_seqlens`, `kv_seqlens`, `block_offsets`, … | Yes | Yes |
 
 KV cache is passed through unchanged. Variable-shape tensors must be backed
 by fixed-shape buffers so the captured graph always sees the same memory
@@ -210,14 +210,14 @@ graph.update(cpu_update_input=[{"actual_seq_lengths_kv": kv_seqlens}])
 
 | Item | Ascend | Camb | MACA |
 |---|---|---|---|
-| Runner class | `AscendGraphRunner` (custom) | `CUDAGraphRunner` (lmdeploy) | `CUDAGraphRunner` (lmdeploy) |
-| Graph API | `torch.npu.NPUGraph` | `torch.cuda.CUDAGraph` | `torch.cuda.CUDAGraph` |
+| Runner | `AscendGraphRunner` | `CUDAGraphRunner` | `CUDAGraphRunner` |
+| Graph API | `npu.NPUGraph` | `cuda.CUDAGraph` | `cuda.CUDAGraph` |
 | `compatible_size` | 3-stage (p2/16-align/256-align) | power-of-2 | power-of-2 |
-| `attn_metadata` slicing in `fill_buffers` | Not sliced (full buffer) | Sliced to `[:new_batch_size]` | Sliced to `[:new_batch_size]` |
-| `kv_start_indices` shape | `(max_batches,)` | `(max_batches,)` | `(max_batches, 1)` |
-| `max_kv_seq_len` in `fill_buffers` | Kept as-is | Set to -1 | Kept as-is |
+| `attn_metadata` slicing | not sliced | sliced | sliced |
+| `kv_start_indices` | `(max_batchs,)` | `(max_batchs,)` | `(max_batchs, 1)` |
+| `max_kv_seq_len` | kept as-is | set to -1 | kept as-is |
 | `x_active_mask` buffer | Yes | No | No |
-| `kv_seqlens` update during replay | `update_attn_params` or `graph.update()` (version-dependent) | Via buffer write | Via buffer write |
+| kv_seqlens update | `update_attn_params` / `graph.update()` | write | write |
 
 ---
 
