@@ -178,7 +178,9 @@ def test_mixed_prefill_precision(config, eager_mode):
 
     pipe = None
     try:
-        pipe = pipeline(model_path, backend_config=backend_config)
+        pipe = pipeline(
+            model_path, backend_config=backend_config, trust_remote_code=True
+        )
         responses = pipe(
             prompts,
             gen_config=gen_config,
