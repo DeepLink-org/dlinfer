@@ -58,7 +58,7 @@ Python dispatch. It is the reference execution path.
 
 ### dlinfer (vendor extensions)
 
-All vendors patch the three buffer methods at import time:
+All vendors monkey-patch the three buffer methods at import time:
 
 ```python
 CudaGraphMixin.make_buffers_cudagraph  = Vendor_make_buffers_cudagraph
@@ -136,8 +136,8 @@ methods must be updated in sync.
 ```text
 GraphRunner.__call__
   └─ compatible_size = get_compatible_size(batch_size)
-       └─ _runner_map[compatible_size] not found → create CUDASingleGraphRunner
-            (or AscendSingleGraphRunner for Ascend)
+       └─ _runner_map[compatible_size] not found → create AscendSingleGraphRunner
+            (or CUDASingleGraphRunner for Camb / MACA / PPU)
             │
             ├─ make_buffers_cudagraph(graph_meta)  ← allocate fixed buffers once
             │
@@ -180,9 +180,12 @@ GraphRunner.__call__
 
 ## Ascend — kv_seqlens Update During Replay
 
-Ascend NPU graph replay requires that dynamic values such as `kv_seqlens`
-(which change every decode step) be updated in-place in the captured graph,
-rather than by writing to the input buffer and re-capturing.
+For Camb and MACA, writing updated values into the input buffer before
+replay is sufficient — the graph reads from the live device buffer automatically.
+Ascend is different: the attention operator takes `actual_seq_lengths_kv`
+as a CPU tensor or list, not as part of the NPU input buffer. An NPU buffer
+write cannot reach this CPU-side parameter, so the new values must be
+explicitly pushed into the captured graph via a dedicated update API.
 
 Two mechanisms exist, selected at runtime by `aclgraph_use_torch_npu_update()`:
 
@@ -212,7 +215,7 @@ graph.update(cpu_update_input=[{"actual_seq_lengths_kv": kv_seqlens}])
 | `compatible_size` | 3-stage (p2/16-align/256-align) | power-of-2 | power-of-2 |
 | `attn_metadata` slicing in `fill_buffers` | Not sliced (full buffer) | Sliced to `[:new_batch_size]` | Sliced to `[:new_batch_size]` |
 | `kv_start_indices` shape | `(max_batches,)` | `(max_batches,)` | `(max_batches, 1)` |
-| `max_kv_seq_len` in `fill_buffers` | Kept as-is | Set to -1 | Set to -1 |
+| `max_kv_seq_len` in `fill_buffers` | Kept as-is | Set to -1 | Kept as-is |
 | `x_active_mask` buffer | Yes | No | No |
 | `kv_seqlens` update during replay | `update_attn_params` or `graph.update()` (version-dependent) | Via buffer write | Via buffer write |
 
@@ -224,10 +227,11 @@ graph.update(cpu_update_input=[{"actual_seq_lengths_kv": kv_seqlens}])
    valid KV cache slot; padding slots initialised to 0 will silently corrupt
    it.
 
-2. **`max_kv_seq_len` must be -1 for Camb and MACA.** This integer value is
-   baked as a constant at capture time. Setting it to the actual max at
-   capture time would make it wrong at every replay step; -1 tells the
-   attention kernel to compute the max dynamically.
+2. **`max_kv_seq_len` must be -1 for Camb.** This integer is captured as
+   a constant node in the graph at capture time. The `torch_mlu_ops` API
+   treats any value ≤ 0 as "compute the max dynamically from `kv_seqlens`";
+   setting it to the actual max at capture time would make it wrong at
+   every subsequent replay step.
 
 3. **All three buffer methods must be updated together.** If you add a new
    tensor that varies with batch size, `make_buffers` must allocate the
