@@ -107,6 +107,16 @@ def AscendCudaGraphMixin_make_buffers_cudagraph(
         max_batches, dtype=torch.int32
     )
 
+    # attention mask buffer for multi-token decode (kept on-device so graph
+    # replay can see in-place updates via the same data pointer captured at
+    # graph-capture time).  Shape matches the fixed 2048×2048 mask used by
+    # npu_fused_infer_attention_score.  Initialised to all-False (no masking)
+    # so a stale buffer value is permissive rather than destructive.
+    _ATTN_MASK_WIDTH = 2048
+    input_buffers["attention_mask_buf"] = torch.zeros(
+        _ATTN_MASK_WIDTH, _ATTN_MASK_WIDTH, dtype=torch.bool, device=device
+    )
+
     # ssm
     if graph_meta.is_ssm:
         input_buffers["state_ids"] = torch.full(
@@ -193,7 +203,40 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
                 last_q = last_q + pad_query_len
                 input_buffers["actual_seq_lengths_q"][idx] = last_q
             input_buffers["q_seqlens"].copy_(input_buffers["actual_seq_lengths_q"])
+
+            # Fix: phantom sequences (indices num_seqs:max_batches) were padded
+            # with kv_seqlens=0 above.  A kv_len of 0 triggers the
+            # paged_prefill_attention fallback with history_lens = 0 - q_per_seq
+            # < 0, producing negative values in expanded_kv_seq_len that cause
+            # undefined NPU kernel behaviour.  Set phantom kv_seqlens equal to
+            # the per-sequence query length so history_lens = 0 (no prior KV
+            # beyond the phantom tokens themselves).  Their attention outputs are
+            # discarded by get_outputs_cudagraph so the wrong KV data read from
+            # block 0 has no effect on real-sequence outputs.
+            per_seq_q_len = int(pad_query_len.item())
+            if num_seqs < input_buffers["kv_seqlens"].size(0):
+                input_buffers["kv_seqlens"][num_seqs:] = per_seq_q_len
+                input_buffers["kv_seqlens_device"][num_seqs:] = per_seq_q_len
+
         attn_metadata.actual_seq_lengths_q = input_buffers["actual_seq_lengths_q"]
+
+        # Fix: the attention mask is computed by op_backend per-step using the
+        # current max_kv_seq_len (diagonal = max_kv_seq_len - max_q_seq_len + 1).
+        # In graph mode the mask tensor is captured by pointer at warmup time
+        # (when kv_seqlens=[q_len,q_len] -> diagonal=1) and never updated, so
+        # inference steps with larger kv_seqlens use a far-too-restrictive mask
+        # (e.g. diagonal=1 instead of 19) causing query tokens to attend only to
+        # a single KV entry -> near-zero hidden states -> token-0 output.
+        #
+        # Fix: pre-allocate a device buffer, copy the fresh per-step mask into
+        # it in-place, and redirect attn_metadata.attention_mask to the buffer.
+        # Because the graph captured the buffer's data pointer, in-place updates
+        # are visible during replay.
+        fresh_mask = getattr(attn_metadata, 'attention_mask', None)
+        attn_mask_buf = input_buffers.get("attention_mask_buf")
+        if fresh_mask and attn_mask_buf is not None:
+            attn_mask_buf.copy_(fresh_mask[0])
+            attn_metadata.attention_mask = [attn_mask_buf]
 
     # ssm
     if graph_meta.is_ssm:
@@ -225,6 +268,22 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
         # Keep linear-attention state math on the fixed graph buffer so its
         # per-sequence cache lengths stay aligned with padded q_start_loc.
         attn_metadata.kv_seqlens_device = input_buffers["kv_seqlens_device"]
+    elif actual_seq_lengths_q is not None:
+        # Fix: non-SSM models (e.g. MTP draft model) also need q_start_loc
+        # updated during multi-token decode.  The is_ssm branch above handles
+        # SSM models; without this branch the buffer stays at its initial
+        # torch.arange value [0,1,2,...] causing paged_prefill_attention to
+        # slice the wrong query tokens from the TND-layout Q tensor.
+        input_buffers["q_start_loc"].fill_(0)
+        input_buffers["q_start_loc"][:q_start_loc.size(0)] = q_start_loc
+        if q_start_loc.numel() > 1:
+            pad_query_len = q_start_loc[-1] - q_start_loc[-2]
+            last_q = q_start_loc[-1]
+            for idx in range(q_start_loc.size(0), input_buffers["q_start_loc"].size(0)):
+                last_q = last_q + pad_query_len
+                input_buffers["q_start_loc"][idx] = last_q
+        else:
+            input_buffers["q_start_loc"][q_start_loc.size(0):] = q_start_loc[-1]
 
     if inputs_embeds is not None:
         emb_size = inputs_embeds.size(-1)
@@ -432,7 +491,6 @@ class AscendSingleGraphRunner:
         context = self.ctx_mgr.current_context()
         self.model.update_context_cudagraph(self.meta, context)
         if aclgraph_use_torch_npu_update():
-            self._graph.replay()
             update_dict = {
                 "actual_seq_lengths_kv": self.meta.input_buffers["kv_seqlens"],
             }
@@ -440,9 +498,14 @@ class AscendSingleGraphRunner:
             actual_seq_lengths_q = self.meta.input_buffers.get("actual_seq_lengths_q")
             if actual_seq_lengths_q is not None and actual_seq_lengths_q.any():
                 update_dict["actual_seq_lengths"] = actual_seq_lengths_q
+            # Fix: update CPU inputs BEFORE replay so the current step uses the
+            # fresh seq-length values; the original order replayed first and
+            # only updated for the next replay, leaving the first iteration
+            # with stale captured values.
             self._graph.update(
                 cpu_update_input=[update_dict]
             )
+            self._graph.replay()
         else:
             update_attn_params(self.update_stream, self.meta, self.max_batches)
             self._graph.replay()
