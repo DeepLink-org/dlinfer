@@ -169,8 +169,6 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
     input_buffers["input_ids"][:, :num_tokens] = input_ids
     input_buffers["position_ids"].zero_()
     input_buffers["position_ids"][:, :num_tokens] = position_ids
-    input_buffers["q_seqlens"].fill_(1)
-    input_buffers["q_seqlens"][: q_seqlens.size(0)] = q_seqlens
     input_buffers["block_offsets"].zero_()
     input_buffers["block_offsets"][:num_seqs, :num_blocks] = block_offsets
     input_buffers["kv_seqlens"].fill_(0)
@@ -185,53 +183,43 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
         input_buffers["x_active_mask"].fill_(0)
         input_buffers["x_active_mask"][:x_active_mask.size(0)] = x_active_mask
 
-    # multi-token decode: fill actual_seq_lengths_q
     actual_seq_lengths_q = getattr(attn_metadata, 'actual_seq_lengths_q', None)
     if actual_seq_lengths_q is not None:
-        input_buffers["actual_seq_lengths_q"].zero_()
+        # multi-token decode: fill actual_seq_lengths_q
+        bs = input_buffers["actual_seq_lengths_q"].size(0)
+        pad_query_len = 5
+        padding_tensor = torch.arange(1, bs + 1) * pad_query_len
+        input_buffers["actual_seq_lengths_q"].copy_(padding_tensor)
         input_buffers["actual_seq_lengths_q"][:actual_seq_lengths_q.size(0)] = actual_seq_lengths_q
-        # TND graph replay uses fixed-size query buffers. Pad the cumulative
-        # query lengths to the compatible graph batch so the final element
-        # still matches the captured query token count.
-        if actual_seq_lengths_q.numel() > 0:
-            pad_query_len = torch.diff(
-                actual_seq_lengths_q,
-                prepend=actual_seq_lengths_q.new_zeros(1),
-            )[-1]
-            last_q = input_buffers["actual_seq_lengths_q"][actual_seq_lengths_q.size(0) - 1]
-            for idx in range(actual_seq_lengths_q.size(0), input_buffers["actual_seq_lengths_q"].size(0)):
-                last_q = last_q + pad_query_len
-                input_buffers["actual_seq_lengths_q"][idx] = last_q
-            input_buffers["q_seqlens"].copy_(input_buffers["actual_seq_lengths_q"])
+        
+        # actual_seq_lengths_q通过q_seqlens传入进去
+        input_buffers["q_seqlens"].copy_(input_buffers["actual_seq_lengths_q"])
+    else:
+        # single-token decode: fill q_seqlens
+        bs = input_buffers["q_seqlens"].size(0)
+        padding_tensor = torch.arange(1, bs + 1)
+        input_buffers["q_seqlens"].copy_(padding_tensor)
+        input_buffers["q_seqlens"][: q_seqlens.size(0)] = q_seqlens
+    
 
-            # Fix: phantom sequences (indices num_seqs:max_batches) were padded
-            # with kv_seqlens=0 above.  A kv_len of 0 triggers the
-            # paged_prefill_attention fallback with history_lens = 0 - q_per_seq
-            # < 0, producing negative values in expanded_kv_seq_len that cause
-            # undefined NPU kernel behaviour.  Set phantom kv_seqlens equal to
-            # the per-sequence query length so history_lens = 0 (no prior KV
-            # beyond the phantom tokens themselves).  Their attention outputs are
-            # discarded by get_outputs_cudagraph so the wrong KV data read from
-            # block 0 has no effect on real-sequence outputs.
-            per_seq_q_len = int(pad_query_len.item())
-            if num_seqs < input_buffers["kv_seqlens"].size(0):
-                input_buffers["kv_seqlens"][num_seqs:] = per_seq_q_len
-                input_buffers["kv_seqlens_device"][num_seqs:] = per_seq_q_len
-
-        attn_metadata.actual_seq_lengths_q = input_buffers["actual_seq_lengths_q"]
-
-        # Fix: the attention mask is computed by op_backend per-step using the
-        # current max_kv_seq_len (diagonal = max_kv_seq_len - max_q_seq_len + 1).
-        # In graph mode the mask tensor is captured by pointer at warmup time
-        # (when kv_seqlens=[q_len,q_len] -> diagonal=1) and never updated, so
-        # inference steps with larger kv_seqlens use a far-too-restrictive mask
-        # (e.g. diagonal=1 instead of 19) causing query tokens to attend only to
-        # a single KV entry -> near-zero hidden states -> token-0 output.
-        #
-        # Fix: pre-allocate a device buffer, copy the fresh per-step mask into
-        # it in-place, and redirect attn_metadata.attention_mask to the buffer.
-        # Because the graph captured the buffer's data pointer, in-place updates
-        # are visible during replay.
+    if actual_seq_lengths_q is not None:
+        # multi-token decode
+        input_buffers["kv_seqlens"].fill_(5)
+        input_buffers["kv_seqlens"][:num_seqs] = kv_seqlens
+        input_buffers["kv_seqlens_device"].fill_(5)
+        input_buffers["kv_seqlens_device"][:num_seqs].copy_(
+            kv_seqlens.to(device=input_buffers["kv_seqlens_device"].device)
+        )
+    else:        
+        # single-token decode    
+        input_buffers["kv_seqlens"].fill_(1)
+        input_buffers["kv_seqlens"][:num_seqs] = kv_seqlens
+        input_buffers["kv_seqlens_device"].fill_(1)
+        input_buffers["kv_seqlens_device"][:num_seqs].copy_(
+            kv_seqlens.to(device=input_buffers["kv_seqlens_device"].device)
+        )
+    
+    if actual_seq_lengths_q is not None:
         fresh_mask = getattr(attn_metadata, 'attention_mask', None)
         attn_mask_buf = input_buffers.get("attention_mask_buf")
         if fresh_mask and attn_mask_buf is not None:
@@ -240,19 +228,19 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
 
     # ssm
     if graph_meta.is_ssm:
-        input_buffers["q_start_loc"].fill_(0)
-        input_buffers["q_start_loc"][: q_start_loc.size(0)] = q_start_loc
+        # main model verify
         if actual_seq_lengths_q is not None and q_start_loc.numel() > 1:
-            pad_query_len = q_start_loc[-1] - q_start_loc[-2]
-            last_q = q_start_loc[-1]
-            for idx in range(q_start_loc.size(0), input_buffers["q_start_loc"].size(0)):
-                last_q = last_q + pad_query_len
-                input_buffers["q_start_loc"][idx] = last_q
+            # multi-token decode
+            bs = input_buffers["q_start_loc"].size(0)
+            pad_query_len = 5
+            padding_tensor = torch.arange(0, bs) * pad_query_len
+            input_buffers["q_start_loc"].copy_(padding_tensor)
+            input_buffers["q_start_loc"][:q_start_loc.size(0)] = q_start_loc
         else:
+            # single-token decode
             input_buffers["q_start_loc"][q_start_loc.size(0):] = q_start_loc[-1]
-
         state_ids = kwargs["state_ids"]
-        input_buffers["state_ids"].fill_(-1)
+        input_buffers["state_ids"].fill_(0)
         input_buffers["state_ids"][: state_ids.size(0)].copy_(state_ids)
 
         num_accepted_tokens = getattr(attn_metadata, "num_accepted_tokens", None)
@@ -268,22 +256,6 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
         # Keep linear-attention state math on the fixed graph buffer so its
         # per-sequence cache lengths stay aligned with padded q_start_loc.
         attn_metadata.kv_seqlens_device = input_buffers["kv_seqlens_device"]
-    elif actual_seq_lengths_q is not None:
-        # Fix: non-SSM models (e.g. MTP draft model) also need q_start_loc
-        # updated during multi-token decode.  The is_ssm branch above handles
-        # SSM models; without this branch the buffer stays at its initial
-        # torch.arange value [0,1,2,...] causing paged_prefill_attention to
-        # slice the wrong query tokens from the TND-layout Q tensor.
-        input_buffers["q_start_loc"].fill_(0)
-        input_buffers["q_start_loc"][:q_start_loc.size(0)] = q_start_loc
-        if q_start_loc.numel() > 1:
-            pad_query_len = q_start_loc[-1] - q_start_loc[-2]
-            last_q = q_start_loc[-1]
-            for idx in range(q_start_loc.size(0), input_buffers["q_start_loc"].size(0)):
-                last_q = last_q + pad_query_len
-                input_buffers["q_start_loc"][idx] = last_q
-        else:
-            input_buffers["q_start_loc"][q_start_loc.size(0):] = q_start_loc[-1]
 
     if inputs_embeds is not None:
         emb_size = inputs_embeds.size(-1)
