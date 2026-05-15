@@ -772,16 +772,8 @@ def patch_gated_delta_net():
                 indices = gated_delta_meta.state_ids
                 cu_seqlens = gated_delta_meta.cu_seqlens
                 if is_multi_token_decode:
-                    query_len = gated_delta_meta.max_query_len
                     state_slots = recurrent_state.size(1)
                     flat_recurrent_state = recurrent_state.view(-1, *recurrent_state.shape[2:])
-                    state_indices = self._get_decode_state_indices(
-                        indices,
-                        gated_delta_meta.cache_seqlens,
-                        state_slots,
-                        query_len,
-                    )
-                    state_indices, _ = torch.sort(state_indices, dim=1)
                     core_attn_out, _ = self.fused_recurrent_gated_delta_rule(
                         q=query.contiguous(),
                         k=key.contiguous(),
@@ -791,8 +783,9 @@ def patch_gated_delta_net():
                         initial_state=flat_recurrent_state,
                         inplace_final_state=True,
                         cu_seqlens=cu_seqlens,
-                        ssm_state_indices=state_indices,
-                        num_accepted_tokens=gated_delta_meta.num_accepted_tokens,
+                        cache_seqlens_rb=gated_delta_meta.cache_seqlens,
+                        state_ids_rb=indices,
+                        num_state=state_slots,
                         use_qk_l2norm_in_kernel=self.use_qk_l2norm_in_kernel,
                     )
                     return core_attn_out, None
@@ -829,7 +822,10 @@ def patch_gated_delta_net():
                 last_recurrent_state = None
             else:
                 if gated_delta_meta.spec_state_offsets is not None:
-                    initial_state = recurrent_state[gated_delta_meta.state_ids, 0].transpose(-1, -2).contiguous()
+                    state_ids = gated_delta_meta.state_ids
+                    # Circular-buffer read slot: history_len % NUM_STATE
+                    read_slots = gated_delta_meta.spec_state_offsets[0]
+                    initial_state = recurrent_state[state_ids, read_slots].transpose(-1, -2).contiguous()
                 else:
                     initial_state = recurrent_state[gated_delta_meta.state_ids]
                 initial_state[~gated_delta_meta.has_initial_state, ...] = 0
@@ -846,7 +842,10 @@ def patch_gated_delta_net():
                     use_qk_l2norm_in_kernel=self.use_qk_l2norm_in_kernel,
                 )
                 if gated_delta_meta.spec_state_offsets is not None:
-                    recurrent_state[gated_delta_meta.state_ids, 0] = last_recurrent_state.transpose(-1, -2).contiguous().to(
+                    state_ids = gated_delta_meta.state_ids
+                    # Circular-buffer write slot: (history_len + query_len) % NUM_STATE
+                    write_slots = gated_delta_meta.spec_state_offsets[1]
+                    recurrent_state[state_ids, write_slots] = last_recurrent_state.transpose(-1, -2).to(
                         recurrent_state.dtype
                     )
                 else:
