@@ -846,7 +846,7 @@ def patch_gated_delta_net():
                     use_qk_l2norm_in_kernel=self.use_qk_l2norm_in_kernel,
                 )
                 if gated_delta_meta.spec_state_offsets is not None:
-                    recurrent_state[gated_delta_meta.state_ids, 0] = last_recurrent_state.transpose(-1, -2).to(
+                    recurrent_state[gated_delta_meta.state_ids, 0] = last_recurrent_state.transpose(-1, -2).contiguous().to(
                         recurrent_state.dtype
                     )
                 else:
