@@ -29,6 +29,7 @@ else:
         "IS_VARLEN": lambda args: args["cu_seqlens"] is not None,
         "IS_CONTINUOUS_BATCHING": lambda args: args["ssm_state_indices"] is not None,
         "IS_SPEC_DECODING": lambda args: args["num_accepted_tokens"] is not None,
+        "IS_CIRCULAR_BUFFER": lambda args: args["cache_seqlens_rb"] is not None,
     }
 )
 @triton.jit(do_not_specialize=["N", "T"])
@@ -44,6 +45,8 @@ def fused_recurrent_gated_delta_rule_fwd_kernel(
     cu_seqlens,
     ssm_state_indices,
     num_accepted_tokens,
+    cache_seqlens_rb,   # [N] history lengths for circular-buffer read/write
+    state_ids_rb,       # [N] per-sequence base slot index (= state_id)
     scale,
     N: tl.int64,  # num of sequences
     T: tl.int64,  # num of tokens
@@ -54,6 +57,7 @@ def fused_recurrent_gated_delta_rule_fwd_kernel(
     V: tl.constexpr,
     BK: tl.constexpr,
     BV: tl.constexpr,
+    NUM_STATE: tl.constexpr,  # circular buffer size (= state_slots = 1 + num_spec_tokens)
     stride_init_state_token: tl.constexpr,
     stride_final_state_token: tl.constexpr,
     stride_indices_seq: tl.constexpr,
@@ -65,6 +69,7 @@ def fused_recurrent_gated_delta_rule_fwd_kernel(
     IS_VARLEN: tl.constexpr,
     IS_CONTINUOUS_BATCHING: tl.constexpr,
     IS_SPEC_DECODING: tl.constexpr,
+    IS_CIRCULAR_BUFFER: tl.constexpr,  # use NVIDIA-style circular-buffer state indexing
     IS_KDA: tl.constexpr,
 ):
     i_k, i_v, i_nh = tl.program_id(0), tl.program_id(1), tl.program_id(2)
@@ -108,8 +113,23 @@ def fused_recurrent_gated_delta_rule_fwd_kernel(
     mask_h = mask_v[:, None] & mask_k[None, :]
 
     b_h = tl.zeros([BV, BK], dtype=tl.float32)
+
+    # Pre-load circular-buffer addressing params once (before the token loop).
+    # IS_CIRCULAR_BUFFER is constexpr so the dead branch is eliminated at compile time.
+    if IS_CIRCULAR_BUFFER:
+        h_rb = tl.load(cache_seqlens_rb + i_n).to(tl.int64)
+        s_id_rb = tl.load(state_ids_rb + i_n).to(tl.int64)
+        # Skip padding sequences: invalid state_ids are clamped to 0 on the host side.
+        # Letting them proceed would corrupt slot-0 state and cause NaN in graph mode.
+        if s_id_rb <= 0:
+            return
+
     if USE_INITIAL_STATE:
-        if IS_CONTINUOUS_BATCHING:
+        if IS_CIRCULAR_BUFFER:
+            # Circular-buffer read: slot = cache_seqlens % NUM_STATE
+            read_slot = s_id_rb * NUM_STATE + h_rb % NUM_STATE
+            p_h0 = h0 + read_slot * stride_init_state_token
+        elif IS_CONTINUOUS_BATCHING:
             if IS_SPEC_DECODING:
                 i_t = tl.load(num_accepted_tokens + i_n).to(tl.int64) - 1
             else:
@@ -119,7 +139,7 @@ def fused_recurrent_gated_delta_rule_fwd_kernel(
                 tl.int64
             )
             # Skip if state index is invalid (PAD_SLOT_ID = -1)
-            if state_idx < 0:
+            if state_idx <= 0:
                 return
             p_h0 = h0 + state_idx * stride_init_state_token
         else:
@@ -158,15 +178,22 @@ def fused_recurrent_gated_delta_rule_fwd_kernel(
 
         # keep the states for multi-query tokens
         if INPLACE_FINAL_STATE:
-            # Load state index and check for PAD_SLOT_ID (-1)
-            final_state_idx = tl.load(
-                ssm_state_indices + i_n * stride_indices_seq + i_t
-            ).to(tl.int64)
-            # Only store if state index is valid (not PAD_SLOT_ID)
-            if final_state_idx >= 0:
-                p_ht = ht + final_state_idx * stride_final_state_token
+            if IS_CIRCULAR_BUFFER:
+                # Circular-buffer write: slot = (cache_seqlens + i_t + 1) % NUM_STATE
+                write_slot = s_id_rb * NUM_STATE + (h_rb + i_t + 1) % NUM_STATE
+                p_ht = ht + write_slot * stride_final_state_token
                 p_ht = p_ht + i_hv * V * K + o_v[:, None] * K + o_k[None, :]
                 tl.store(p_ht, b_h.to(p_ht.dtype.element_ty), mask=mask_h)
+            else:
+                # Load state index and check for PAD_SLOT_ID (-1)
+                final_state_idx = tl.load(
+                    ssm_state_indices + i_n * stride_indices_seq + i_t
+                ).to(tl.int64)
+                # Only store if state index is valid (not PAD_SLOT_ID)
+                if final_state_idx > 0:
+                    p_ht = ht + final_state_idx * stride_final_state_token
+                    p_ht = p_ht + i_hv * V * K + o_v[:, None] * K + o_k[None, :]
+                    tl.store(p_ht, b_h.to(p_ht.dtype.element_ty), mask=mask_h)
         else:
             p_ht = ht + (bos + i_t) * stride_final_state_token
             p_ht = p_ht + i_hv * V * K + o_v[:, None] * K + o_k[None, :]
@@ -195,6 +222,9 @@ def fused_recurrent_gated_delta_rule_fwd(
     cu_seqlens: torch.LongTensor | None = None,
     ssm_state_indices: torch.Tensor | None = None,
     num_accepted_tokens: torch.Tensor | None = None,
+    cache_seqlens_rb: torch.Tensor | None = None,
+    state_ids_rb: torch.Tensor | None = None,
+    num_state: int = 1,
     use_qk_l2norm_in_kernel: bool = False,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     B, T, H, K, V = *k.shape, v.shape[-1]
@@ -235,6 +265,8 @@ def fused_recurrent_gated_delta_rule_fwd(
         cu_seqlens=cu_seqlens,
         ssm_state_indices=ssm_state_indices,
         num_accepted_tokens=num_accepted_tokens,
+        cache_seqlens_rb=cache_seqlens_rb,
+        state_ids_rb=state_ids_rb,
         scale=scale,
         N=N,
         T=T,
@@ -245,6 +277,7 @@ def fused_recurrent_gated_delta_rule_fwd(
         V=V,
         BK=BK,
         BV=BV,
+        NUM_STATE=num_state,
         stride_init_state_token=stride_init_state_token,
         stride_final_state_token=stride_final_state_token,
         stride_indices_seq=stride_indices_seq,
@@ -275,6 +308,9 @@ class FusedRecurrentFunction(torch.autograd.Function):
         cu_seqlens: torch.LongTensor | None = None,
         ssm_state_indices: torch.Tensor | None = None,
         num_accepted_tokens: torch.Tensor | None = None,
+        cache_seqlens_rb: torch.Tensor | None = None,
+        state_ids_rb: torch.Tensor | None = None,
+        num_state: int = 1,
         use_qk_l2norm_in_kernel: bool = False,
     ):
         o, final_state = fused_recurrent_gated_delta_rule_fwd(
@@ -289,6 +325,9 @@ class FusedRecurrentFunction(torch.autograd.Function):
             cu_seqlens=cu_seqlens,
             ssm_state_indices=ssm_state_indices,
             num_accepted_tokens=num_accepted_tokens,
+            cache_seqlens_rb=cache_seqlens_rb,
+            state_ids_rb=state_ids_rb,
+            num_state=num_state,
             use_qk_l2norm_in_kernel=use_qk_l2norm_in_kernel,
         )
 
@@ -307,6 +346,9 @@ def fused_recurrent_gated_delta_rule(
     cu_seqlens: torch.LongTensor | None = None,
     ssm_state_indices: torch.Tensor | None = None,
     num_accepted_tokens: torch.Tensor | None = None,
+    cache_seqlens_rb: torch.Tensor | None = None,
+    state_ids_rb: torch.Tensor | None = None,
+    num_state: int = 1,
     use_qk_l2norm_in_kernel: bool = False,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     r"""
@@ -396,6 +438,9 @@ def fused_recurrent_gated_delta_rule(
         cu_seqlens,
         ssm_state_indices,
         num_accepted_tokens,
+        cache_seqlens_rb,
+        state_ids_rb,
+        num_state,
         use_qk_l2norm_in_kernel,
     )
     return o, final_state
