@@ -4,9 +4,10 @@ LMDeploy + DLInfer 在昇腾上的多节点部署分两类：**TP 在节点内**
 
 ## 0. 选择部署模式
 
-每个 DP 实际占用的卡数(也就是每个 DP 内部的 TP size)= 服务总卡数 ÷ `--dp`。
+每个 DP 实际占用的卡数(也就是每个 DP 内部的 TP size) = 服务总卡数 ÷ `--dp`。
 
-> ℹ️ 关于 lmdeploy 的 `--tp` 与 `--dp` / `--ep` 的关系：
+> [!NOTE]
+> 关于 lmdeploy 的 `--tp` 与 `--dp` / `--ep` 的关系：
 >
 > `--dp` 默认值是 `1`，`--ep` 默认值是 `1`。
 >
@@ -82,7 +83,8 @@ hccn_tool -i 0 -ip -g
 hccn_tool -i 0 -ping -g address 192.168.1.8
 ```
 
-回显 `0.00% packet loss` 才说明 NPU 网络层互通。否则要先排查 host 侧路由 / 掩码 / VLAN / 防火墙——这一步不通后续 HCCL 一定挂。
+回显 `0.00% packet loss` 才说明 NPU 网络层互通。否则要先排查
+host 侧路由 / 掩码 / VLAN / 防火墙——这一步不通后续 HCCL 一定挂。
 
 IPv6 用 `-inet6` 参数。
 
@@ -91,7 +93,7 @@ IPv6 用 `-inet6` 参数。
 每个 server 启动脚本里都需要 export 的：
 
 | 变量 | 作用 | 常见取值 |
-|---|---|---|
+| --- | --- | --- |
 | `HCCL_IF_IP` | HCCL 跨机引导用的 host IP(本节点) | 本机 host IP |
 | `GLOO_SOCKET_IFNAME` | PyTorch Gloo 通信走的网卡名 | `eth0` |
 | `TP_SOCKET_IFNAME` | TP rendezvous 走的网卡名 | 通常同上 |
@@ -100,7 +102,7 @@ IPv6 用 `-inet6` 参数。
 | `HCCL_CONNECT_TIMEOUT` | HCCL 跨机连接超时(秒) | `7200` |
 | `HCCL_OP_EXPANSION_MODE` | HCCL 算子优化策略 | `AIV` |
 | `PYTORCH_NPU_ALLOC_CONF` | 内存分配策略 | `expandable_segments:True` |
-| `LMDEPLOY_DP_MASTER_ADDR` | DP 间 rendezvous 的 master 节点 IP | master 节点 host IP |
+| `LMDEPLOY_DP_MASTER_ADDR` | DP rendezvous 的 master 节点 IP | master 节点 host IP |
 | `LMDEPLOY_DP_MASTER_PORT` | DP rendezvous 端口 | `29555` 等任选 |
 | `ASCEND_RT_VISIBLE_DEVICES` | **可选**，限定本进程可见的 NPU | 如 `0,1,2,3,4,5,6,7` |
 
@@ -111,7 +113,7 @@ IPv6 用 `-inet6` 参数。
 ### 2.1 适用拓扑示例
 
 | 总卡数 | 配置 | 拓扑 |
-|---|---|---|
+| --- | --- | --- |
 | 32 | `--tp 16 --dp 2 --ep 32` | 2 节点 × 16 NPU，每个 DP 占满一台 |
 | 32 | `--tp 8 --dp 4 --ep 32` | 2 节点 × 16 NPU，每节点跑 2 个 DP |
 | 16 | `--tp 8 --dp 2 --ep 16` | 2 节点 × 8 NPU，每个 DP 占满一台 |
@@ -153,14 +155,15 @@ export HCCL_IF_IP=10.0.0.1                # ← node 0 的 host IP
 # 可选：限定本节点可见 NPU
 # export ASCEND_RT_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 
-LMDEPLOY_DP_MASTER_ADDR=10.0.0.1 \         # master 节点 host IP，两节点都填同一值
+# DP rendezvous：master 节点 host IP，两节点都填同一值；node-rank 是本节点的全局编号
+LMDEPLOY_DP_MASTER_ADDR=10.0.0.1 \
 LMDEPLOY_DP_MASTER_PORT=29555 \
 lmdeploy serve api_server \
     /path/to/model \
     --backend pytorch \
     --device ascend \
     --tp 16 --dp 2 --ep 32 \
-    --nnodes 2 --node-rank 0 \             # ← 本节点的全局编号
+    --nnodes 2 --node-rank 0 \
     --dtype bfloat16 \
     --session-len 65535 \
     --log-level WARNING \
@@ -184,14 +187,15 @@ export HCCL_IF_IP=10.0.0.2                # ← node 1 的 host IP
 
 # export ASCEND_RT_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 
-LMDEPLOY_DP_MASTER_ADDR=10.0.0.1 \         # 仍是 master 节点 host IP
+# DP rendezvous 仍指向 master 节点（与 node 0 一致）
+LMDEPLOY_DP_MASTER_ADDR=10.0.0.1 \
 LMDEPLOY_DP_MASTER_PORT=29555 \
 lmdeploy serve api_server \
     /path/to/model \
     --backend pytorch \
     --device ascend \
     --tp 16 --dp 2 --ep 32 \
-    --nnodes 2 --node-rank 1 \             # ← 本节点的全局编号
+    --nnodes 2 --node-rank 1 \
     --dtype bfloat16 \
     --session-len 65535 \
     --log-level WARNING \
@@ -204,14 +208,16 @@ lmdeploy serve api_server \
 
 ## 3. TP 跨节点
 
-这个模式是为了兼容老版本部署方式而保留的，有时也可以用它来快速验证多节点推理的可行性。**实际生产推理中大概率用不到**——如果你的 TP size 能塞进一个节点，直接走 [§2](#2-tp-在节点内常规) 即可。
+这个模式是为了兼容老版本部署方式而保留的，有时也可以用它来快速验证多节点推理的可行性。
+**实际生产推理中大概率用不到**——如果你的 TP size 能塞进一个节点，
+直接走 [§2](#2-tp-在节点内常规) 即可。
 
 ### 3.1 与 [§2](#2-tp-在节点内常规) 的关键差异
 
 跨节点 TP 一般用作纯 TP 部署，此时 `--dp` 通常是 `1`；而 TP 在节点内的部署里，`--dp` 取决于实际拓扑，并不固定。
 
 | 项 | TP 在节点内 | TP 跨节点 |
-|---|---|---|
+| --- | --- | --- |
 | 是否需要预先起跨节点 Ray cluster | 否 | 是 |
 | 每节点是否需要起 lmdeploy serve | 是 | 否(只在 master 节点起一次) |
 | `--node-rank` / `--nnodes` | 需要 | 不需要 |
@@ -277,13 +283,15 @@ lmdeploy serve api_server \
     /path/to/model \
     --backend pytorch \
     --device ascend \
-    --tp 16 --dp 1 \                        # tp = 总卡数 = 2 × 8
+    --tp 16 --dp 1 \
     --dtype bfloat16 \
     --session-len 65535 \
     --log-level WARNING \
     --server-name 0.0.0.0 \
     --server-port 13333
 ```
+
+`--tp` 是服务总卡数(此处 = 2 节点 × 8 NPU)，`--dp 1` 表示纯 TP。
 
 服务起来之后，客户端请求发到 `http://<master 节点 IP>:13333`。
 
