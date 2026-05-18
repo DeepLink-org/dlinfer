@@ -456,10 +456,6 @@ def paged_prefill_attention(
 
     scale_value = softmax_scale if softmax_scale else 1.0 / math.sqrt(query.shape[-1])
     query = query.contiguous()
-    if q_seq_len.dim() != 1 or kv_seq_len.dim() != 1:
-        raise ValueError("TND paged prefill expects 1D actual_seq_lengths tensors.")
-    if block_table.size(0) != q_seq_len.numel() or kv_seq_len.numel() != q_seq_len.numel():
-        raise ValueError("TND paged prefill expects per-sequence block_table and kv_seq_len.")
     block_num = key_cache.size(0)
     key_cache = key_cache.view(block_num, block_size, -1)
     value_cache = value_cache.view(block_num, block_size, -1)
