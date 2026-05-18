@@ -572,6 +572,8 @@ def patch_gated_delta_net():
             self.max_query_len = max(num_tokens // num_seqs, 1)
             self.cache_seqlens = None
             self.spec_state_offsets = None
+            self.spec_conv_offsets = None
+            self.conv_kernel_size = conv_kernel_size
             kv_seqlens_device = getattr(attn_metadata, 'kv_seqlens_device', None)
             if query_lens is not None and kv_seqlens_device is not None:
                 kv_seqlens = kv_seqlens_device.to(dtype=torch.int32)
@@ -582,6 +584,28 @@ def patch_gated_delta_net():
                         torch.remainder(self.cache_seqlens, state_slots),
                         torch.remainder(kv_seqlens, state_slots),
                     )
+                    # Conv ring buffer: state_len = linear_conv_kernel_dim + num_spec_tokens.
+                    # `conv_kernel_size` here is the conv width (linear_conv_kernel_dim).
+                    state_len = conv_kernel_size + self.num_spec_tokens
+                    range_idx = torch.arange(
+                        -conv_kernel_size,
+                        0,
+                        device=self.cache_seqlens.device,
+                        dtype=torch.int32,
+                    )
+                    # Read the (conv_kernel_size - 1) tokens preceding the current write
+                    # window from the circular buffer.
+                    read_conv_offsets = torch.remainder(
+                        self.cache_seqlens[:, None] + range_idx[1:][None],
+                        state_len,
+                    ).to(torch.int64)
+                    # Write the last conv_kernel_size tokens of this prefill batch into
+                    # circular-buffer slots so the next decode read aligns naturally.
+                    write_conv_offsets = torch.remainder(
+                        kv_seqlens[:, None] + range_idx[None],
+                        state_len,
+                    ).to(torch.int64)
+                    self.spec_conv_offsets = (read_conv_offsets, write_conv_offsets)
             self.num_accepted_tokens = getattr(attn_metadata, 'num_accepted_tokens', None)
             if self.num_accepted_tokens is None and self.is_multi_token_decoding and query_lens is not None:
                 self.num_accepted_tokens = torch.ones(query_lens.size(0), dtype=torch.int32, device=self.cu_seqlens.device)
@@ -641,6 +665,12 @@ def patch_gated_delta_net():
             out: (b, seqlen, dim)
             conv_state: (b, dim, kernel_size)
             """
+            spec_conv_offsets = getattr(gated_delta_meta, "spec_conv_offsets", None)
+            if spec_conv_offsets is not None:
+                read_conv_offsets, write_conv_offsets = spec_conv_offsets
+            else:
+                read_conv_offsets, write_conv_offsets = None, None
+
             out = self.causal_conv1d_fn(
                 x.t(),
                 weight,
@@ -650,6 +680,8 @@ def patch_gated_delta_net():
                 has_initial_state=gated_delta_meta.has_initial_state,
                 cache_indices=gated_delta_meta.conv_state_indices,
                 query_start_loc=gated_delta_meta.cu_seqlens,
+                read_conv_offsets=read_conv_offsets,
+                write_conv_offsets=write_conv_offsets,
             )
 
             out = out.t().unsqueeze(0)
@@ -668,7 +700,17 @@ def patch_gated_delta_net():
         ):
             update_kwargs = {}
             validate_data = True
-            if getattr(gated_delta_meta, 'is_multi_token_decoding', False):
+            if getattr(gated_delta_meta, 'cache_seqlens', None) is not None and gated_delta_meta.is_decoding:
+                # Ring-buffer decode path: positions are derived from cache_seqlens.
+                update_kwargs['cache_seqlens'] = gated_delta_meta.cache_seqlens
+                if getattr(gated_delta_meta, 'is_multi_token_decoding', False):
+                    # Multi-token decode uses varlen format (2-D x tensor); must keep
+                    # IS_VARLEN=True by passing query_start_loc, otherwise x gets incorrectly
+                    # unsqueezed and cache_seqlens is accessed out-of-bounds.
+                    update_kwargs['query_start_loc'] = gated_delta_meta.cu_seqlens
+                    update_kwargs['max_query_len'] = gated_delta_meta.max_query_len
+                validate_data = False
+            elif getattr(gated_delta_meta, 'is_multi_token_decoding', False):
                 update_kwargs.update(
                     num_accepted_tokens=gated_delta_meta.num_accepted_tokens,
                     query_start_loc=gated_delta_meta.cu_seqlens,
