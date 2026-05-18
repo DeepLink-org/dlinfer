@@ -83,11 +83,7 @@ def AscendCudaGraphMixin_make_buffers_cudagraph(
 
     input_buffers["q_seqlens"] = torch.ones(max_batches, dtype=torch.int32)
 
-    # actual_seq_lengths_kv is also tracked per sequence in the TND path.
     input_buffers["kv_seqlens"] = torch.ones(max_batches, dtype=torch.int32)
-    input_buffers["kv_seqlens_device"] = torch.ones(
-        max_batches, dtype=torch.int32, device=device
-    )
 
     input_buffers["q_start_loc"] = torch.arange(
         max_batches + 1, dtype=torch.int32, device=device
@@ -102,29 +98,16 @@ def AscendCudaGraphMixin_make_buffers_cudagraph(
         (max_tokens), dtype=torch.bool, device=device
     )
 
-    # actual_seq_lengths_q for multi-token decode (CPU tensor, cumulative)
-    input_buffers["actual_seq_lengths_q"] = torch.zeros(
-        max_batches, dtype=torch.int32
-    )
-
-    # attention mask buffer for multi-token decode (kept on-device so graph
-    # replay can see in-place updates via the same data pointer captured at
-    # graph-capture time).  Shape matches the fixed 2048×2048 mask used by
-    # npu_fused_infer_attention_score.  Initialised to all-False (no masking)
-    # so a stale buffer value is permissive rather than destructive.
-    _ATTN_MASK_WIDTH = 2048
-    input_buffers["attention_mask_buf"] = torch.zeros(
-        _ATTN_MASK_WIDTH, _ATTN_MASK_WIDTH, dtype=torch.bool, device=device
-    )
+    input_buffers["attention_mask"] = torch.triu(torch.ones(2048, 2048, dtype=torch.bool, device=device), diagonal=1)
 
     # ssm
     if graph_meta.is_ssm:
         input_buffers["state_ids"] = torch.full(
             (max_batches,), -1, dtype=torch.int64, device=device
         )
-        input_buffers["num_accepted_tokens"] = torch.ones(
+        input_buffers["cache_seqlens"] = torch.zeros(
             max_batches, dtype=torch.int32, device=device
-        )
+        )    
 
     # mrope
     if graph_meta.use_mrope:
@@ -152,6 +135,7 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
     moe_metadata = get_step_ctx_manager().current_context().moe_metadata
     x_active_mask: Tensor = moe_metadata.x_active_mask
     q_start_loc: Tensor = attn_metadata.q_start_loc
+    cache_seqlens: Tensor = attn_metadata.cache_seqlens
 
     input_buffers: BuffType = graph_meta.input_buffers
 
@@ -171,91 +155,32 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
     input_buffers["position_ids"][:, :num_tokens] = position_ids
     input_buffers["block_offsets"].zero_()
     input_buffers["block_offsets"][:num_seqs, :num_blocks] = block_offsets
+    input_buffers["q_seqlens"].fill_(0)
+    input_buffers["q_seqlens"][: num_seqs] = q_seqlens
     input_buffers["kv_seqlens"].fill_(0)
     input_buffers["kv_seqlens"][:num_seqs] = kv_seqlens
-    input_buffers["kv_seqlens_device"].fill_(0)
-    input_buffers["kv_seqlens_device"][:num_seqs].copy_(
-        kv_seqlens.to(device=input_buffers["kv_seqlens_device"].device)
-    )
     input_buffers["kv_start_indices"].fill_(-1)
     input_buffers["kv_start_indices"][:kv_start_indices.size(0)] = kv_start_indices
     if x_active_mask is not None:
         input_buffers["x_active_mask"].fill_(0)
         input_buffers["x_active_mask"][:x_active_mask.size(0)] = x_active_mask
 
-    actual_seq_lengths_q = getattr(attn_metadata, 'actual_seq_lengths_q', None)
-    if actual_seq_lengths_q is not None:
-        # multi-token decode: fill actual_seq_lengths_q
-        bs = input_buffers["actual_seq_lengths_q"].size(0)
-        pad_query_len = 5
-        padding_tensor = torch.arange(1, bs + 1) * pad_query_len
-        input_buffers["actual_seq_lengths_q"].copy_(padding_tensor)
-        input_buffers["actual_seq_lengths_q"][:actual_seq_lengths_q.size(0)] = actual_seq_lengths_q
-        
-        # actual_seq_lengths_q通过q_seqlens传入进去
-        input_buffers["q_seqlens"].copy_(input_buffers["actual_seq_lengths_q"])
-    else:
-        # single-token decode: fill q_seqlens
-        bs = input_buffers["q_seqlens"].size(0)
-        padding_tensor = torch.arange(1, bs + 1)
-        input_buffers["q_seqlens"].copy_(padding_tensor)
-        input_buffers["q_seqlens"][: q_seqlens.size(0)] = q_seqlens
-    
-
-    if actual_seq_lengths_q is not None:
-        # multi-token decode
-        input_buffers["kv_seqlens"].fill_(5)
-        input_buffers["kv_seqlens"][:num_seqs] = kv_seqlens
-        input_buffers["kv_seqlens_device"].fill_(5)
-        input_buffers["kv_seqlens_device"][:num_seqs].copy_(
-            kv_seqlens.to(device=input_buffers["kv_seqlens_device"].device)
-        )
-    else:        
-        # single-token decode    
-        input_buffers["kv_seqlens"].fill_(1)
-        input_buffers["kv_seqlens"][:num_seqs] = kv_seqlens
-        input_buffers["kv_seqlens_device"].fill_(1)
-        input_buffers["kv_seqlens_device"][:num_seqs].copy_(
-            kv_seqlens.to(device=input_buffers["kv_seqlens_device"].device)
-        )
-    
-    if actual_seq_lengths_q is not None:
-        fresh_mask = getattr(attn_metadata, 'attention_mask', None)
-        attn_mask_buf = input_buffers.get("attention_mask_buf")
-        if fresh_mask and attn_mask_buf is not None:
-            attn_mask_buf.copy_(fresh_mask[0])
-            attn_metadata.attention_mask = [attn_mask_buf]
-
-    # ssm
     if graph_meta.is_ssm:
-        # main model verify
-        if actual_seq_lengths_q is not None and q_start_loc.numel() > 1:
-            # multi-token decode
-            bs = input_buffers["q_start_loc"].size(0)
-            pad_query_len = 5
-            padding_tensor = torch.arange(0, bs) * pad_query_len
-            input_buffers["q_start_loc"].copy_(padding_tensor)
-            input_buffers["q_start_loc"][:q_start_loc.size(0)] = q_start_loc
-        else:
-            # single-token decode
-            input_buffers["q_start_loc"][q_start_loc.size(0):] = q_start_loc[-1]
+        bs = input_buffers["q_start_loc"].size(0)
+        max_q_seq_len = attn_metadata.max_q_seq_len
+        padding_tensor = torch.arange(0, bs) * max_q_seq_len
+        input_buffers["q_start_loc"].copy_(padding_tensor)
+        input_buffers["q_start_loc"][:q_start_loc.size(0)] = q_start_loc
+
         state_ids = kwargs["state_ids"]
         input_buffers["state_ids"].fill_(0)
         input_buffers["state_ids"][: state_ids.size(0)].copy_(state_ids)
-
-        num_accepted_tokens = getattr(attn_metadata, "num_accepted_tokens", None)
-        input_buffers["num_accepted_tokens"].fill_(1)
-        if num_accepted_tokens is not None:
-            input_buffers["num_accepted_tokens"][: num_accepted_tokens.size(0)].copy_(
-                num_accepted_tokens.to(
-                    device=input_buffers["num_accepted_tokens"].device,
-                    dtype=input_buffers["num_accepted_tokens"].dtype,
-                )
-            )
-        attn_metadata.num_accepted_tokens = input_buffers["num_accepted_tokens"]
-        # Keep linear-attention state math on the fixed graph buffer so its
-        # per-sequence cache lengths stay aligned with padded q_start_loc.
-        attn_metadata.kv_seqlens_device = input_buffers["kv_seqlens_device"]
+        
+        input_buffers["cache_seqlens"].fill_(0)
+        input_buffers["cache_seqlens"][: num_seqs].copy_(cache_seqlens)
+        
+        attn_metadata.cache_seqlens = input_buffers["cache_seqlens"]
+        attn_metadata.attention_mask = [input_buffers["attention_mask"]]
 
     if inputs_embeds is not None:
         emb_size = inputs_embeds.size(-1)
@@ -286,7 +211,6 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
 
     new_inputs.update(kwargs)
 
-    # ssm: override kwargs' variable-length state_ids with the fixed-size buffer
     if graph_meta.is_ssm:
         new_inputs["state_ids"] = input_buffers["state_ids"]
 
@@ -463,21 +387,12 @@ class AscendSingleGraphRunner:
         context = self.ctx_mgr.current_context()
         self.model.update_context_cudagraph(self.meta, context)
         if aclgraph_use_torch_npu_update():
-            update_dict = {
-                "actual_seq_lengths_kv": self.meta.input_buffers["kv_seqlens"],
-            }
-            # multi-token decode also needs actual_seq_lengths updated
-            actual_seq_lengths_q = self.meta.input_buffers.get("actual_seq_lengths_q")
-            if actual_seq_lengths_q is not None and actual_seq_lengths_q.any():
-                update_dict["actual_seq_lengths"] = actual_seq_lengths_q
-            # Fix: update CPU inputs BEFORE replay so the current step uses the
-            # fresh seq-length values; the original order replayed first and
-            # only updated for the next replay, leaving the first iteration
-            # with stale captured values.
-            self._graph.update(
-                cpu_update_input=[update_dict]
-            )
             self._graph.replay()
+            self._graph.update(
+                cpu_update_input=[
+                    {"actual_seq_lengths_kv": self.meta.input_buffers["kv_seqlens"]}
+                ]
+            )
         else:
             update_attn_params(self.update_stream, self.meta, self.max_batches)
             self._graph.replay()
