@@ -536,65 +536,16 @@ def patch_gated_delta_net():
             state_ids: torch.Tensor,
             attn_metadata: Any,
         ):
-            self.is_multi_token_decoding = getattr(attn_metadata, 'is_multi_token_decoding', False)
-            # Keep decode semantics for linear-attention state updates even when
-            # full attention uses a prefill-style TND verify path.
-            self.is_decoding = attn_metadata.is_decoding or self.is_multi_token_decoding
+            self.is_decoding = attn_metadata.is_decoding
             self.cu_seqlens = attn_metadata.q_start_loc
-            self.num_spec_tokens = get_step_ctx_manager().build_ctx.num_spec_tokens
-
-            query_lens = None
-            num_seqs = 1
-            if self.cu_seqlens is not None:
-                query_lens = torch.diff(self.cu_seqlens).to(torch.int32)
-                num_seqs = max(int(self.cu_seqlens.numel()) - 1, 1)
-            self.max_query_len = max(num_tokens // num_seqs, 1)
-            self.cache_seqlens = None
-            self.spec_state_offsets = None
-            self.spec_conv_offsets = None
-            self.conv_kernel_size = conv_kernel_size
-            kv_seqlens_device = getattr(attn_metadata, 'kv_seqlens_device', None)
-            if query_lens is not None and kv_seqlens_device is not None:
-                kv_seqlens = kv_seqlens_device.to(dtype=torch.int32)
-                self.cache_seqlens = (kv_seqlens - query_lens).contiguous()
-                if self.num_spec_tokens > 0 and not self.is_decoding:
-                    state_slots = 1 + self.num_spec_tokens
-                    self.spec_state_offsets = (
-                        torch.remainder(self.cache_seqlens, state_slots),
-                        torch.remainder(kv_seqlens, state_slots),
-                    )
-                    # Conv ring buffer: state_len = linear_conv_kernel_dim + num_spec_tokens.
-                    # `conv_kernel_size` here is the conv width (linear_conv_kernel_dim).
-                    state_len = conv_kernel_size + self.num_spec_tokens
-                    range_idx = torch.arange(
-                        -conv_kernel_size,
-                        0,
-                        device=self.cache_seqlens.device,
-                        dtype=torch.int32,
-                    )
-                    # Read the (conv_kernel_size - 1) tokens preceding the current write
-                    # window from the circular buffer.
-                    read_conv_offsets = torch.remainder(
-                        self.cache_seqlens[:, None] + range_idx[1:][None],
-                        state_len,
-                    ).to(torch.int64)
-                    # Write the last conv_kernel_size tokens of this prefill batch into
-                    # circular-buffer slots so the next decode read aligns naturally.
-                    write_conv_offsets = torch.remainder(
-                        kv_seqlens[:, None] + range_idx[None],
-                        state_len,
-                    ).to(torch.int64)
-                    self.spec_conv_offsets = (read_conv_offsets, write_conv_offsets)
-            self.num_accepted_tokens = getattr(attn_metadata, 'num_accepted_tokens', None)
-            if self.num_accepted_tokens is None and self.is_multi_token_decoding and query_lens is not None:
-                self.num_accepted_tokens = torch.ones(query_lens.size(0), dtype=torch.int32, device=self.cu_seqlens.device)
-            elif self.num_accepted_tokens is not None:
-                self.num_accepted_tokens = self.num_accepted_tokens.to(
-                    device=self.cu_seqlens.device if self.cu_seqlens is not None else state_ids.device,
-                    dtype=torch.int32,
-                ).contiguous()
-
-            # state_ids, fill invalid state with 0
+            self.is_multi_token_decoding = attn_metadata.is_multi_token_decoding
+            self.max_q_seq_len = attn_metadata.max_q_seq_len
+            
+            self.num_spec_tokens = get_step_ctx_manager().build_ctx.num_spec_tokens         
+            self.cache_seqlens = getattr(attn_metadata, 'cache_seqlens', None)
+            self.spec_state_offsets = getattr(attn_metadata, 'spec_state_offsets', None)
+            self.spec_conv_offsets = getattr(attn_metadata, 'spec_conv_offsets', None)
+            
             self.state_ids = state_ids.clamp(0)
             self.has_initial_state = attn_metadata.has_initial_state
             self.conv_state_indices = self.state_ids.to(torch.int32)
@@ -649,7 +600,7 @@ def patch_gated_delta_net():
                 read_conv_offsets, write_conv_offsets = spec_conv_offsets
             else:
                 read_conv_offsets, write_conv_offsets = None, None
-
+            
             out = self.causal_conv1d_fn(
                 x.t(),
                 weight,
@@ -678,24 +629,21 @@ def patch_gated_delta_net():
             gated_delta_meta: GatedDeltaMeta,
         ):
             update_kwargs = {}
-            validate_data = True
-            if getattr(gated_delta_meta, 'cache_seqlens', None) is not None and gated_delta_meta.is_decoding:
-                # Ring-buffer decode path: positions are derived from cache_seqlens.
-                update_kwargs['cache_seqlens'] = gated_delta_meta.cache_seqlens
-                if getattr(gated_delta_meta, 'is_multi_token_decoding', False):
-                    # Multi-token decode uses varlen format (2-D x tensor); must keep
-                    # IS_VARLEN=True by passing query_start_loc, otherwise x gets incorrectly
-                    # unsqueezed and cache_seqlens is accessed out-of-bounds.
-                    update_kwargs['query_start_loc'] = gated_delta_meta.cu_seqlens
-                    update_kwargs['max_query_len'] = gated_delta_meta.max_query_len
-                validate_data = False
-            elif getattr(gated_delta_meta, 'is_multi_token_decoding', False):
-                update_kwargs.update(
-                    num_accepted_tokens=gated_delta_meta.num_accepted_tokens,
-                    query_start_loc=gated_delta_meta.cu_seqlens,
-                    max_query_len=gated_delta_meta.max_query_len,
-                )
-                validate_data = False
+            validate_data = False
+            
+            cache_seqlens = gated_delta_meta.cache_seqlens
+            is_multi_token_decoding = gated_delta_meta.is_multi_token_decoding
+            
+            # Ring-buffer decode path: positions are derived from cache_seqlens.
+            update_kwargs['cache_seqlens'] = gated_delta_meta.cache_seqlens
+                
+            if is_multi_token_decoding:
+                # Multi-token decode uses varlen format (2-D x tensor); must keep
+                # IS_VARLEN=True by passing query_start_loc, otherwise x gets incorrectly
+                # unsqueezed and cache_seqlens is accessed out-of-bounds.
+                update_kwargs['query_start_loc'] = gated_delta_meta.cu_seqlens
+                update_kwargs['max_query_len'] = gated_delta_meta.max_q_seq_len
+                
             out = self.causal_conv1d_update(
                 x,
                 conv_state,
@@ -720,7 +668,7 @@ def patch_gated_delta_net():
             weight_reshaped = weight.squeeze(1)
             x = x.squeeze(0)
 
-            if gated_delta_meta.is_decoding:
+            if gated_delta_meta.is_decoding or gated_delta_meta.is_multi_token_decoding:
                 conv_state_indices = gated_delta_meta.conv_state_indices
                 return self.conv1d_update(
                     x, weight_reshaped, bias, conv_state, conv_state_indices, gated_delta_meta
@@ -784,15 +732,30 @@ def patch_gated_delta_net():
             """call."""
 
             is_decoding = gated_delta_meta.is_decoding
-            is_multi_token_decode = getattr(gated_delta_meta, 'is_multi_token_decoding', False)
+            is_multi_token_decoding = gated_delta_meta.is_multi_token_decoding
+            
             beta = b.sigmoid()
             # If the model is loaded in fp16, without the .float() here, A might be -inf
             g = (-A_log.float().exp()) * F.softplus(a.float() + dt_bias)
-
+            
             if is_decoding:
-                indices = gated_delta_meta.state_ids
-                cu_seqlens = gated_delta_meta.cu_seqlens
-                if is_multi_token_decode:
+                core_attn_out = self.fused_sigmoid_gating_delta_rule_update(
+                    A_log=A_log,
+                    dt_bias=dt_bias,
+                    q=query,
+                    k=key,
+                    v=value.contiguous(),
+                    a=a.contiguous(),
+                    b=b.contiguous(),
+                    initial_state_source=recurrent_state,
+                    initial_state_indices=gated_delta_meta.state_ids,
+                    cu_seqlens=gated_delta_meta.cu_seqlens,
+                    use_qk_l2norm_in_kernel=True,
+                    softplus_beta=1.0,
+                    softplus_threshold=20.0,
+                )
+                return core_attn_out, None
+            elif is_multi_token_decoding:
                     state_slots = recurrent_state.size(1)
                     flat_recurrent_state = recurrent_state.view(-1, *recurrent_state.shape[2:])
                     core_attn_out, _ = self.fused_recurrent_gated_delta_rule(
@@ -803,44 +766,13 @@ def patch_gated_delta_net():
                         beta=beta.contiguous(),
                         initial_state=flat_recurrent_state,
                         inplace_final_state=True,
-                        cu_seqlens=cu_seqlens,
+                        cu_seqlens=gated_delta_meta.cu_seqlens,
                         cache_seqlens_rb=gated_delta_meta.cache_seqlens,
-                        state_ids_rb=indices,
+                        state_ids_rb=gated_delta_meta.state_ids,
                         num_state=state_slots,
                         use_qk_l2norm_in_kernel=self.use_qk_l2norm_in_kernel,
                     )
                     return core_attn_out, None
-
-                # Single-token decode: use the optimized update kernel
-                initial_state_source = recurrent_state
-                initial_state_indices = indices
-                if recurrent_state.dim() == 5:
-                    state_slots = recurrent_state.size(1)
-                    flat_recurrent_state = recurrent_state.view(-1, *recurrent_state.shape[2:])
-                    slot_offsets = torch.remainder(
-                        gated_delta_meta.cache_seqlens.to(torch.int64),
-                        state_slots,
-                    )
-                    initial_state_source = flat_recurrent_state
-                    initial_state_indices = (
-                        indices.to(torch.int64) * state_slots + slot_offsets
-                    ).contiguous()
-                core_attn_out = self.fused_sigmoid_gating_delta_rule_update(
-                    A_log=A_log,
-                    dt_bias=dt_bias,
-                    q=query,
-                    k=key,
-                    v=value,
-                    a=a.contiguous(),
-                    b=b.contiguous(),
-                    initial_state_source=initial_state_source,
-                    initial_state_indices=initial_state_indices,
-                    cu_seqlens=cu_seqlens,
-                    use_qk_l2norm_in_kernel=True,
-                    softplus_beta=1.0,
-                    softplus_threshold=20.0,
-                )
-                last_recurrent_state = None
             else:
                 if gated_delta_meta.spec_state_offsets is not None:
                     state_ids = gated_delta_meta.state_ids
@@ -873,8 +805,7 @@ def patch_gated_delta_net():
                     recurrent_state[gated_delta_meta.state_ids] = last_recurrent_state.to(
                         recurrent_state.dtype
                     )
-
-            return core_attn_out, last_recurrent_state
+                return core_attn_out, last_recurrent_state
 
     gated_delta.GatedDeltaMeta = AscendGatedDeltaMeta
     gated_delta.CausalConv1dFunc = AscendCausalConv1dFunc
