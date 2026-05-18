@@ -70,6 +70,8 @@ def causal_conv1d_fn(
     query_start_loc: Optional[torch.Tensor] = None,
     metadata: Optional[Any] = None,
     pad_slot_id: int = PAD_SLOT_ID,
+    read_conv_offsets: Optional[torch.Tensor] = None,
+    write_conv_offsets: Optional[torch.Tensor] = None,
 ):
     """
     Prefill-phase varlen causal conv1d using PyTorch reference implementation.
@@ -80,7 +82,17 @@ def causal_conv1d_fn(
     query_start_loc: (batch + 1) int32
     cache_indices: (batch) int32
     has_initial_state: (batch) bool
-    conv_states: (..., dim, width - 1)
+    conv_states: (..., dim, state_len) — state_len == width-1 in legacy linear
+                 layout; state_len == width + num_spec_tokens in ring layout.
+
+    Ring-buffer mode (used by MTP / speculative decoding) is enabled when
+    `write_conv_offsets` is provided. Then `conv_states` is treated as a ring
+    of size `state_len = conv_states.shape[-1]`:
+      * initial state (when has_initial_state[i]) is gathered from
+        read_conv_offsets[i] (shape (width-1,));
+      * the last `width` tokens of each sequence are scattered to
+        write_conv_offsets[i] (shape (width,)).
+    When `write_conv_offsets` is None the legacy semantics apply unchanged.
     """
     if activation not in [None, "silu", "swish"]:
         raise NotImplementedError("activation must be None, silu, or swish")
@@ -91,6 +103,7 @@ def causal_conv1d_fn(
     if query_start_loc is None:
         raise ValueError("query_start_loc is required for prefill mode")
 
+    is_ring = write_conv_offsets is not None
     seqlens = query_start_loc[1:] - query_start_loc[:-1]
     seqlens = seqlens.tolist()
     splits = torch.split(x, seqlens, dim=-1)
@@ -100,23 +113,58 @@ def causal_conv1d_fn(
         x_s = splits[i]
         if cache_indices[i] == PAD_SLOT_ID:
             continue
+
+        if has_initial_state[i]:
+            if is_ring:
+                slot_idx = read_conv_offsets[i]
+                init_state = (
+                    conv_states[cache_indices[i]]
+                    .index_select(-1, slot_idx)
+                    .unsqueeze(0)
+                )
+            else:
+                init_state = conv_states[cache_indices[i]][..., : (width - 1)]
+        else:
+            init_state = None
+
         out_ref_b = causal_conv1d_ref(
             x_s,
             weight,
             bias,
             activation=activation,
-            return_final_states=True,
-            final_states_out=conv_states[cache_indices[i]][
-                ..., : (width - 1)
-            ].unsqueeze(0),
-            initial_states=(
-                conv_states[cache_indices[i]][..., : (width - 1)]
-                if has_initial_state[i]
-                else None
+            return_final_states=not is_ring,
+            final_states_out=(
+                None
+                if is_ring
+                else conv_states[cache_indices[i]][..., : (width - 1)].unsqueeze(0)
             ),
+            initial_states=init_state,
         )
         out_chunks.append(out_ref_b[0])
     out = torch.cat(out_chunks, dim=-1)
+
+    if is_ring:
+        # Vectorised ring write: place each sequence's trailing `width` tokens
+        # at their circular slots in conv_states. Replaces the post-hoc overwrite
+        # the caller used to do, and removes the redundant linear-slot copy_().
+        K = write_conv_offsets.size(1)
+        tok_offsets = torch.arange(
+            -K, 0, device=query_start_loc.device, dtype=query_start_loc.dtype
+        )
+        token_idx = (
+            (query_start_loc[1:, None] + tok_offsets[None]).clamp_min(0).to(torch.int64)
+        )
+        x_gather = x.index_select(1, token_idx.reshape(-1)).reshape(
+            x.size(0), token_idx.size(0), token_idx.size(1)
+        )
+        cache_idx = cache_indices.to(torch.int64)
+        dim_idx = torch.arange(conv_states.size(1), device=conv_states.device)
+        conv_states[
+            cache_idx[:, None, None],
+            dim_idx[None, :, None],
+            write_conv_offsets[:, None, :],
+        ] = x_gather.permute(1, 0, 2).to(conv_states.dtype)
+
     return out
 
 
@@ -131,6 +179,7 @@ def _causal_conv1d_update_kernel_npu_tiled(
     query_start_loc_ptr,
     block_idx_last_scheduled_token,
     initial_state_idx,
+    cache_seqlens_ptr,
     o_ptr,
     batch: tl.int32,
     dim: tl.constexpr,
@@ -158,6 +207,7 @@ def _causal_conv1d_update_kernel_npu_tiled(
     IS_SPEC_DECODING: tl.constexpr,
     NP2_STATELEN: tl.constexpr,
     USE_PAD_SLOT: tl.constexpr,
+    IS_CIRCULAR_BUFFER: tl.constexpr,
     BLOCK_N: tl.constexpr,
     B_TILE: tl.constexpr,
     T_CHUNK: tl.constexpr,
@@ -249,17 +299,26 @@ def _causal_conv1d_update_kernel_npu_tiled(
 
         lane_active = lane_active & (seqlen_run > 0)
 
-        if IS_SPEC_DECODING:
-            conv_state_token_offset = (
-                tl.load(num_accepted_tokens_ptr + b, mask=lane_active, other=1).to(
-                    tl.int64
-                )
-                - 1
-            )
-            shift = tl.full((), 1, tl.int32)
-        else:
+        if IS_CIRCULAR_BUFFER:
+            cb_raw = tl.load(cache_seqlens_ptr + b, mask=lane_active, other=0).to(tl.int32)
+            cb_pos = cb_raw % state_len          # write-start: wrapped current position
+            cb_read_start = (cb_pos - (KERNEL_WIDTH - 1) + state_len) % state_len
             conv_state_token_offset = tl.full((), 0, tl.int64)
-            shift = seqlen_run
+            shift = tl.full((), 0, tl.int32)
+        else:
+            cb_pos = tl.full((), 0, tl.int32)
+            cb_read_start = tl.full((), 0, tl.int32)
+            if IS_SPEC_DECODING:
+                conv_state_token_offset = (
+                    tl.load(num_accepted_tokens_ptr + b, mask=lane_active, other=1).to(
+                        tl.int64
+                    )
+                    - 1
+                )
+                shift = tl.full((), 1, tl.int32)
+            else:
+                conv_state_token_offset = tl.full((), 0, tl.int64)
+                shift = seqlen_run
 
         conv_states_base = (
             conv_state_ptr
@@ -275,42 +334,77 @@ def _causal_conv1d_update_kernel_npu_tiled(
         col2 = tl.zeros((BLOCK_N,), dtype=tl.float16)
         col3 = tl.zeros((BLOCK_N,), dtype=tl.float16)
         col4 = tl.zeros((BLOCK_N,), dtype=tl.float16)
-        if KERNEL_WIDTH >= 2:
-            col0 = tl.load(
-                prior_tokens + 0 * stride_conv_state_tok,
-                mask=lane_active & mask_w,
-                other=0.0,
-            ).to(tl.float16)
-        if KERNEL_WIDTH >= 3:
-            col1 = tl.load(
-                prior_tokens + 1 * stride_conv_state_tok,
-                mask=lane_active & mask_w,
-                other=0.0,
-            ).to(tl.float16)
-        if KERNEL_WIDTH >= 4:
-            col2 = tl.load(
-                prior_tokens + 2 * stride_conv_state_tok,
-                mask=lane_active & mask_w,
-                other=0.0,
-            ).to(tl.float16)
-        if KERNEL_WIDTH >= 5:
-            col3 = tl.load(
-                prior_tokens + 3 * stride_conv_state_tok,
-                mask=lane_active & mask_w,
-                other=0.0,
-            ).to(tl.float16)
-        if KERNEL_WIDTH >= 6:
-            col4 = tl.load(
-                prior_tokens + 4 * stride_conv_state_tok,
-                mask=lane_active & mask_w,
-                other=0.0,
-            ).to(tl.float16)
+        if IS_CIRCULAR_BUFFER:
+            if KERNEL_WIDTH >= 2:
+                col0 = tl.load(
+                    conv_states_base + cb_read_start * stride_conv_state_tok,
+                    mask=lane_active & mask_w,
+                    other=0.0,
+                ).to(tl.float16)
+            if KERNEL_WIDTH >= 3:
+                col1 = tl.load(
+                    conv_states_base + ((cb_read_start + 1) % state_len) * stride_conv_state_tok,
+                    mask=lane_active & mask_w,
+                    other=0.0,
+                ).to(tl.float16)
+            if KERNEL_WIDTH >= 4:
+                col2 = tl.load(
+                    conv_states_base + ((cb_read_start + 2) % state_len) * stride_conv_state_tok,
+                    mask=lane_active & mask_w,
+                    other=0.0,
+                ).to(tl.float16)
+            if KERNEL_WIDTH >= 5:
+                col3 = tl.load(
+                    conv_states_base + ((cb_read_start + 3) % state_len) * stride_conv_state_tok,
+                    mask=lane_active & mask_w,
+                    other=0.0,
+                ).to(tl.float16)
+            if KERNEL_WIDTH >= 6:
+                col4 = tl.load(
+                    conv_states_base + ((cb_read_start + 4) % state_len) * stride_conv_state_tok,
+                    mask=lane_active & mask_w,
+                    other=0.0,
+                ).to(tl.float16)
+        else:
+            if KERNEL_WIDTH >= 2:
+                col0 = tl.load(
+                    prior_tokens + 0 * stride_conv_state_tok,
+                    mask=lane_active & mask_w,
+                    other=0.0,
+                ).to(tl.float16)
+            if KERNEL_WIDTH >= 3:
+                col1 = tl.load(
+                    prior_tokens + 1 * stride_conv_state_tok,
+                    mask=lane_active & mask_w,
+                    other=0.0,
+                ).to(tl.float16)
+            if KERNEL_WIDTH >= 4:
+                col2 = tl.load(
+                    prior_tokens + 2 * stride_conv_state_tok,
+                    mask=lane_active & mask_w,
+                    other=0.0,
+                ).to(tl.float16)
+            if KERNEL_WIDTH >= 5:
+                col3 = tl.load(
+                    prior_tokens + 3 * stride_conv_state_tok,
+                    mask=lane_active & mask_w,
+                    other=0.0,
+                ).to(tl.float16)
+            if KERNEL_WIDTH >= 6:
+                col4 = tl.load(
+                    prior_tokens + 4 * stride_conv_state_tok,
+                    mask=lane_active & mask_w,
+                    other=0.0,
+                ).to(tl.float16)
 
-        conv_states_offset = tl.load(
-            conv_state_indices_ptr + b * stride_state_indices + current_last_index,
-            mask=lane_active,
-            other=0,
-        ).to(tl.int64)
+        if not IS_CIRCULAR_BUFFER:
+            conv_states_offset = tl.load(
+                conv_state_indices_ptr + b * stride_state_indices + current_last_index,
+                mask=lane_active,
+                other=0,
+            ).to(tl.int64)
+        else:
+            conv_states_offset = tl.full((), 0, tl.int64)
 
         use_shift = seqlen_run < state_len_run
         use_tail = seqlen_run >= state_len_run
@@ -335,61 +429,79 @@ def _causal_conv1d_update_kernel_npu_tiled(
         )
         x_base = x_ptr + x_offset + idx_feats * stride_x_dim
 
-        for t0 in tl.static_range(0, NP2_STATELEN, T_CHUNK):
-            dst_tok = (t0 + tok_vec).to(tl.int32)
-            src_tok = (dst_tok + shift).to(tl.int32)
-            m_tok = (
-                use_shift
-                & (dst_tok < keep_shift)
-                & (src_tok < state_len_run)
-                & (dst_tok < state_len_run)
-            )
-            m = (
-                (lane_active & m_tok)[:, None]
-                & mask_w[None, :]
-                & (conv_states_input_coord < num_cache_lines)
-                & (conv_states_offset < num_cache_lines)
-            )
-            src_ptrs = (
-                state_src_base[None, :] + src_tok[:, None] * stride_conv_state_tok
-            )
-            dst_ptrs = (
-                state_dst_base[None, :] + dst_tok[:, None] * stride_conv_state_tok
-            )
-            vals = tl.load(src_ptrs, mask=m, other=0.0)
-            tl.store(dst_ptrs, vals, mask=m)
+        if IS_CIRCULAR_BUFFER:
+            # Circular write: write each input token to its circular position.
+            # No shift needed — positions are derived from cache_seqlens.
+            for t0 in tl.static_range(0, seqlen, T_CHUNK):
+                x_tok = (t0 + tok_vec).to(tl.int32)
+                write_tok = (cb_pos + x_tok) % state_len
+                m = (
+                    (lane_active & (x_tok < seqlen_run))[:, None]
+                    & mask_w[None, :]
+                    & (conv_states_input_coord < num_cache_lines)
+                )
+                x_ptrs = x_base[None, :] + x_tok[:, None] * stride_x_token
+                dst_ptrs = (
+                    conv_states_base[None, :] + write_tok[:, None] * stride_conv_state_tok
+                )
+                x_vals = tl.load(x_ptrs, mask=m, other=0.0)
+                tl.store(dst_ptrs, x_vals, mask=m)
+        else:
+            for t0 in tl.static_range(0, NP2_STATELEN, T_CHUNK):
+                dst_tok = (t0 + tok_vec).to(tl.int32)
+                src_tok = (dst_tok + shift).to(tl.int32)
+                m_tok = (
+                    use_shift
+                    & (dst_tok < keep_shift)
+                    & (src_tok < state_len_run)
+                    & (dst_tok < state_len_run)
+                )
+                m = (
+                    (lane_active & m_tok)[:, None]
+                    & mask_w[None, :]
+                    & (conv_states_input_coord < num_cache_lines)
+                    & (conv_states_offset < num_cache_lines)
+                )
+                src_ptrs = (
+                    state_src_base[None, :] + src_tok[:, None] * stride_conv_state_tok
+                )
+                dst_ptrs = (
+                    state_dst_base[None, :] + dst_tok[:, None] * stride_conv_state_tok
+                )
+                vals = tl.load(src_ptrs, mask=m, other=0.0)
+                tl.store(dst_ptrs, vals, mask=m)
 
-        for t0 in tl.static_range(0, seqlen, T_CHUNK):
-            x_tok = (t0 + tok_vec).to(tl.int32)
-            dst_tok = (keep_shift + x_tok).to(tl.int32)
-            m_tok = use_shift & (x_tok < seqlen_run) & (dst_tok < state_len_run)
-            m = (
-                (lane_active & m_tok)[:, None]
-                & mask_w[None, :]
-                & (conv_states_offset < num_cache_lines)
-            )
-            x_ptrs = x_base[None, :] + x_tok[:, None] * stride_x_token
-            dst_ptrs = (
-                state_dst_base[None, :] + dst_tok[:, None] * stride_conv_state_tok
-            )
-            x_vals = tl.load(x_ptrs, mask=m, other=0.0)
-            tl.store(dst_ptrs, x_vals, mask=m)
+            for t0 in tl.static_range(0, seqlen, T_CHUNK):
+                x_tok = (t0 + tok_vec).to(tl.int32)
+                dst_tok = (keep_shift + x_tok).to(tl.int32)
+                m_tok = use_shift & (x_tok < seqlen_run) & (dst_tok < state_len_run)
+                m = (
+                    (lane_active & m_tok)[:, None]
+                    & mask_w[None, :]
+                    & (conv_states_offset < num_cache_lines)
+                )
+                x_ptrs = x_base[None, :] + x_tok[:, None] * stride_x_token
+                dst_ptrs = (
+                    state_dst_base[None, :] + dst_tok[:, None] * stride_conv_state_tok
+                )
+                x_vals = tl.load(x_ptrs, mask=m, other=0.0)
+                tl.store(dst_ptrs, x_vals, mask=m)
 
-        for t0 in tl.static_range(0, NP2_STATELEN, T_CHUNK):
-            dst_tok = (t0 + tok_vec).to(tl.int32)
-            x_tok = (tail_start + dst_tok).to(tl.int32)
-            m_tok = use_tail & (dst_tok < state_len_run) & (x_tok < seqlen_run)
-            m = (
-                (lane_active & m_tok)[:, None]
-                & mask_w[None, :]
-                & (conv_states_offset < num_cache_lines)
-            )
-            x_ptrs = x_base[None, :] + x_tok[:, None] * stride_x_token
-            dst_ptrs = (
-                state_dst_base[None, :] + dst_tok[:, None] * stride_conv_state_tok
-            )
-            x_vals = tl.load(x_ptrs, mask=m, other=0.0)
-            tl.store(dst_ptrs, x_vals, mask=m)
+            for t0 in tl.static_range(0, NP2_STATELEN, T_CHUNK):
+                dst_tok = (t0 + tok_vec).to(tl.int32)
+                x_tok = (tail_start + dst_tok).to(tl.int32)
+                m_tok = use_tail & (dst_tok < state_len_run) & (x_tok < seqlen_run)
+                m = (
+                    (lane_active & m_tok)[:, None]
+                    & mask_w[None, :]
+                    & (conv_states_offset < num_cache_lines)
+                )
+                x_ptrs = x_base[None, :] + x_tok[:, None] * stride_x_token
+                dst_ptrs = (
+                    state_dst_base[None, :] + dst_tok[:, None] * stride_conv_state_tok
+                )
+                x_vals = tl.load(x_ptrs, mask=m, other=0.0)
+                tl.store(dst_ptrs, x_vals, mask=m)
 
         x_base_1d = x_base
         o_base_1d = o_ptr + o_offset + idx_feats * stride_o_dim
@@ -513,6 +625,7 @@ def causal_conv1d_update_npu(
     pad_slot_id: int = PAD_SLOT_ID,
     block_idx_last_scheduled_token: Optional[torch.Tensor] = None,
     initial_state_idx: Optional[torch.Tensor] = None,
+    cache_seqlens: Optional[torch.Tensor] = None,
     validate_data=False,
 ):
     if validate_data:
@@ -557,7 +670,10 @@ def causal_conv1d_update_npu(
         conv_state_indices.stride(0) if conv_state_indices is not None else 0
     )
 
-    if num_accepted_tokens is not None:
+    if cache_seqlens is not None:
+        # Circular buffer: use the full allocated state size as the modulus.
+        eff_state_len = state_len_total
+    elif num_accepted_tokens is not None:
         eff_state_len = width - 1 + (seqlen - 1)
     else:
         eff_state_len = width - 1
@@ -591,6 +707,7 @@ def causal_conv1d_update_npu(
         query_start_loc,
         block_idx_last_scheduled_token,
         initial_state_idx,
+        cache_seqlens,
         out,
         batch,
         dim,
@@ -618,6 +735,7 @@ def causal_conv1d_update_npu(
         IS_SPEC_DECODING=num_accepted_tokens is not None,
         NP2_STATELEN=np2_statelen,
         USE_PAD_SLOT=pad_slot_id is not None,
+        IS_CIRCULAR_BUFFER=cache_seqlens is not None,
         BLOCK_N=block_n,
         B_TILE=b_tile,
         T_CHUNK=t_chunk,
