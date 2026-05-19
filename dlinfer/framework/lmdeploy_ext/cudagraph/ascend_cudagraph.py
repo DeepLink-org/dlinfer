@@ -74,9 +74,6 @@ def AscendCudaGraphMixin_make_buffers_cudagraph(
         (1, max_tokens), dtype=torch.int32, device=device
     )
 
-    # TND paged attention consumes block tables per sequence. Keep the graph
-    # buffer batch-shaped even when one decode step contains multiple query
-    # tokens per sequence.
     input_buffers["block_offsets"] = torch.zeros(
         (max_batches, num_blocks), dtype=torch.int32, device=device
     )
@@ -93,7 +90,6 @@ def AscendCudaGraphMixin_make_buffers_cudagraph(
         (max_tokens), dtype=torch.int32, device=device
     )
 
-    # MoE routing still reasons in token space for multi-token verify.
     input_buffers["x_active_mask"] = torch.zeros(
         (max_tokens), dtype=torch.bool, device=device
     )
@@ -139,7 +135,7 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
 
     input_buffers: BuffType = graph_meta.input_buffers
 
-    num_seqs, num_blocks = block_offsets.size()
+    batch_size, num_blocks = block_offsets.size()
     num_tokens = input_ids.size(-1)
     q_seqlens: Tensor = attn_metadata.q_seqlens
 
@@ -154,11 +150,11 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
     input_buffers["position_ids"].zero_()
     input_buffers["position_ids"][:, :num_tokens] = position_ids
     input_buffers["block_offsets"].zero_()
-    input_buffers["block_offsets"][:num_seqs, :num_blocks] = block_offsets
+    input_buffers["block_offsets"][:batch_size, :num_blocks] = block_offsets
     input_buffers["q_seqlens"].fill_(0)
-    input_buffers["q_seqlens"][: num_seqs] = q_seqlens
+    input_buffers["q_seqlens"][: batch_size] = q_seqlens
     input_buffers["kv_seqlens"].fill_(0)
-    input_buffers["kv_seqlens"][:num_seqs] = kv_seqlens
+    input_buffers["kv_seqlens"][:batch_size] = kv_seqlens
     input_buffers["kv_start_indices"].fill_(-1)
     input_buffers["kv_start_indices"][:kv_start_indices.size(0)] = kv_start_indices
     if x_active_mask is not None:
@@ -174,10 +170,10 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
 
         state_ids = kwargs["state_ids"]
         input_buffers["state_ids"].fill_(0)
-        input_buffers["state_ids"][: state_ids.size(0)].copy_(state_ids)
+        input_buffers["state_ids"][: batch_size].copy_(state_ids)
         
         input_buffers["cache_seqlens"].fill_(0)
-        input_buffers["cache_seqlens"][: num_seqs].copy_(cache_seqlens)
+        input_buffers["cache_seqlens"][: batch_size].copy_(cache_seqlens)
         
         attn_metadata.cache_seqlens = input_buffers["cache_seqlens"]
         attn_metadata.attention_mask = [input_buffers["attention_mask"]]
@@ -467,32 +463,22 @@ class AscendGraphRunner(GraphRunner):
         **kwargs,
     ):
         """Get graph key."""
-        context = self.ctx_mgr.current_context()
-        is_decoding = context.is_decoding
+        is_decoding = attn_metadata.is_decoding
+        is_multi_token_decoding = attn_metadata.is_multi_token_decoding
         meta = self.get_meta()
         enable_microbatch = get_step_ctx_manager().current_context().enable_microbatch
 
-        if is_decoding:
-            batch_size = None
-            q_seqlens = None
-            if attn_metadata is not None:
-                q_seqlens = getattr(attn_metadata, "q_seqlens", None)
-            if q_seqlens is None:
-                q_seqlens = getattr(context, "q_seqlens", None)
-            if q_seqlens is not None:
-                batch_size = q_seqlens.size(0)
-            elif kwargs.get("state_ids", None) is not None:
-                batch_size = kwargs["state_ids"].size(0)
-
-            if batch_size is not None and batch_size > 0 and input_ids.size(-1) % batch_size == 0:
-                query_len = input_ids.size(-1) // batch_size
-                if meta.padding_batch_size is None:
-                    new_batch_size = self._get_capture_tokens(batch_size)
-                else:
-                    padding_num_tokens = meta.padding_batch_size
-                    padding_batch_size = (padding_num_tokens + query_len - 1) // query_len
-                    new_batch_size = self._get_capture_tokens(padding_batch_size)
-                return (new_batch_size, is_decoding, enable_microbatch, query_len)
+        if is_multi_token_decoding:
+            q_seqlens = attn_metadata.q_seqlens
+            max_q_seq_len = attn_metadata.max_q_seq_len
+            batch_size = q_seqlens.size(0)
+            if meta.padding_batch_size is None:
+                new_batch_size = self._get_capture_tokens(batch_size)
+            else:
+                padding_num_tokens = meta.padding_batch_size
+                padding_batch_size = (padding_num_tokens + max_q_seq_len - 1) // max_q_seq_len
+                new_batch_size = self._get_capture_tokens(padding_batch_size)
+            return (new_batch_size, is_multi_token_decoding, enable_microbatch, max_q_seq_len)
 
         num_tokens = input_ids.numel()
         if meta.padding_batch_size is None:
@@ -512,10 +498,10 @@ class AscendGraphRunner(GraphRunner):
 
         graph_key = self.get_graph_key(**kwargs)
         max_batches = graph_key[0]
-        is_decoding = graph_key[1]
-        decode_query_len = graph_key[3]
-        if is_decoding:
-            max_tokens = max_batches * decode_query_len
+        is_decoding_or_multi_token_decoding = graph_key[1]
+        max_q_seq_len = graph_key[3]
+        if is_decoding_or_multi_token_decoding:
+            max_tokens = max_batches * max_q_seq_len
         else:
             max_tokens = max_batches
             max_batches = self.max_batches
@@ -599,10 +585,12 @@ class GraphParams:
 
 
 _graph_params: Optional[GraphParams] = None
+_graph_capture_sizes: set[int] = None
 
 
 def set_graph_params(aclgraph_capture_sizes: set[int]):
     global _graph_params
+    global _graph_capture_sizes
     if _graph_params is not None:
         raise ValueError("Graph parameters have already been set!")
     _graph_params = GraphParams(
@@ -612,6 +600,7 @@ def set_graph_params(aclgraph_capture_sizes: set[int]):
         attn_params={size: [] for size in aclgraph_capture_sizes},
         is_mla=False,
     )
+    _graph_capture_sizes = aclgraph_capture_sizes
 
 
 def get_graph_params():
@@ -621,6 +610,7 @@ def get_graph_params():
 def clear_graph_params():
     """Clear global graph params and release references to KV cache tensors."""
     global _graph_params
+    global _graph_capture_sizes
     if _graph_params is None:
         return
 
@@ -636,6 +626,10 @@ def clear_graph_params():
         _graph_params.workspaces.clear()
     finally:
         _graph_params = None
+        _graph_capture_sizes = None
+        # 清除 lru_cache，使下次推理时 _get_capture_batch_size_impl
+        # 重新执行并调用 set_graph_params 干净重建
+        _get_capture_batch_size_impl.cache_clear()
 
 
 def update_attn_params(update_stream, forward_meta, runtime_size):
