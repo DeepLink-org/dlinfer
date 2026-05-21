@@ -511,7 +511,7 @@ class AscendGraphRunner(GraphRunner):
                 max_batches=max_batches,
                 max_tokens=max_tokens,
                 num_blocks=self.num_blocks,
-                is_decoding=is_decoding,
+                is_decoding=is_decoding_or_multi_token_decoding,
                 pool=self.graph_pool_handle,
                 model_config=self.model_config,
                 device=self.device,
