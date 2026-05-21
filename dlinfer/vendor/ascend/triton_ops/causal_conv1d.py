@@ -120,7 +120,6 @@ def causal_conv1d_fn(
                 init_state = (
                     conv_states[cache_indices[i]]
                     .index_select(-1, slot_idx)
-                    .unsqueeze(0)
                 )
             else:
                 init_state = conv_states[cache_indices[i]][..., : (width - 1)]
