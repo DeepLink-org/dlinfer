@@ -430,12 +430,14 @@ def patch_gated_delta_net():
                 from dlinfer.vendor.ascend.triton_ops import (
                     chunk_gated_delta_rule,
                     fused_sigmoid_gating_delta_rule_update,
+                    fused_recurrent_gated_delta_rule,
                 )
 
                 self.chunk_gated_delta_rule = chunk_gated_delta_rule
                 self.fused_sigmoid_gating_delta_rule_update = (
                     fused_sigmoid_gating_delta_rule_update
                 )
+                self.fused_recurrent_gated_delta_rule = fused_recurrent_gated_delta_rule
             except Exception:
                 raise RuntimeError(
                     "Triton is not installed or Ascend triton_ops failed to load. "
