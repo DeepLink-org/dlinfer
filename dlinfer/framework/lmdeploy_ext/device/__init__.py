@@ -467,25 +467,6 @@ def patch_gated_delta_net():
 
             self.use_qk_l2norm_in_kernel = use_qk_l2norm_in_kernel
 
-        @staticmethod
-        def _get_decode_state_indices(
-            state_ids: torch.Tensor,
-            cache_seqlens: torch.Tensor,
-            num_slots: int,
-            query_len: int,
-        ) -> torch.Tensor:
-            """Map LMDeploy's per-sequence slot layout to per-token state ids."""
-            token_offsets = torch.arange(
-                query_len,
-                device=cache_seqlens.device,
-                dtype=torch.int64,
-            )
-            slot_offsets = torch.remainder(
-                cache_seqlens.to(torch.int64)[:, None] + token_offsets[None],
-                num_slots,
-            )
-            return (state_ids.to(torch.int64)[:, None] * num_slots + slot_offsets).contiguous()
-
         def __call__(
             self,
             query: torch.Tensor,
@@ -636,11 +617,15 @@ def patch_qwen3_5():
     )
 
     @classmethod
-    def custom_build(cls, hf_config, model_path: str = None, tp: int = 1, **kwargs):
+    def custom_build(cls,
+              hf_config,
+              model_path: str = None,
+              tp: int = 1,
+              is_draft_model: bool = False,
+              spec_method: str = None,
+              num_spec_tokens: int = 0,
+              **kwargs):
         """build."""
-        is_draft_model = kwargs.get("is_draft_model", False)
-        spec_method = kwargs.get("spec_method", None)
-        num_spec_tokens = kwargs.get("num_spec_tokens", 0)
         text_config = hf_config.text_config
         # propagate quantization_config from top-level hf_config into text_config
         quantization_config = getattr(hf_config, "quantization_config", None)
@@ -650,6 +635,8 @@ def patch_qwen3_5():
             text_config.quantization_config = quantization_config
         cfg = DefaultModelConfigBuilder.build(text_config, model_path, tp=tp, **kwargs)
 
+        if getattr(hf_config.text_config, 'attn_output_gate', False):
+            cfg.num_attention_heads *= 2
         # update num layers
         num_layers = cfg.num_layers
         layer_types = text_config.layer_types
@@ -674,7 +661,7 @@ def patch_qwen3_5():
         else:
             recurrent_state_shape = (num_v_heads, head_k_dim, head_v_dim)
 
-        device_type = kwargs.get("device_type", "cuda")
+        device_type = kwargs.get('device_type', 'auto')
         if is_bf16_supported(device_type):
             dtype = torch.bfloat16
         else:
@@ -698,16 +685,16 @@ def patch_qwen3_5():
             assert spec_method == "qwen3_5_mtp"
             cfg.model_paradigm = "ar_spec"
 
+        # draft model cfg
         if is_draft_model:
-            hf_config.architectures = ["Qwen3_5MTPModel"]
-            if getattr(hf_config, "auto_map", None):
-                hf_config.auto_map = {}
+            hf_config.architectures[0] = "Qwen3_5MTPModel"
+            # remove for correct mapping when building the patched model
+            if hasattr(hf_config, "auto_map"):
+                del hf_config.auto_map
+
             cfg.model_paradigm = "ar_spec"
             cfg.num_layers = text_config.mtp_num_hidden_layers
             cfg.states_shapes = []
-            # Draft model uses is_tp=False — each rank runs the full model
-            # independently, so keep the replicated KV head count for correct
-            # cache allocation.
 
         return cfg
 
@@ -786,9 +773,10 @@ def patch_qwen3_5():
         if vision_embeddings is not None and len(vision_embeddings) > 0:
             if inputs_embeds is None:
                 inputs_embeds = self.get_input_embeddings()(input_ids)
-            inputs_embeds[:, vision_embedding_indexing, :] = vision_embeddings.to(
-                inputs_embeds
-            )
+            inputs_embeds[:, vision_embedding_indexing, :] = vision_embeddings.to(inputs_embeds)
+
+        # return input embeds for spec decoding
+        return_input_embeds = self.is_spec_decoding and (pixel_values is not None or context.is_chunk_multimodal)
 
         # return input embeds for spec decoding
         return_input_embeds = self.is_spec_decoding and (
