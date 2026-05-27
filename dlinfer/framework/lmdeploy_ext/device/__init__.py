@@ -396,20 +396,20 @@ def patch_gated_delta_net():
             gated_delta_meta: GatedDeltaMeta,
         ):
             update_kwargs = {}
-            validate_data = False
+            validate_data = True
             
             cache_seqlens = gated_delta_meta.cache_seqlens
             is_multi_token_decoding = gated_delta_meta.is_multi_token_decoding
             
-            # Ring-buffer decode path: positions are derived from cache_seqlens.
-            update_kwargs['cache_seqlens'] = gated_delta_meta.cache_seqlens
-                
             if is_multi_token_decoding:
+                # Ring-buffer decode path: positions are derived from cache_seqlens.
+                update_kwargs['cache_seqlens'] = gated_delta_meta.cache_seqlens
                 # Multi-token decode uses varlen format (2-D x tensor); must keep
                 # IS_VARLEN=True by passing query_start_loc, otherwise x gets incorrectly
                 # unsqueezed and cache_seqlens is accessed out-of-bounds.
                 update_kwargs['query_start_loc'] = gated_delta_meta.cu_seqlens
                 update_kwargs['max_query_len'] = gated_delta_meta.max_q_seq_len
+                validate_data = False
                 
             out = self.causal_conv1d_update(
                 x,
@@ -494,7 +494,7 @@ def patch_gated_delta_net():
                     dt_bias=dt_bias,
                     q=query,
                     k=key,
-                    v=value.contiguous(),
+                    v=value,
                     a=a.contiguous(),
                     b=b.contiguous(),
                     initial_state_source=recurrent_state,
@@ -506,23 +506,23 @@ def patch_gated_delta_net():
                 )
                 return core_attn_out, None
             elif is_multi_token_decoding:
-                    state_slots = recurrent_state.size(1)
-                    flat_recurrent_state = recurrent_state.view(-1, *recurrent_state.shape[2:])
-                    core_attn_out, _ = self.fused_recurrent_gated_delta_rule(
-                        q=query.contiguous(),
-                        k=key.contiguous(),
-                        v=value.contiguous(),
-                        g=g.contiguous(),
-                        beta=beta.contiguous(),
-                        initial_state=flat_recurrent_state,
-                        inplace_final_state=True,
-                        cu_seqlens=gated_delta_meta.cu_seqlens,
-                        cache_seqlens_rb=gated_delta_meta.cache_seqlens,
-                        state_ids_rb=gated_delta_meta.state_ids,
-                        num_state=state_slots,
-                        use_qk_l2norm_in_kernel=self.use_qk_l2norm_in_kernel,
-                    )
-                    return core_attn_out, None
+                state_slots = recurrent_state.size(1)
+                flat_recurrent_state = recurrent_state.view(-1, *recurrent_state.shape[2:])
+                core_attn_out, _ = self.fused_recurrent_gated_delta_rule(
+                    q=query.contiguous(),
+                    k=key.contiguous(),
+                    v=value.contiguous(),
+                    g=g.contiguous(),
+                    beta=beta.contiguous(),
+                    initial_state=flat_recurrent_state,
+                    inplace_final_state=True,
+                    cu_seqlens=gated_delta_meta.cu_seqlens,
+                    cache_seqlens_rb=gated_delta_meta.cache_seqlens,
+                    state_ids_rb=gated_delta_meta.state_ids,
+                    num_state=state_slots,
+                    use_qk_l2norm_in_kernel=self.use_qk_l2norm_in_kernel,
+                )
+                return core_attn_out, None
             else:
                 if gated_delta_meta.spec_state_offsets is not None:
                     state_ids = gated_delta_meta.state_ids
@@ -567,36 +567,6 @@ def patch_gated_delta_net():
 def import_vendor_module(vendor_name_str):
     if vendor_name_str in vendor:
         importlib.import_module(f".{vendor_name_str}", __package__)
-
-
-def patch_attention_is_tp():
-    """Monkey-patch Qwen3_5Attention to skip TP head division for draft model.
-
-    The MTP draft model uses is_tp=False to keep full head counts on each
-    rank. Qwen3_5Attention already passes is_tp to build_qkv_proj and
-    build_o_proj, but Attention.__init__ always calls _update_num_heads.
-    We temporarily replace _update_num_heads with an identity function
-    during Qwen3_5Attention.__init__ when is_tp=False.
-    """
-    from lmdeploy.pytorch.nn import attention as _attn_mod
-    from lmdeploy.pytorch.models import qwen3_5
-
-    _orig_update = _attn_mod._update_num_heads
-    _identity_update = lambda nh, nkv: (nh, nkv)
-    _orig_init = qwen3_5.Qwen3_5Attention.__init__
-
-    def _patched_init(self, config, layer_idx, dtype=None, device=None,
-                      prefix='', is_tp=True):
-        if not is_tp:
-            _attn_mod._update_num_heads = _identity_update
-        try:
-            _orig_init(self, config, layer_idx, dtype=dtype, device=device,
-                       prefix=prefix, is_tp=is_tp)
-        finally:
-            if not is_tp:
-                _attn_mod._update_num_heads = _orig_update
-
-    qwen3_5.Qwen3_5Attention.__init__ = _patched_init
 
 
 def patch_qwen3_5():
@@ -998,7 +968,6 @@ def vendor_device_init():
         patch_rejection_sampler()
         patch_state_cache_engine()
         patch_gated_delta_net()      # MUST be before patch_attention_is_tp
-        patch_attention_is_tp()
         patch_qwen3_5()
         patch_ray_init()
 
