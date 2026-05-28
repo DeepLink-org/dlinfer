@@ -484,10 +484,6 @@ def patch_gated_delta_net():
             is_decoding = gated_delta_meta.is_decoding
             is_multi_token_decoding = gated_delta_meta.is_multi_token_decoding
             
-            beta = b.sigmoid()
-            # If the model is loaded in fp16, without the .float() here, A might be -inf
-            g = (-A_log.float().exp()) * F.softplus(a.float() + dt_bias)
-            
             if is_decoding:
                 core_attn_out = self.fused_sigmoid_gating_delta_rule_update(
                     A_log=A_log,
@@ -506,6 +502,11 @@ def patch_gated_delta_net():
                 )
                 return core_attn_out, None
             elif is_multi_token_decoding:
+                
+                beta = b.sigmoid()
+                # If the model is loaded in fp16, without the .float() here, A might be -inf
+                g = (-A_log.float().exp()) * F.softplus(a.float() + dt_bias)
+                
                 state_slots = recurrent_state.size(1)
                 flat_recurrent_state = recurrent_state.view(-1, *recurrent_state.shape[2:])
                 core_attn_out, _ = self.fused_recurrent_gated_delta_rule(
@@ -524,6 +525,11 @@ def patch_gated_delta_net():
                 )
                 return core_attn_out, None
             else:
+                
+                beta = b.sigmoid()
+                # If the model is loaded in fp16, without the .float() here, A might be -inf
+                g = (-A_log.float().exp()) * F.softplus(a.float() + dt_bias)
+                
                 if gated_delta_meta.spec_state_offsets is not None:
                     state_ids = gated_delta_meta.state_ids
                     # Circular-buffer read slot: history_len % NUM_STATE

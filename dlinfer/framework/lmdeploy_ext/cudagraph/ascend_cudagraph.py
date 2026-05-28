@@ -78,13 +78,7 @@ def AscendCudaGraphMixin_make_buffers_cudagraph(
         (max_batches, num_blocks), dtype=torch.int32, device=device
     )
 
-    input_buffers["q_seqlens"] = torch.ones(max_batches, dtype=torch.int32)
-
     input_buffers["kv_seqlens"] = torch.ones(max_batches, dtype=torch.int32)
-
-    input_buffers["q_start_loc"] = torch.arange(
-        max_batches + 1, dtype=torch.int32, device=device
-    )
 
     input_buffers["kv_start_indices"] = -torch.ones(
         (max_tokens), dtype=torch.int32, device=device
@@ -103,7 +97,16 @@ def AscendCudaGraphMixin_make_buffers_cudagraph(
         )
         input_buffers["cache_seqlens"] = torch.zeros(
             max_batches, dtype=torch.int32, device=device
-        )    
+        )
+        
+    if max_batches != max_tokens:
+        max_q_seq_len = max_tokens // max_batches
+        input_buffers["q_seqlens"] = torch.arange(1, max_batches+1, dtype=torch.int32) * max_q_seq_len
+        input_buffers["q_start_loc"] = torch.arange(max_batches + 1, dtype=torch.int32, device=device) * max_q_seq_len
+        
+    else:
+        input_buffers["q_seqlens"] = torch.arange(1, max_batches + 1, dtype=torch.int32)  
+        input_buffers["q_start_loc"] = torch.arange(max_batches + 1, dtype=torch.int32, device=device)
 
     # mrope
     if graph_meta.use_mrope:
@@ -139,7 +142,6 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
 
     batch_size, num_blocks = block_offsets.size()
     num_tokens = input_ids.size(-1)
-    q_seqlens: Tensor = attn_metadata.q_seqlens
 
     # fill buffer
     max_num_tokens = input_buffers["input_ids"].size(-1)
@@ -148,10 +150,6 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
         input_buffers["input_ids"][:, num_tokens:max_num_tokens].random_(
             0, graph_meta.vocab_size
         )
-        
-    if is_multi_token_decoding:
-        input_buffers["q_seqlens"].fill_(0)
-        input_buffers["q_seqlens"][: batch_size] = q_seqlens      
     
     input_buffers["input_ids"][:, :num_tokens] = input_ids
     input_buffers["position_ids"].zero_()
@@ -168,30 +166,15 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
         input_buffers["x_active_mask"][:x_active_mask.size(0)] = x_active_mask
 
     if graph_meta.is_ssm:
+        state_ids = kwargs["state_ids"]
+        input_buffers["state_ids"].fill_(0)
+        input_buffers["state_ids"][: batch_size].copy_(state_ids)
         
         if is_multi_token_decoding:
-            bs = input_buffers["q_start_loc"].size(0)
-            max_q_seq_len = attn_metadata.max_q_seq_len
-            padding_tensor = torch.arange(0, bs) * max_q_seq_len
-            input_buffers["q_start_loc"].copy_(padding_tensor)
-            input_buffers["q_start_loc"][:q_start_loc.size(0)] = q_start_loc
-
-            state_ids = kwargs["state_ids"]
-            input_buffers["state_ids"].fill_(0)
-            input_buffers["state_ids"][: batch_size].copy_(state_ids)
-            
             input_buffers["cache_seqlens"].fill_(0)
             input_buffers["cache_seqlens"][: batch_size].copy_(cache_seqlens)
             
             attn_metadata.cache_seqlens = input_buffers["cache_seqlens"]
-            attn_metadata.attention_mask = [input_buffers["attention_mask"]]
-        else:
-            input_buffers["q_start_loc"][: batch_size + 1] = q_start_loc
-            input_buffers["q_start_loc"][batch_size + 1 :] = q_start_loc[-1]
-
-            state_ids = kwargs["state_ids"]
-            input_buffers["state_ids"].fill_(-1)
-            input_buffers["state_ids"][: state_ids.size(0)].copy_(state_ids)
         
     if is_multi_token_decoding:
         attn_metadata.attention_mask = [input_buffers["attention_mask"]]
@@ -205,14 +188,12 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
             )
         input_buffers["inputs_embeds"][:, :num_tokens] = inputs_embeds
     
-    if is_multi_token_decoding:
-        attn_metadata.q_seqlens = input_buffers["q_seqlens"]
-    
     attn_metadata.block_offsets = input_buffers["block_offsets"]
     attn_metadata.kv_seqlens = input_buffers["kv_seqlens"]
     attn_metadata.kv_start_indices = input_buffers["kv_start_indices"]
     moe_metadata.x_active_mask = input_buffers["x_active_mask"]
     attn_metadata.q_start_loc = input_buffers["q_start_loc"]
+    attn_metadata.q_seqlens = input_buffers["q_seqlens"]
 
     new_inputs = dict(
         past_key_values=past_key_values,
@@ -246,7 +227,6 @@ def AscendCudaGraphMixin_update_context_cudagraph(self, graph_meta, context):
     """update step context with input buffers."""
     input_buffers = graph_meta.input_buffers
     context.block_offsets = input_buffers["block_offsets"]
-    context.q_seqlens = input_buffers["q_seqlens"]
     context.kv_seqlens = input_buffers["kv_seqlens"]
     context.q_start_loc = input_buffers["q_start_loc"]
     context.kv_start_indices = input_buffers["kv_start_indices"]
