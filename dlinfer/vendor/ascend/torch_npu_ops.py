@@ -1,5 +1,4 @@
 # Copyright (c) 2024, DeepLink. All rights reserved.
-import os
 import math
 import torch
 import torch.distributed as dist

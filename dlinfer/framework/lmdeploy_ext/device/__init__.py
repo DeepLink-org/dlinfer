@@ -100,6 +100,35 @@ def patch_async_sampling_logits():
     BaseModelAgent.async_sampling_logits = async_sampling_logits
 
 
+def patch_rejection_sampler():
+    from lmdeploy.pytorch.spec_decode import reject_sampler as _reject_sampler_mod
+    from dlinfer.vendor.ascend.triton_ops.reject_sample import rejection_sample
+
+    def _patched_rejection_sample(
+        target_logits,
+        draft_token_ids,
+        bonus_token_ids,
+        sampling_inputs,
+        draft_probs=None,
+    ):
+        if not target_logits.is_contiguous():
+            target_logits = target_logits.contiguous()
+        if not draft_token_ids.is_contiguous():
+            draft_token_ids = draft_token_ids.contiguous()
+        if draft_probs is not None and not draft_probs.is_contiguous():
+            draft_probs = draft_probs.contiguous()
+
+        return rejection_sample(
+            target_logits,
+            draft_token_ids,
+            bonus_token_ids,
+            sampling_inputs,
+            draft_probs=draft_probs,
+        )
+
+    _reject_sampler_mod.rejection_sample = _patched_rejection_sample
+
+
 ##### patch cache engine #####
 def patch_contiguous_cache_engine():
     from lmdeploy.pytorch.config import CacheConfig, ModelConfig
@@ -242,6 +271,7 @@ def patch_gated_delta_net():
 
     from lmdeploy.pytorch.nn import gated_delta
     from lmdeploy.pytorch.nn.gated_delta import GatedDeltaMeta
+    from lmdeploy.pytorch.model_inputs import get_step_ctx_manager
 
     class AscendGatedDeltaMeta:
 
@@ -254,11 +284,17 @@ def patch_gated_delta_net():
         ):
             self.is_decoding = attn_metadata.is_decoding
             self.cu_seqlens = attn_metadata.q_start_loc
-
-            # state_ids, fill invalid state with 0
+            self.is_multi_token_decoding = attn_metadata.is_multi_token_decoding
+            self.max_q_seq_len = attn_metadata.max_q_seq_len
+            
+            self.num_spec_tokens = get_step_ctx_manager().build_ctx.num_spec_tokens         
+            self.cache_seqlens = getattr(attn_metadata, 'cache_seqlens', None)
+            self.spec_state_offsets = getattr(attn_metadata, 'spec_state_offsets', None)
+            self.spec_conv_offsets = getattr(attn_metadata, 'spec_conv_offsets', None)
+            
             self.state_ids = state_ids.clamp(0)
             self.has_initial_state = attn_metadata.has_initial_state
-            self.conv_state_indices = self.state_ids
+            self.conv_state_indices = self.state_ids.to(torch.int32)
 
     def build_rmsnorm_gated(hidden_size: int, eps=1e-6, **kwargs):
         try:
@@ -305,6 +341,12 @@ def patch_gated_delta_net():
             out: (b, seqlen, dim)
             conv_state: (b, dim, kernel_size)
             """
+            spec_conv_offsets = getattr(gated_delta_meta, "spec_conv_offsets", None)
+            if spec_conv_offsets is not None:
+                read_conv_offsets, write_conv_offsets = spec_conv_offsets
+            else:
+                read_conv_offsets, write_conv_offsets = None, None
+            
             out = self.causal_conv1d_fn(
                 x.t(),
                 weight,
@@ -314,6 +356,8 @@ def patch_gated_delta_net():
                 has_initial_state=gated_delta_meta.has_initial_state,
                 cache_indices=gated_delta_meta.conv_state_indices,
                 query_start_loc=gated_delta_meta.cu_seqlens,
+                read_conv_offsets=read_conv_offsets,
+                write_conv_offsets=write_conv_offsets,
             )
 
             out = out.t().unsqueeze(0)
@@ -328,7 +372,24 @@ def patch_gated_delta_net():
             bias: torch.Tensor,
             conv_state: torch.Tensor,
             conv_state_indices: torch.Tensor,
+            gated_delta_meta: GatedDeltaMeta,
         ):
+            update_kwargs = {}
+            validate_data = True
+            
+            cache_seqlens = gated_delta_meta.cache_seqlens
+            is_multi_token_decoding = gated_delta_meta.is_multi_token_decoding
+            
+            if is_multi_token_decoding:
+                # Ring-buffer decode path: positions are derived from cache_seqlens.
+                update_kwargs['cache_seqlens'] = gated_delta_meta.cache_seqlens
+                # Multi-token decode uses varlen format (2-D x tensor); must keep
+                # IS_VARLEN=True by passing query_start_loc, otherwise x gets incorrectly
+                # unsqueezed and cache_seqlens is accessed out-of-bounds.
+                update_kwargs['query_start_loc'] = gated_delta_meta.cu_seqlens
+                update_kwargs['max_query_len'] = gated_delta_meta.max_q_seq_len
+                validate_data = False
+                
             out = self.causal_conv1d_update(
                 x,
                 conv_state,
@@ -336,7 +397,8 @@ def patch_gated_delta_net():
                 bias,
                 self.activation,
                 conv_state_indices=conv_state_indices,
-                validate_data=True,
+                validate_data=validate_data,
+                **update_kwargs,
             )
             return out.unsqueeze(0), conv_state
 
@@ -352,10 +414,10 @@ def patch_gated_delta_net():
             weight_reshaped = weight.squeeze(1)
             x = x.squeeze(0)
 
-            if gated_delta_meta.is_decoding:
+            if gated_delta_meta.is_decoding or gated_delta_meta.is_multi_token_decoding:
                 conv_state_indices = gated_delta_meta.conv_state_indices
                 return self.conv1d_update(
-                    x, weight_reshaped, bias, conv_state, conv_state_indices
+                    x, weight_reshaped, bias, conv_state, conv_state_indices, gated_delta_meta
                 )
             return self.conv1d_func(
                 x, weight_reshaped, bias, conv_state, gated_delta_meta=gated_delta_meta
@@ -368,12 +430,14 @@ def patch_gated_delta_net():
                 from dlinfer.vendor.ascend.triton_ops import (
                     chunk_gated_delta_rule,
                     fused_sigmoid_gating_delta_rule_update,
+                    fused_recurrent_gated_delta_rule,
                 )
 
                 self.chunk_gated_delta_rule = chunk_gated_delta_rule
                 self.fused_sigmoid_gating_delta_rule_update = (
                     fused_sigmoid_gating_delta_rule_update
                 )
+                self.fused_recurrent_gated_delta_rule = fused_recurrent_gated_delta_rule
             except Exception:
                 raise RuntimeError(
                     "Triton is not installed or Ascend triton_ops failed to load. "
@@ -397,10 +461,9 @@ def patch_gated_delta_net():
             """call."""
 
             is_decoding = gated_delta_meta.is_decoding
-
+            is_multi_token_decoding = gated_delta_meta.is_multi_token_decoding
+            
             if is_decoding:
-                indices = gated_delta_meta.state_ids
-                cu_seqlens = gated_delta_meta.cu_seqlens
                 core_attn_out = self.fused_sigmoid_gating_delta_rule_update(
                     A_log=A_log,
                     dt_bias=dt_bias,
@@ -410,19 +473,49 @@ def patch_gated_delta_net():
                     a=a.contiguous(),
                     b=b.contiguous(),
                     initial_state_source=recurrent_state,
-                    initial_state_indices=indices,
-                    cu_seqlens=cu_seqlens,
+                    initial_state_indices=gated_delta_meta.state_ids,
+                    cu_seqlens=gated_delta_meta.cu_seqlens,
                     use_qk_l2norm_in_kernel=True,
                     softplus_beta=1.0,
                     softplus_threshold=20.0,
                 )
-                last_recurrent_state = None
-            else:
+                return core_attn_out, None
+            elif is_multi_token_decoding:
+                
                 beta = b.sigmoid()
                 # If the model is loaded in fp16, without the .float() here, A might be -inf
                 g = (-A_log.float().exp()) * F.softplus(a.float() + dt_bias)
-
-                initial_state = recurrent_state[gated_delta_meta.state_ids]
+                
+                state_slots = recurrent_state.size(1)
+                flat_recurrent_state = recurrent_state.view(-1, *recurrent_state.shape[2:])
+                core_attn_out, _ = self.fused_recurrent_gated_delta_rule(
+                    q=query.contiguous(),
+                    k=key.contiguous(),
+                    v=value.contiguous(),
+                    g=g.contiguous(),
+                    beta=beta.contiguous(),
+                    initial_state=flat_recurrent_state,
+                    inplace_final_state=True,
+                    cu_seqlens=gated_delta_meta.cu_seqlens,
+                    cache_seqlens_rb=gated_delta_meta.cache_seqlens,
+                    state_ids_rb=gated_delta_meta.state_ids,
+                    num_state=state_slots,
+                    use_qk_l2norm_in_kernel=self.use_qk_l2norm_in_kernel,
+                )
+                return core_attn_out, None
+            else:
+                
+                beta = b.sigmoid()
+                # If the model is loaded in fp16, without the .float() here, A might be -inf
+                g = (-A_log.float().exp()) * F.softplus(a.float() + dt_bias)
+                
+                if gated_delta_meta.spec_state_offsets is not None:
+                    state_ids = gated_delta_meta.state_ids
+                    # Circular-buffer read slot: history_len % NUM_STATE
+                    read_slots = gated_delta_meta.spec_state_offsets[0]
+                    initial_state = recurrent_state[state_ids, read_slots].transpose(-1, -2).contiguous()
+                else:
+                    initial_state = recurrent_state[gated_delta_meta.state_ids]
                 initial_state[~gated_delta_meta.has_initial_state, ...] = 0
                 core_attn_out, last_recurrent_state = self.chunk_gated_delta_rule(
                     q=query,
@@ -436,11 +529,18 @@ def patch_gated_delta_net():
                     head_first=False,
                     use_qk_l2norm_in_kernel=self.use_qk_l2norm_in_kernel,
                 )
-                recurrent_state[gated_delta_meta.state_ids] = last_recurrent_state.to(
-                    recurrent_state.dtype
-                )
-
-            return core_attn_out, last_recurrent_state
+                if gated_delta_meta.spec_state_offsets is not None:
+                    state_ids = gated_delta_meta.state_ids
+                    # Circular-buffer write slot: (history_len + query_len) % NUM_STATE
+                    write_slots = gated_delta_meta.spec_state_offsets[1]
+                    recurrent_state[state_ids, write_slots] = last_recurrent_state.transpose(-1, -2).to(
+                        recurrent_state.dtype
+                    )
+                else:
+                    recurrent_state[gated_delta_meta.state_ids] = last_recurrent_state.to(
+                        recurrent_state.dtype
+                    )
+                return core_attn_out, last_recurrent_state
 
     gated_delta.GatedDeltaMeta = AscendGatedDeltaMeta
     gated_delta.CausalConv1dFunc = AscendCausalConv1dFunc
@@ -472,7 +572,14 @@ def patch_qwen3_5():
     )
 
     @classmethod
-    def custom_build(cls, hf_config, model_path: str = None, tp: int = 1, **kwargs):
+    def custom_build(cls,
+              hf_config,
+              model_path: str = None,
+              tp: int = 1,
+              is_draft_model: bool = False,
+              spec_method: str = None,
+              num_spec_tokens: int = 0,
+              **kwargs):
         """build."""
         text_config = hf_config.text_config
         # propagate quantization_config from top-level hf_config into text_config
@@ -483,6 +590,8 @@ def patch_qwen3_5():
             text_config.quantization_config = quantization_config
         cfg = DefaultModelConfigBuilder.build(text_config, model_path, tp=tp, **kwargs)
 
+        if getattr(hf_config.text_config, 'attn_output_gate', False):
+            cfg.num_attention_heads *= 2
         # update num layers
         num_layers = cfg.num_layers
         layer_types = text_config.layer_types
@@ -498,13 +607,16 @@ def patch_qwen3_5():
         key_dim = head_k_dim * num_k_heads
         value_dim = head_v_dim * num_v_heads
         conv_dim = key_dim * 2 + value_dim
-        conv_kernel_size = text_config.linear_conv_kernel_dim
+        conv_kernel_size = text_config.linear_conv_kernel_dim + num_spec_tokens
 
         # Ascend Patch
         conv_state_shape = (conv_kernel_size, conv_dim)
-        recurrent_state_shape = (num_v_heads, head_k_dim, head_v_dim)
+        if num_spec_tokens > 0:
+            recurrent_state_shape = (1 + num_spec_tokens, num_v_heads, head_k_dim, head_v_dim)
+        else:
+            recurrent_state_shape = (num_v_heads, head_k_dim, head_v_dim)
 
-        device_type = kwargs.get("device_type", "cuda")
+        device_type = kwargs.get('device_type', 'auto')
         if is_bf16_supported(device_type):
             dtype = torch.bfloat16
         else:
@@ -522,6 +634,23 @@ def patch_qwen3_5():
         cfg.check_env_func = _check_env_qwen3_next
 
         cfg.use_mrope = True
+
+        # Speculative decoding support
+        if spec_method is not None:
+            assert spec_method == "qwen3_5_mtp"
+            cfg.model_paradigm = "ar_spec"
+
+        # draft model cfg
+        if is_draft_model:
+            hf_config.architectures[0] = "Qwen3_5MTPModel"
+            # remove for correct mapping when building the patched model
+            if hasattr(hf_config, "auto_map"):
+                del hf_config.auto_map
+
+            cfg.model_paradigm = "ar_spec"
+            cfg.num_layers = text_config.mtp_num_hidden_layers
+            cfg.states_shapes = []
+
         return cfg
 
     def custom_prepare_inputs_for_generation(
@@ -555,9 +684,13 @@ def patch_qwen3_5():
         pixel_values = None
         vis_cu_seqlens = None
         vis_pos_emb = None
-        image_mask = None
+        multimodal_mask = None
         grid_thw = None
         pos_embeds = None
+        # for time series
+        ts_values = None
+        ts_lens = None
+        ts_sr = None
         if context.input_multimodals is not None:
             mm_inputs = [
                 input_mm.get("mm_data", []) for input_mm in context.input_multimodals
@@ -567,26 +700,22 @@ def patch_qwen3_5():
 
             if len(mm_inputs) > 0:
                 modality = mm_inputs[0].modality
-                pixel_values = torch.cat([inp.data for inp in mm_inputs])
+                multimodal_mask = self.get_multimodal_mask(input_ids, mm_inputs)
 
-                image_token_id = mm_inputs[0].meta.get("image_token_id")
-                video_token_id = mm_inputs[0].meta.get("video_token_id")
-                mm_token_id = (
-                    image_token_id if modality == Modality.IMAGE else video_token_id
-                )
-                image_mask = input_ids == mm_token_id
-
-                grid_thw = torch.cat(
-                    [data.meta["grid_thw"] for data in mm_inputs]
-                ).cpu()
-                vis_pos_emb = self.model.visual.rot_pos_emb(grid_thw)
-                pos_embeds = self.model.visual.fast_pos_embed_interpolate(grid_thw)
-                vis_cu_seqlens = torch.repeat_interleave(
-                    grid_thw[:, 1] * grid_thw[:, 2], grid_thw[:, 0]
-                ).to(pixel_values.device)
-                vis_cu_seqlens = vis_cu_seqlens.cumsum(dim=0, dtype=torch.int32)
-                vis_pos_emb = vis_pos_emb.repeat(1, 2)
-                vis_pos_emb = (vis_pos_emb.cos(), vis_pos_emb.sin())
+                if modality == Modality.TIME_SERIES:
+                    ts_values = torch.cat([inp.data for inp in mm_inputs])
+                    ts_lens = torch.cat([inp.meta['ts_lens'] for inp in mm_inputs])
+                    ts_sr = torch.cat([inp.meta['ts_sr'] for inp in mm_inputs])
+                else:
+                    pixel_values = torch.cat([inp.data for inp in mm_inputs])
+                    grid_thw = torch.stack([data.meta['grid_thw'] for data in mm_inputs]).cpu()
+                    vis_pos_emb = self.model.visual.rot_pos_emb(grid_thw)
+                    pos_embeds = self.model.visual.fast_pos_embed_interpolate(grid_thw)
+                    vis_cu_seqlens = torch.repeat_interleave(grid_thw[:, 1] * grid_thw[:, 2],
+                                                             grid_thw[:, 0]).to(pixel_values.device)
+                    vis_cu_seqlens = vis_cu_seqlens.cumsum(dim=0, dtype=torch.int32)
+                    vis_pos_emb = vis_pos_emb.repeat(1, 2)
+                    vis_pos_emb = (vis_pos_emb.cos(), vis_pos_emb.sin())
 
         mrope_position_ids = getattr(context, "mrope_position_ids", None)
 
@@ -596,9 +725,10 @@ def patch_qwen3_5():
         if vision_embeddings is not None and len(vision_embeddings) > 0:
             if inputs_embeds is None:
                 inputs_embeds = self.get_input_embeddings()(input_ids)
-            inputs_embeds[:, vision_embedding_indexing, :] = vision_embeddings.to(
-                inputs_embeds
-            )
+            inputs_embeds[:, vision_embedding_indexing, :] = vision_embeddings.to(inputs_embeds)
+
+        # return input embeds for spec decoding
+        return_input_embeds = self.is_spec_decoding and (pixel_values is not None or context.is_chunk_multimodal)
 
         # inputs of forward
         return dict(
@@ -613,9 +743,14 @@ def patch_qwen3_5():
             pixel_values=pixel_values,
             vis_cu_seqlens=vis_cu_seqlens,
             vis_pos_emb=vis_pos_emb,
-            image_mask=image_mask,
+            multimodal_mask=multimodal_mask,
             grid_thw=grid_thw,
             pos_embeds=pos_embeds,
+            return_input_embeds=return_input_embeds,
+            # for time series
+            ts_values=ts_values,
+            ts_lens=ts_lens,
+            ts_sr=ts_sr,
         )
 
     def custom_forward(
@@ -694,6 +829,107 @@ def patch_qwen3_5():
     )
 
 
+def patch_ray_init():
+    """Monkey-patch lmdeploy's init_ray_cluster to register custom NPU resources.
+
+    Ray does not auto-detect Ascend NPUs; without registering custom resources
+    at ray.init() time, placement groups requesting ``{'NPU': 1}`` never schedule
+    on a fresh local cluster.
+    """
+    import os
+    import logging
+    import lmdeploy.pytorch.ray as _ray_mod
+
+    logger = logging.getLogger('dlinfer.ray')
+    _orig_init_ray_cluster = _ray_mod.init_ray_cluster
+
+    def _infer_local_ray_custom_resources(device_type, world_size):
+        if device_type == 'ascend':
+            n = None
+            try:
+                npu_mod = getattr(torch, 'npu', None)
+                if npu_mod is not None and callable(getattr(npu_mod, 'device_count', None)):
+                    n = int(npu_mod.device_count())
+                    if n <= 0:
+                        n = None
+            except Exception:
+                n = None
+            if n is None:
+                vis = os.environ.get('ASCEND_RT_VISIBLE_DEVICES', '').strip()
+                if vis:
+                    n = len([x for x in vis.split(',') if x.strip() != ''])
+            if n is None or n <= 0:
+                n = int(world_size)
+                logger.warning(
+                    'Could not detect NPU count; registering Ray resource NPU=%d '
+                    'from world_size.', n)
+            return {'NPU': float(n)}
+        if device_type == 'camb':
+            n = None
+            try:
+                mlu = getattr(torch, 'mlu', None)
+                if mlu is not None and callable(getattr(mlu, 'device_count', None)):
+                    n = int(mlu.device_count())
+                    if n <= 0:
+                        n = None
+            except Exception:
+                n = None
+            if n is None or n <= 0:
+                n = int(world_size)
+                logger.warning('Could not detect MLU count; registering MLU=%d.', n)
+            return {'MLU': float(n)}
+        return None
+
+    def _patched_init_ray_cluster(world_size, ray_address=None, dp=1, device_type='cuda'):
+        """Same as original but registers custom resources at ray.init() for local clusters."""
+        import ray
+        if not ray.is_initialized():
+            num_cpus = world_size
+            object_store_memory = _ray_mod._get_obj_store_memory(dp=dp)
+            init_kwargs = dict(
+                ignore_reinit_error=True,
+                num_cpus=num_cpus,
+                object_store_memory=object_store_memory,
+            )
+            if ray_address is not None:
+                init_kwargs['address'] = ray_address
+            if ray_address is None:
+                custom_res = _infer_local_ray_custom_resources(device_type, world_size)
+                if custom_res:
+                    init_kwargs['resources'] = custom_res
+            try:
+                ray.init(**init_kwargs)
+            except ValueError as e:
+                if e.args is not None and len(e.args) >= 1 and e.args[
+                        0] == 'When connecting to an existing cluster, num_cpus and num_gpus must not be provided.':
+                    ray.init(address=ray_address, ignore_reinit_error=True)
+                else:
+                    raise
+
+        # Remaining logic unchanged from original init_ray_cluster
+        device_str = _ray_mod.get_device_str(device_type)
+        current_placement_group = ray.util.get_current_placement_group()
+        owned_pg = False
+        if not current_placement_group:
+            num_devices_in_cluster = ray.cluster_resources().get(device_str, 0)
+            if world_size > num_devices_in_cluster:
+                _ray_mod.logger.warning(
+                    'The number of required %ss exceeds the total '
+                    'number of available %ss in the placement group.', device_str, device_str)
+            placement_group_specs = [{device_str: 1.0} for _ in range(world_size)]
+            current_ip = ray.util.get_node_ip_address()
+            placement_group_specs[0][f'node:{current_ip}'] = 0.001
+            current_placement_group = ray.util.placement_group(placement_group_specs, strategy='PACK')
+            _ray_mod._wait_until_pg_ready(current_placement_group)
+            owned_pg = True
+
+        assert current_placement_group is not None
+        placement_group = current_placement_group
+        return placement_group, owned_pg
+
+    _ray_mod.init_ray_cluster = _patched_init_ray_cluster
+
+
 def vendor_device_init():
     import_vendor_module(vendor_name)
     patch_compiled_func()
@@ -701,9 +937,11 @@ def vendor_device_init():
     if vendor_name in ["camb", "ascend"]:
         patch_contiguous_cache_engine()
     if vendor_name == "ascend":
+        patch_rejection_sampler()
         patch_state_cache_engine()
-        patch_gated_delta_net()
+        patch_gated_delta_net()      # MUST be before patch_attention_is_tp
         patch_qwen3_5()
+        patch_ray_init()
 
 
 vendor_device_init()
