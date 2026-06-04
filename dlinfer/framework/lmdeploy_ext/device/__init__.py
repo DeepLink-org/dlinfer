@@ -69,30 +69,20 @@ def patch_async_sampling_logits():
     from torch.profiler import record_function
     from lmdeploy.pytorch.engine.model_agent import BaseModelAgent
     from lmdeploy.pytorch.engine.model_agent.agent import BatchedLogProbs
+    from lmdeploy.pytorch.strategies.base.model_agent import ExtraInputs
+    from lmdeploy.pytorch.model_inputs import ModelInputs,
     from lmdeploy.pytorch.engine.logits_process import (
         SamplingInputs,
         FusedLogitsProcessor,
     )
 
-    async def async_sampling_logits(
-        self,
-        logits: torch.Tensor,
-        inputs: ModelInputs,
-        extra_inputs: ExtraInputs,
-        sampling_inputs: SamplingInputs,
-    ):
+    async def async_sampling_logits(self, logits: torch.Tensor, inputs: ModelInputs,
+                                    extra_inputs: ExtraInputs, sampling_inputs: SamplingInputs):
         """Sampling logits."""
         if self.spec_agent.is_enabled():
             extra_inputs.target_logits = extra_inputs.target_logits.to(torch.float32)
-            extra_inputs = await self.spec_agent.async_sampling_logits(
-                inputs, extra_inputs, sampling_inputs
-            )
-            return (
-                extra_inputs.next_token_ids,
-                extra_inputs.logprobs,
-                extra_inputs.output_token_ids,
-                extra_inputs,
-            )
+            extra_inputs = await self.spec_agent.async_sampling_logits(inputs, extra_inputs, sampling_inputs)
+            return extra_inputs.next_token_ids, extra_inputs.logprobs, extra_inputs.output_token_ids, extra_inputs
         # record function does not support async function
         # so we can not decorate it on async_sampling_logits
         with record_function("sampling_logits"):
@@ -113,9 +103,8 @@ def patch_async_sampling_logits():
                     indices=logprobs[1],
                 )
         # post sampling
-        next_token_ids, extra_inputs = self.agent_strategy.post_sampling(
-            inputs, logits, next_token_ids, extra_inputs
-        )
+        next_token_ids, extra_inputs = self.agent_strategy.post_sampling(inputs, logits, next_token_ids,
+                                                                             extra_inputs)
         return next_token_ids, logprobs, next_token_ids, extra_inputs
 
     BaseModelAgent.async_sampling_logits = async_sampling_logits
@@ -138,7 +127,9 @@ def patch_rejection_sampler():
             draft_token_ids = draft_token_ids.contiguous()
         if draft_probs is not None and not draft_probs.is_contiguous():
             draft_probs = draft_probs.contiguous()
-
+        
+        # origin target_logits is torch.bfloat16
+        target_logits = target_logits.to(torch.float32)
         return rejection_sample(
             target_logits,
             draft_token_ids,
@@ -973,9 +964,9 @@ def vendor_device_init():
     if vendor_name == "ascend":
         patch_rejection_sampler()
         patch_state_cache_engine()
-        patch_gated_delta_net()      # MUST be before patch_attention_is_tp
+        patch_gated_delta_net()
         patch_qwen3_5()
-        patch_ray_init()
+        # patch_ray_init()
 
 
 vendor_device_init()
