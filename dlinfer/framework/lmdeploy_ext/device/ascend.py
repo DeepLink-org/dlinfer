@@ -130,18 +130,23 @@ class AscendMoEForwardDPTP:
         self.topk = topk_ids.size(-1)
         self.dp_size = len(step_ctx.dp_meta.moe_tp_sizes)
 
+        # MTP decode sends max_batch_size * (num_spec_tokens + 1) tokens per step.
+        # Pre-allocate for the worst case to avoid runtime reallocation.
+        num_spec_tokens = get_step_ctx_manager().build_ctx.num_spec_tokens
+        max_tokens = self.max_batch_size * (num_spec_tokens + 1)
+
         global hidden_states_gather_buffer
         global topk_weights_gather_buffer
         global topk_ids_gather_buffer
 
         hidden_states_gather_buffer = hidden_states.new_empty(
-            self.max_batch_size * self.dp_size * self.hidden_size
+            max_tokens * self.dp_size * self.hidden_size
         )
         topk_weights_gather_buffer = topk_weights.new_empty(
-            self.max_batch_size * self.dp_size * self.topk
+            max_tokens * self.dp_size * self.topk
         )
         topk_ids_gather_buffer = topk_ids.new_empty(
-            self.max_batch_size * self.dp_size * self.topk
+            max_tokens * self.dp_size * self.topk
         )
 
     def all_gather(
@@ -202,15 +207,19 @@ class AscendMoEForwardDPTP:
         tp_sizes = step_ctx.dp_meta.moe_tp_sizes
 
         if self.use_comm_buffer:
+            num_tokens = hidden_states.size(0)
+            needed_hs = num_tokens * self.dp_size * self.hidden_size
+            needed_tw = num_tokens * self.dp_size * self.topk
+
             cur_hidden_states = hidden_states_gather_buffer[
-                : hidden_states.size(0) * self.dp_size * self.hidden_size
-            ].view(hidden_states.size(0) * self.dp_size, self.hidden_size)
+                :needed_hs
+            ].view(num_tokens * self.dp_size, self.hidden_size)
             cur_topk_weights = topk_weights_gather_buffer[
-                : topk_weights.size(0) * self.dp_size * self.topk
-            ].view(topk_weights.size(0) * self.dp_size, self.topk)
+                :needed_tw
+            ].view(num_tokens * self.dp_size, self.topk)
             cur_topk_ids = topk_ids_gather_buffer[
-                : topk_ids.size(0) * self.dp_size * self.topk
-            ].view(topk_ids.size(0) * self.dp_size, self.topk)
+                :needed_tw
+            ].view(num_tokens * self.dp_size, self.topk)
 
             torch.distributed.all_gather_into_tensor(
                 cur_hidden_states,

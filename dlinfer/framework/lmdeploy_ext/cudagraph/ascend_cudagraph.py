@@ -476,9 +476,7 @@ class AscendGraphRunner(GraphRunner):
             if meta.padding_batch_size is None:
                 new_batch_size = self._get_capture_tokens(batch_size)
             else:
-                padding_num_tokens = meta.padding_batch_size
-                padding_batch_size = (padding_num_tokens + max_q_seq_len - 1) // max_q_seq_len
-                new_batch_size = self._get_capture_tokens(padding_batch_size)
+                new_batch_size = self._get_capture_tokens(meta.padding_batch_size)
             return (new_batch_size, is_multi_token_decoding, enable_microbatch, max_q_seq_len)
 
         num_tokens = input_ids.numel()
