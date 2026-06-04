@@ -70,7 +70,7 @@ def patch_async_sampling_logits():
     from lmdeploy.pytorch.engine.model_agent import BaseModelAgent
     from lmdeploy.pytorch.engine.model_agent.agent import BatchedLogProbs
     from lmdeploy.pytorch.strategies.base.model_agent import ExtraInputs
-    from lmdeploy.pytorch.model_inputs import ModelInputs,
+    from lmdeploy.pytorch.model_inputs import ModelInputs
     from lmdeploy.pytorch.engine.logits_process import (
         SamplingInputs,
         FusedLogitsProcessor,
