@@ -50,6 +50,11 @@ def AscendCudaGraphMixin_support_cuda_graph(
     if attn_metadata is None:
         return False
 
+    # Graph capture wraps the MoE EP dispatch/combine collective, so all DP ranks
+    # must enter or skip the graph together. Gate on the DP-global decode state
+    # (any rank prefill => all prefill) rather than this rank's local is_decoding.
+    if not get_step_ctx_manager().current_context().global_is_decoding():
+        return False
     is_decoding = getattr(attn_metadata, "is_decoding", False)
     is_multi_token = getattr(attn_metadata, "is_multi_token_decoding", False)
     if is_multi_token and not aclgraph_use_torch_npu_update():
@@ -464,10 +469,13 @@ class AscendGraphRunner(GraphRunner):
         **kwargs,
     ):
         """Get graph key."""
-        is_decoding = attn_metadata.is_decoding
+        context = get_step_ctx_manager().current_context()
+        # Keep the graph key consistent across DP ranks (the captured graph holds the
+        # MoE EP collective), mirroring the global gate used in support_cuda_graph.
+        is_decoding = context.global_is_decoding()
         is_multi_token_decoding = attn_metadata.is_multi_token_decoding
         meta = self.get_meta()
-        enable_microbatch = get_step_ctx_manager().current_context().enable_microbatch
+        enable_microbatch = context.enable_microbatch
 
         if is_multi_token_decoding:
             q_seqlens = attn_metadata.q_seqlens
@@ -488,7 +496,10 @@ class AscendGraphRunner(GraphRunner):
 
     def __call__(self, **kwargs):
         """call."""
-        enable_graph = self.enable_graph(**kwargs)
+        # Graph capture/replay holds the MoE EP collective; gate on the DP-global
+        # decode state so every DP rank enters or skips the graph together.
+        context = get_step_ctx_manager().current_context()
+        enable_graph = context.global_is_decoding() and self.enable_graph(**kwargs)
 
         if not enable_graph:
             with record_function("forward_eager"):
@@ -560,13 +571,16 @@ class AscendGraphRunner(GraphRunner):
         """Update inputs."""
         if self.backend_config.eager_mode:
             return inputs
-        is_decoding = inputs.is_decoding
+        is_decoding = inputs.global_is_decoding()
         dp_meta = inputs.dp_meta
         if is_decoding and dp_meta is not None:
             meta = self.get_meta()
             padding_batch_size = meta.padding_batch_size
-            tp_size = self._get_capture_tokens(padding_batch_size)
-            dp_meta.tp_sizes = [tp_size] * len(dp_meta.tp_sizes)
+            
+            batch_size = inputs.seq_length.size(0)
+            query_len = inputs.input_ids.numel() // batch_size
+            tp_size = self._get_capture_tokens(padding_batch_size) * query_len
+            dp_meta.sync_tp_size(tp_size)
         return inputs
 
     def get_capture_batch_sizes(self) -> List[int]:
