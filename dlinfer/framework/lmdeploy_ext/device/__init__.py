@@ -564,7 +564,7 @@ def patch_qwen3_5():
         ts_sr = None
         if context.input_multimodals is not None:
             mm_inputs = [
-                input_mm.get('mm_data', []) for input_mm in context.input_multimodals
+                input_mm.get("mm_data", []) for input_mm in context.input_multimodals
             ]
             # flatten batch
             mm_inputs = [item for sublist in mm_inputs for item in sublist]
@@ -580,7 +580,7 @@ def patch_qwen3_5():
                 else:
                     pixel_values = torch.cat([inp.data for inp in mm_inputs])
                     grid_thw = torch.stack(
-                        [data.meta['grid_thw'] for data in mm_inputs]
+                        [data.meta["grid_thw"] for data in mm_inputs]
                     ).cpu()
                     vis_pos_emb = self.model.visual.rot_pos_emb(grid_thw)
                     pos_embeds = self.model.visual.fast_pos_embed_interpolate(grid_thw)
