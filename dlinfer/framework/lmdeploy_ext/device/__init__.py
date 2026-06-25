@@ -555,9 +555,13 @@ def patch_qwen3_5():
         pixel_values = None
         vis_cu_seqlens = None
         vis_pos_emb = None
-        image_mask = None
+        multimodal_mask = None
         grid_thw = None
         pos_embeds = None
+        # for time series
+        ts_values = None
+        ts_lens = None
+        ts_sr = None
         if context.input_multimodals is not None:
             mm_inputs = [
                 input_mm.get("mm_data", []) for input_mm in context.input_multimodals
@@ -567,26 +571,25 @@ def patch_qwen3_5():
 
             if len(mm_inputs) > 0:
                 modality = mm_inputs[0].modality
-                pixel_values = torch.cat([inp.data for inp in mm_inputs])
+                multimodal_mask = self.get_multimodal_mask(input_ids, mm_inputs)
 
-                image_token_id = mm_inputs[0].meta.get("image_token_id")
-                video_token_id = mm_inputs[0].meta.get("video_token_id")
-                mm_token_id = (
-                    image_token_id if modality == Modality.IMAGE else video_token_id
-                )
-                image_mask = input_ids == mm_token_id
-
-                grid_thw = torch.cat(
-                    [data.meta["grid_thw"] for data in mm_inputs]
-                ).cpu()
-                vis_pos_emb = self.model.visual.rot_pos_emb(grid_thw)
-                pos_embeds = self.model.visual.fast_pos_embed_interpolate(grid_thw)
-                vis_cu_seqlens = torch.repeat_interleave(
-                    grid_thw[:, 1] * grid_thw[:, 2], grid_thw[:, 0]
-                ).to(pixel_values.device)
-                vis_cu_seqlens = vis_cu_seqlens.cumsum(dim=0, dtype=torch.int32)
-                vis_pos_emb = vis_pos_emb.repeat(1, 2)
-                vis_pos_emb = (vis_pos_emb.cos(), vis_pos_emb.sin())
+                if modality == Modality.TIME_SERIES:
+                    ts_values = torch.cat([inp.data for inp in mm_inputs])
+                    ts_lens = torch.cat([inp.meta["ts_lens"] for inp in mm_inputs])
+                    ts_sr = torch.cat([inp.meta["ts_sr"] for inp in mm_inputs])
+                else:
+                    pixel_values = torch.cat([inp.data for inp in mm_inputs])
+                    grid_thw = torch.stack(
+                        [data.meta["grid_thw"] for data in mm_inputs]
+                    ).cpu()
+                    vis_pos_emb = self.model.visual.rot_pos_emb(grid_thw)
+                    pos_embeds = self.model.visual.fast_pos_embed_interpolate(grid_thw)
+                    vis_cu_seqlens = torch.repeat_interleave(
+                        grid_thw[:, 1] * grid_thw[:, 2], grid_thw[:, 0]
+                    ).to(pixel_values.device)
+                    vis_cu_seqlens = vis_cu_seqlens.cumsum(dim=0, dtype=torch.int32)
+                    vis_pos_emb = vis_pos_emb.repeat(1, 2)
+                    vis_pos_emb = (vis_pos_emb.cos(), vis_pos_emb.sin())
 
         mrope_position_ids = getattr(context, "mrope_position_ids", None)
 
@@ -599,6 +602,11 @@ def patch_qwen3_5():
             inputs_embeds[:, vision_embedding_indexing, :] = vision_embeddings.to(
                 inputs_embeds
             )
+
+        # return input embeds for spec decoding
+        return_input_embeds = self.is_spec_decoding and (
+            pixel_values is not None or context.is_chunk_multimodal
+        )
 
         # inputs of forward
         return dict(
@@ -613,9 +621,14 @@ def patch_qwen3_5():
             pixel_values=pixel_values,
             vis_cu_seqlens=vis_cu_seqlens,
             vis_pos_emb=vis_pos_emb,
-            image_mask=image_mask,
+            multimodal_mask=multimodal_mask,
             grid_thw=grid_thw,
             pos_embeds=pos_embeds,
+            return_input_embeds=return_input_embeds,
+            # for time series
+            ts_values=ts_values,
+            ts_lens=ts_lens,
+            ts_sr=ts_sr,
         )
 
     def custom_forward(
