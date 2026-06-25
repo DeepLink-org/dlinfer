@@ -582,20 +582,23 @@ def patch_qwen3_5():
 
                 if modality == Modality.TIME_SERIES:
                     ts_values = torch.cat([inp.data for inp in mm_inputs])
-                    ts_lens = torch.cat([inp.meta['ts_lens'] for inp in mm_inputs])
-                    ts_sr = torch.cat([inp.meta['ts_sr'] for inp in mm_inputs])
+                    ts_lens = torch.cat([inp.meta["ts_lens"] for inp in mm_inputs])
+                    ts_sr = torch.cat([inp.meta["ts_sr"] for inp in mm_inputs])
                 else:
                     pixel_values = torch.cat([inp.data for inp in mm_inputs])
-                    grid_thw = torch.stack([data.meta['grid_thw'] for data in mm_inputs]).cpu()
+                    grid_thw = torch.stack(
+                        [data.meta["grid_thw"] for data in mm_inputs]
+                    ).cpu()
                     vis_pos_emb = self.model.visual.rot_pos_emb(grid_thw)
                     pos_embeds = self.model.visual.fast_pos_embed_interpolate(grid_thw)
-                    vis_cu_seqlens = torch.repeat_interleave(grid_thw[:, 1] * grid_thw[:, 2],
-                                                             grid_thw[:, 0]).to(pixel_values.device)
+                    vis_cu_seqlens = torch.repeat_interleave(
+                        grid_thw[:, 1] * grid_thw[:, 2], grid_thw[:, 0]
+                    ).to(pixel_values.device)
                     vis_cu_seqlens = vis_cu_seqlens.cumsum(dim=0, dtype=torch.int32)
                     vis_pos_emb = vis_pos_emb.repeat(1, 2)
                     vis_pos_emb = (vis_pos_emb.cos(), vis_pos_emb.sin())
 
-        mrope_position_ids = getattr(context, 'mrope_position_ids', None)
+        mrope_position_ids = getattr(context, "mrope_position_ids", None)
 
         # process vision embeddings
         vision_embeddings = context.input_embeddings
@@ -607,6 +610,11 @@ def patch_qwen3_5():
 
         # return input embeds for spec decoding
         return_input_embeds = self.is_spec_decoding and (pixel_values is not None or context.is_chunk_multimodal)
+
+        # return input embeds for spec decoding
+        return_input_embeds = self.is_spec_decoding and (
+            pixel_values is not None or context.is_chunk_multimodal
+        )
 
         # inputs of forward
         return dict(
