@@ -74,16 +74,28 @@ def patch_async_sampling_logits():
         FusedLogitsProcessor,
     )
 
-    async def async_sampling_logits(self, logits: torch.Tensor, inputs: ModelInputs,
-                                    extra_inputs: ExtraInputs, sampling_inputs: SamplingInputs):
+    async def async_sampling_logits(
+        self,
+        logits: torch.Tensor,
+        inputs: ModelInputs,
+        extra_inputs: ExtraInputs,
+        sampling_inputs: SamplingInputs,
+    ):
         """Sampling logits."""
         if self.spec_agent.is_enabled():
             extra_inputs.target_logits = extra_inputs.target_logits.to(torch.float32)
-            extra_inputs = await self.spec_agent.async_sampling_logits(inputs, extra_inputs, sampling_inputs)
-            return extra_inputs.next_token_ids, extra_inputs.logprobs, extra_inputs.output_token_ids, extra_inputs
+            extra_inputs = await self.spec_agent.async_sampling_logits(
+                inputs, extra_inputs, sampling_inputs
+            )
+            return (
+                extra_inputs.next_token_ids,
+                extra_inputs.logprobs,
+                extra_inputs.output_token_ids,
+                extra_inputs,
+            )
         # record function does not support async function
         # so we can not decorate it on async_sampling_logits
-        with record_function('sampling_logits'):
+        with record_function("sampling_logits"):
             logits = logits.to(torch.float32)
             logits_processor = FusedLogitsProcessor(
                 sampling_inputs,
@@ -101,10 +113,10 @@ def patch_async_sampling_logits():
                     indices=logprobs[1],
                 )
         # post sampling
-        next_token_ids, extra_inputs = self.agent_strategy.post_sampling(inputs, logits, next_token_ids,
-                                                                             extra_inputs)
+        next_token_ids, extra_inputs = self.agent_strategy.post_sampling(
+            inputs, logits, next_token_ids, extra_inputs
+        )
         return next_token_ids, logprobs, next_token_ids, extra_inputs
-
 
     BaseModelAgent.async_sampling_logits = async_sampling_logits
 
@@ -555,9 +567,9 @@ def patch_qwen3_5():
         past_key_values = list(past_key_values)
         new_past_key_values = []
         for layer_type in self.config.text_config.layer_types:
-            if layer_type == 'linear_attention':
+            if layer_type == "linear_attention":
                 new_past_key_values.append(state_caches.pop(0))
-            elif layer_type == 'full_attention':
+            elif layer_type == "full_attention":
                 new_past_key_values.append(past_key_values.pop(0))
 
         # vlm inputs
@@ -572,7 +584,9 @@ def patch_qwen3_5():
         ts_lens = None
         ts_sr = None
         if context.input_multimodals is not None:
-            mm_inputs = [input_mm.get('mm_data', []) for input_mm in context.input_multimodals]
+            mm_inputs = [
+                input_mm.get("mm_data", []) for input_mm in context.input_multimodals
+            ]
             # flatten batch
             mm_inputs = [item for sublist in mm_inputs for item in sublist]
 
@@ -606,10 +620,14 @@ def patch_qwen3_5():
         if vision_embeddings is not None and len(vision_embeddings) > 0:
             if inputs_embeds is None:
                 inputs_embeds = self.get_input_embeddings()(input_ids)
-            inputs_embeds[:, vision_embedding_indexing, :] = vision_embeddings.to(inputs_embeds)
+            inputs_embeds[:, vision_embedding_indexing, :] = vision_embeddings.to(
+                inputs_embeds
+            )
 
         # return input embeds for spec decoding
-        return_input_embeds = self.is_spec_decoding and (pixel_values is not None or context.is_chunk_multimodal)
+        return_input_embeds = self.is_spec_decoding and (
+            pixel_values is not None or context.is_chunk_multimodal
+        )
 
         # return input embeds for spec decoding
         return_input_embeds = self.is_spec_decoding and (
