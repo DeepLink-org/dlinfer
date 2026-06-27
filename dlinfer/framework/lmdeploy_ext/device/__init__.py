@@ -2,6 +2,8 @@
 import importlib
 import torch
 from functools import lru_cache
+from lmdeploy.pytorch.model_inputs import ModelInputs
+from lmdeploy.pytorch.strategies.base.model_agent import ExtraInputs
 from dlinfer.vendor import vendor_name
 
 vendor = ["camb", "ascend"]
@@ -73,9 +75,24 @@ def patch_async_sampling_logits():
     )
 
     async def async_sampling_logits(
-        self, logits: torch.Tensor, sampling_inputs: SamplingInputs
+        self,
+        logits: torch.Tensor,
+        inputs: ModelInputs,
+        extra_inputs: ExtraInputs,
+        sampling_inputs: SamplingInputs,
     ):
         """Sampling logits."""
+        if self.spec_agent.is_enabled():
+            extra_inputs.target_logits = extra_inputs.target_logits.to(torch.float32)
+            extra_inputs = await self.spec_agent.async_sampling_logits(
+                inputs, extra_inputs, sampling_inputs
+            )
+            return (
+                extra_inputs.next_token_ids,
+                extra_inputs.logprobs,
+                extra_inputs.output_token_ids,
+                extra_inputs,
+            )
         # record function does not support async function
         # so we can not decorate it on async_sampling_logits
         with record_function("sampling_logits"):
@@ -88,14 +105,18 @@ def patch_async_sampling_logits():
             origin_logits = logits
             logits, raw_logprobs = await logits_processor(origin_logits)
             next_token_ids = logits_processor.sampling(logits)
+            await logits_processor.accept_guided_tokens(next_token_ids)
             logprobs = logits_processor.compute_logprobs(raw_logprobs, next_token_ids)
             if logprobs is not None:
                 logprobs = BatchedLogProbs(
                     vals=logprobs[0],
                     indices=logprobs[1],
                 )
-
-        return next_token_ids, logprobs
+        # post sampling
+        next_token_ids, extra_inputs = self.agent_strategy.post_sampling(
+            inputs, logits, next_token_ids, extra_inputs
+        )
+        return next_token_ids, logprobs, next_token_ids, extra_inputs
 
     BaseModelAgent.async_sampling_logits = async_sampling_logits
 
@@ -602,6 +623,11 @@ def patch_qwen3_5():
             inputs_embeds[:, vision_embedding_indexing, :] = vision_embeddings.to(
                 inputs_embeds
             )
+
+        # return input embeds for spec decoding
+        return_input_embeds = self.is_spec_decoding and (
+            pixel_values is not None or context.is_chunk_multimodal
+        )
 
         # return input embeds for spec decoding
         return_input_embeds = self.is_spec_decoding and (
