@@ -1,12 +1,17 @@
-Please read and strictly follow all specifications and architectural instructions in the AGENTS.md file in the root of this project.
-
 # dlinfer
 
-dlinfer is a hardware abstraction layer that bridges [lmdeploy](https://github.com/InternLM/lmdeploy)'s PyTorch backend to domestic AI accelerators: **Ascend NPU**, **Cambricon MLU (CAMB)**, and **Moore Threads GPU (MACA)**. It provides vendor ops, kernel wrappers, and framework patches so lmdeploy models run on these backends without modifications to the core model code.
+instructions in the AGENTS.md file in the root of this project.
+
+dlinfer is a hardware abstraction layer that bridges
+[lmdeploy](https://github.com/InternLM/lmdeploy)'s PyTorch backend to domestic
+AI accelerators: **Ascend NPU**, **Cambricon MLU (CAMB)**, and **Moore Threads
+GPU (MACA)**. It provides vendor ops, kernel wrappers, and framework patches so
+lmdeploy models run on these backends without modifications to the core model
+code.
 
 ## Repository layout
 
-```
+```text
 dlinfer/
   ops/llm.py               # custom op registry (registers with torch dispatch)
   vendor/ascend/           # Ascend NPU ops (torch_npu_ops.py, attention.py, …)
@@ -18,7 +23,8 @@ dlinfer/
     quants/                # quantization patches (AWQ, etc.)
 ```
 
-lmdeploy lives in a sibling directory and is patched at import time via `framework/lmdeploy_ext/`.
+lmdeploy lives in a sibling directory and is patched at import time via
+`framework/lmdeploy_ext/`.
 
 ## Commands
 
