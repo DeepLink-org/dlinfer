@@ -112,7 +112,7 @@ def patch_async_sampling_logits():
 
 def patch_rejection_sampler():
     from lmdeploy.pytorch.spec_decode import reject_sampler as _reject_sampler_mod
-    _orig_rejection_sample = _reject_sampler_mod.rejection_sample
+    from dlinfer.vendor.ascend.triton_ops.reject_sample import rejection_sample
 
     def _patched_rejection_sample(
         target_logits,
@@ -121,110 +121,23 @@ def patch_rejection_sampler():
         sampling_inputs,
         draft_probs=None,
     ):
-        if sampling_inputs.max_top_k == 1:
-            return _orig_rejection_sample(
-                target_logits,
-                draft_token_ids,
-                bonus_token_ids,
-                sampling_inputs,
-                draft_probs=draft_probs,
-            )
-
-        assert draft_probs is None or draft_probs.is_contiguous()
-        if not draft_token_ids.is_contiguous():
-            draft_token_ids = draft_token_ids.contiguous()
-
         if not target_logits.is_contiguous():
             target_logits = target_logits.contiguous()
-
-        batch_size, num_spec_tokens = draft_token_ids.shape
-        device = target_logits.device
-
-        output_token_ids = torch.full(
-            (batch_size, num_spec_tokens + 1),
-            _reject_sampler_mod.PLACEHOLDER_TOKEN_ID,
-            dtype=torch.long,
-            device=device,
+        if not draft_token_ids.is_contiguous():
+            draft_token_ids = draft_token_ids.contiguous()
+        if draft_probs is not None and not draft_probs.is_contiguous():
+            draft_probs = draft_probs.contiguous()
+        
+        # origin target_logits is torch.bfloat16
+        target_logits = target_logits.to(torch.float32)
+        return rejection_sample(
+            target_logits,
+            draft_token_ids,
+            bonus_token_ids,
+            sampling_inputs,
+            draft_probs=draft_probs,
         )
 
-        target_probs = target_logits.softmax(dim=-1, dtype=torch.float32)
-        if sampling_inputs.top_k is not None:
-            is_greedy = (sampling_inputs.top_k == 1)
-            if not torch.is_tensor(is_greedy):
-                is_greedy = torch.full(
-                    (batch_size,), bool(is_greedy), dtype=torch.bool, device=device
-                )
-            else:
-                is_greedy = is_greedy.to(device=device, dtype=torch.bool)
-        else:
-            is_greedy = torch.zeros(batch_size, dtype=torch.bool, device=device)
-
-        target_argmax = target_probs.argmax(dim=-1)
-        uniform_probs = torch.rand(
-            (batch_size, num_spec_tokens), dtype=torch.float64, device=device
-        )
-        inv_q = torch.empty(
-            (batch_size, target_probs.shape[-1]), dtype=torch.float32, device=device
-        )
-        inv_q.exponential_()
-        inv_q = inv_q.reciprocal()
-
-        recovered_token_ids = torch.empty(
-            (batch_size, num_spec_tokens), dtype=torch.long, device=device
-        )
-        zero = target_probs.new_tensor(0.0)
-        for batch_idx in range(batch_size):
-            if bool(is_greedy[batch_idx].item()):
-                continue
-            batch_inv_q = inv_q[batch_idx]
-            for pos in range(num_spec_tokens):
-                draft_token_id = draft_token_ids[batch_idx, pos]
-                if draft_probs is None:
-                    prob = target_probs[batch_idx, pos].clone()
-                    prob[draft_token_id] = 0.0
-                else:
-                    prob = torch.maximum(
-                        target_probs[batch_idx, pos] - draft_probs[batch_idx, pos],
-                        zero,
-                    )
-                recovered_token_ids[batch_idx, pos] = torch.argmax(prob * batch_inv_q)
-
-        for batch_idx in range(batch_size):
-            rejected = False
-            if bool(is_greedy[batch_idx].item()):
-                for pos in range(num_spec_tokens):
-                    token_id = target_argmax[batch_idx, pos]
-                    output_token_ids[batch_idx, pos] = token_id
-                    if draft_token_ids[batch_idx, pos] != token_id:
-                        rejected = True
-                        break
-            else:
-                for pos in range(num_spec_tokens):
-                    draft_token_id = draft_token_ids[batch_idx, pos]
-                    if draft_probs is None:
-                        draft_prob = 1.0
-                    else:
-                        draft_prob = float(
-                            draft_probs[batch_idx, pos, draft_token_id].item()
-                        )
-                    target_prob = float(
-                        target_probs[batch_idx, pos, draft_token_id].item()
-                    )
-                    uniform_prob = float(uniform_probs[batch_idx, pos].item())
-                    if draft_prob > 0 and target_prob / draft_prob >= uniform_prob:
-                        token_id = draft_token_id
-                    else:
-                        token_id = recovered_token_ids[batch_idx, pos]
-                        rejected = True
-                    output_token_ids[batch_idx, pos] = token_id
-                    if rejected:
-                        break
-
-            if not rejected:
-                output_token_ids[batch_idx, num_spec_tokens] = bonus_token_ids[batch_idx]
-
-        return _reject_sampler_mod._extract_outputs(output_token_ids, num_spec_tokens)
-    
     _reject_sampler_mod.rejection_sample = _patched_rejection_sample
 
 
