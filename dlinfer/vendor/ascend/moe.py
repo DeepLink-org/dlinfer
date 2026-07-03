@@ -53,7 +53,7 @@ def moe_prepare(
     # When tp_size > 1, topk_ids may need TP-splitting. Models using
     # moe_gating_topk_softmax already split there; detect by comparing
     # with the original (pre-pad) token count.
-    need_topk_pad = (topk_ids is not None and topk_ids.shape[0] == num_tokens)
+    need_topk_pad = topk_ids is not None and topk_ids.shape[0] == num_tokens
     need_topk_split = need_topk_pad and tp_size > 1
     # pad hidden_states (and topk tensors if needed)
     if pad_size > 0:
