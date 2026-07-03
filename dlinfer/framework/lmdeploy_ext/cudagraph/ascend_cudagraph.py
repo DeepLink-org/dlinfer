@@ -510,11 +510,7 @@ class AscendGraphRunner(GraphRunner):
         max_batches = graph_key[0]
         is_decoding_or_multi_token_decoding = graph_key[1]
         max_q_seq_len = graph_key[3]
-        if is_decoding_or_multi_token_decoding:
-            max_tokens = max_batches * max_q_seq_len
-        else:
-            max_tokens = max_batches
-            max_batches = self.max_batches
+        max_tokens = max_batches * max_q_seq_len
         if graph_key not in self._runner_map:
             runner = AscendSingleGraphRunner(
                 self.model,
