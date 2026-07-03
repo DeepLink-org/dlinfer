@@ -214,15 +214,15 @@ class AscendMoEForwardDPTP:
             needed_hs = num_tokens * self.dp_size * self.hidden_size
             needed_tw = num_tokens * self.dp_size * self.topk
 
-            cur_hidden_states = hidden_states_gather_buffer[
-                :needed_hs
-            ].view(num_tokens * self.dp_size, self.hidden_size)
-            cur_topk_weights = topk_weights_gather_buffer[
-                :needed_tw
-            ].view(num_tokens * self.dp_size, self.topk)
-            cur_topk_ids = topk_ids_gather_buffer[
-                :needed_tw
-            ].view(num_tokens * self.dp_size, self.topk)
+            cur_hidden_states = hidden_states_gather_buffer[:needed_hs].view(
+                num_tokens * self.dp_size, self.hidden_size
+            )
+            cur_topk_weights = topk_weights_gather_buffer[:needed_tw].view(
+                num_tokens * self.dp_size, self.topk
+            )
+            cur_topk_ids = topk_ids_gather_buffer[:needed_tw].view(
+                num_tokens * self.dp_size, self.topk
+            )
 
             torch.distributed.all_gather_into_tensor(
                 cur_hidden_states,

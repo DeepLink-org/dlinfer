@@ -45,8 +45,8 @@ def fused_recurrent_gated_delta_rule_fwd_kernel(
     cu_seqlens,
     ssm_state_indices,
     num_accepted_tokens,
-    cache_seqlens_rb,   # [N] history lengths for circular-buffer read/write
-    state_ids_rb,       # [N] per-sequence base slot index (= state_id)
+    cache_seqlens_rb,  # [N] history lengths for circular-buffer read/write
+    state_ids_rb,  # [N] per-sequence base slot index (= state_id)
     scale,
     N: tl.int64,  # num of sequences
     T: tl.int64,  # num of tokens

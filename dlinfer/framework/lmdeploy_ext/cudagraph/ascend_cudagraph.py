@@ -93,7 +93,9 @@ def AscendCudaGraphMixin_make_buffers_cudagraph(
         (max_tokens), dtype=torch.bool, device=device
     )
 
-    input_buffers["attention_mask"] = torch.triu(torch.ones(2048, 2048, dtype=torch.bool, device=device), diagonal=1)
+    input_buffers["attention_mask"] = torch.triu(
+        torch.ones(2048, 2048, dtype=torch.bool, device=device), diagonal=1
+    )
 
     # ssm
     if graph_meta.is_ssm:
@@ -103,15 +105,22 @@ def AscendCudaGraphMixin_make_buffers_cudagraph(
         input_buffers["cache_seqlens"] = torch.zeros(
             max_batches, dtype=torch.int32, device=device
         )
-        
+
     if max_batches != max_tokens:
         max_q_seq_len = max_tokens // max_batches
-        input_buffers["q_seqlens"] = torch.arange(1, max_batches+1, dtype=torch.int32) * max_q_seq_len
-        input_buffers["q_start_loc"] = torch.arange(max_batches + 1, dtype=torch.int32, device=device) * max_q_seq_len
-        
+        input_buffers["q_seqlens"] = (
+            torch.arange(1, max_batches + 1, dtype=torch.int32) * max_q_seq_len
+        )
+        input_buffers["q_start_loc"] = (
+            torch.arange(max_batches + 1, dtype=torch.int32, device=device)
+            * max_q_seq_len
+        )
+
     else:
-        input_buffers["q_seqlens"] = torch.arange(1, max_batches + 1, dtype=torch.int32)  
-        input_buffers["q_start_loc"] = torch.arange(max_batches + 1, dtype=torch.int32, device=device)
+        input_buffers["q_seqlens"] = torch.arange(1, max_batches + 1, dtype=torch.int32)
+        input_buffers["q_start_loc"] = torch.arange(
+            max_batches + 1, dtype=torch.int32, device=device
+        )
 
     # mrope
     if graph_meta.use_mrope:
@@ -140,7 +149,7 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
     x_active_mask: Tensor = moe_metadata.x_active_mask
     q_start_loc: Tensor = attn_metadata.q_start_loc
     cache_seqlens: Tensor = attn_metadata.cache_seqlens
-    
+
     is_multi_token_decoding = attn_metadata.is_multi_token_decoding
 
     input_buffers: BuffType = graph_meta.input_buffers
@@ -155,32 +164,32 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
         input_buffers["input_ids"][:, num_tokens:max_num_tokens].random_(
             0, graph_meta.vocab_size
         )
-    
+
     input_buffers["input_ids"][:, :num_tokens] = input_ids
     input_buffers["position_ids"].zero_()
     input_buffers["position_ids"][:, :num_tokens] = position_ids
     input_buffers["block_offsets"].zero_()
     input_buffers["block_offsets"][:batch_size, :num_blocks] = block_offsets
-    
+
     input_buffers["kv_seqlens"].fill_(0)
     input_buffers["kv_seqlens"][:batch_size] = kv_seqlens
     input_buffers["kv_start_indices"].fill_(-1)
-    input_buffers["kv_start_indices"][:kv_start_indices.size(0)] = kv_start_indices
+    input_buffers["kv_start_indices"][: kv_start_indices.size(0)] = kv_start_indices
     if x_active_mask is not None:
         input_buffers["x_active_mask"].fill_(0)
-        input_buffers["x_active_mask"][:x_active_mask.size(0)] = x_active_mask
+        input_buffers["x_active_mask"][: x_active_mask.size(0)] = x_active_mask
 
     if graph_meta.is_ssm:
         state_ids = kwargs["state_ids"]
         input_buffers["state_ids"].fill_(0)
-        input_buffers["state_ids"][: batch_size].copy_(state_ids)
-        
+        input_buffers["state_ids"][:batch_size].copy_(state_ids)
+
         if is_multi_token_decoding:
             input_buffers["cache_seqlens"].fill_(0)
-            input_buffers["cache_seqlens"][: batch_size].copy_(cache_seqlens)
-            
+            input_buffers["cache_seqlens"][:batch_size].copy_(cache_seqlens)
+
             attn_metadata.cache_seqlens = input_buffers["cache_seqlens"]
-        
+
     if is_multi_token_decoding:
         attn_metadata.attention_mask = [input_buffers["attention_mask"]]
 
@@ -192,7 +201,7 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
                 1, max_num_tokens, emb_size
             )
         input_buffers["inputs_embeds"][:, :num_tokens] = inputs_embeds
-    
+
     attn_metadata.block_offsets = input_buffers["block_offsets"]
     attn_metadata.kv_seqlens = input_buffers["kv_seqlens"]
     attn_metadata.kv_start_indices = input_buffers["kv_start_indices"]
@@ -485,7 +494,12 @@ class AscendGraphRunner(GraphRunner):
                 new_batch_size = self._get_capture_tokens(batch_size)
             else:
                 new_batch_size = self._get_capture_tokens(meta.padding_batch_size)
-            return (new_batch_size, is_multi_token_decoding, enable_microbatch, max_q_seq_len)
+            return (
+                new_batch_size,
+                is_multi_token_decoding,
+                enable_microbatch,
+                max_q_seq_len,
+            )
 
         num_tokens = input_ids.numel()
         if meta.padding_batch_size is None:
@@ -572,7 +586,7 @@ class AscendGraphRunner(GraphRunner):
         if is_decoding and dp_meta is not None:
             meta = self.get_meta()
             padding_batch_size = meta.padding_batch_size
-            
+
             batch_size = inputs.seq_length.size(0)
             query_len = inputs.input_ids.numel() // batch_size
             tp_size = self._get_capture_tokens(padding_batch_size) * query_len

@@ -38,6 +38,7 @@ def _reject_sample_use_triton() -> bool:
     """Return True iff the Triton backend is selected via env var."""
     return os.environ.get(_USE_TRITON_ENV, "1") == "1"
 
+
 # ---------------------------------------------------------------------------
 # Try to load Triton and the Ascend CANN get_element extension.
 # The `get_element` op is required to extract scalars from Triton vectors
@@ -52,6 +53,7 @@ try:
 
     try:
         import triton.language.extra.cann.extension as _cann_ext
+
         _get_element = getattr(_cann_ext, "get_element", None)
     except ImportError:
         _get_element = getattr(tl, "get_element", None)
@@ -64,10 +66,12 @@ except ImportError:
 # Grid / block-size helper
 # ---------------------------------------------------------------------------
 
+
 def _cal_grid_block_size(batch_size: int):
     """Return (grid, block_size) tuned to the NPU's vector-core count."""
     try:
         from .triton_utils import init_device_properties_triton, get_vectorcore_num
+
         init_device_properties_triton()
         vectorcore_num = get_vectorcore_num()
     except Exception:
@@ -96,16 +100,18 @@ if _TRITON_AVAILABLE:
         num_accepted,
     ):
         bonus = tl.load(bonus_token_ids_ptr + position)
-        tl.store(output_token_ids_ptr + position * (max_spec_len + 1) + num_accepted, bonus)
+        tl.store(
+            output_token_ids_ptr + position * (max_spec_len + 1) + num_accepted, bonus
+        )
 
     @triton.jit(do_not_specialize=["vec_len", "max_spec_len"])
     def _rejection_greedy_kernel(
-        output_token_ids_ptr,     # [batch_size, max_spec_len + 1]
+        output_token_ids_ptr,  # [batch_size, max_spec_len + 1]
         cu_num_draft_tokens_ptr,  # [batch_size]
-        draft_token_ids_ptr,      # [num_tokens]
-        target_argmax_ptr,        # [num_tokens]
-        bonus_token_ids_ptr,      # [batch_size]
-        is_greedy_ptr,            # [batch_size] bool, or None (means all greedy)
+        draft_token_ids_ptr,  # [num_tokens]
+        target_argmax_ptr,  # [num_tokens]
+        bonus_token_ids_ptr,  # [batch_size]
+        is_greedy_ptr,  # [batch_size] bool, or None (means all greedy)
         vec_len,
         max_spec_len,
         BLOCK_SIZE: tl.constexpr,
@@ -121,7 +127,8 @@ if _TRITON_AVAILABLE:
             is_greedy_mask = mask & (is_greedy != 0)
 
         start_idx = tl.where(
-            offset == 0, 0,
+            offset == 0,
+            0,
             tl.load(cu_num_draft_tokens_ptr + offset - 1, is_greedy_mask),
         )
         end_idx = tl.load(cu_num_draft_tokens_ptr + offset, is_greedy_mask)
@@ -137,26 +144,32 @@ if _TRITON_AVAILABLE:
                 if not rejected:
                     draft_id = tl.load(draft_token_ids_ptr + s + i)
                     target_id = tl.load(target_argmax_ptr + s + i)
-                    tl.store(output_token_ids_ptr + req_idx * (max_spec_len + 1) + i, target_id)
+                    tl.store(
+                        output_token_ids_ptr + req_idx * (max_spec_len + 1) + i,
+                        target_id,
+                    )
                     if draft_id != target_id:
                         rejected = True
             if not rejected and is_g:
                 _bonus_store_kernel(
-                    bonus_token_ids_ptr, req_idx,
-                    output_token_ids_ptr, max_spec_len, n,
+                    bonus_token_ids_ptr,
+                    req_idx,
+                    output_token_ids_ptr,
+                    max_spec_len,
+                    n,
                 )
 
     @triton.jit(do_not_specialize=["max_spec_len"])
     def _rejection_random_kernel(
-        output_token_ids_ptr,     # [batch_size, max_spec_len + 1]
+        output_token_ids_ptr,  # [batch_size, max_spec_len + 1]
         cu_num_draft_tokens_ptr,  # [batch_size]
-        draft_token_ids_ptr,      # [num_tokens]
-        draft_probs_ptr,          # [num_tokens, vocab_size] or None
-        target_probs_ptr,         # [num_tokens, vocab_size]
-        bonus_token_ids_ptr,      # [batch_size]
+        draft_token_ids_ptr,  # [num_tokens]
+        draft_probs_ptr,  # [num_tokens, vocab_size] or None
+        target_probs_ptr,  # [num_tokens, vocab_size]
+        bonus_token_ids_ptr,  # [batch_size]
         recovered_token_ids_ptr,  # [num_tokens]
-        uniform_probs_ptr,        # [num_tokens]
-        is_greedy_ptr,            # [batch_size] bool
+        uniform_probs_ptr,  # [num_tokens]
+        is_greedy_ptr,  # [batch_size] bool
         max_spec_len,
         vocab_size,
         vec_len,
@@ -171,7 +184,8 @@ if _TRITON_AVAILABLE:
         not_greedy_mask = is_greedy == 0
 
         start_idxs = tl.where(
-            offsets == 0, 0,
+            offsets == 0,
+            0,
             tl.load(cu_num_draft_tokens_ptr + offsets - 1, not_greedy_mask),
         )
         end_idxs = tl.load(cu_num_draft_tokens_ptr + offsets, not_greedy_mask)
@@ -190,34 +204,45 @@ if _TRITON_AVAILABLE:
                         if NO_DRAFT_PROBS:
                             draft_prob = 1.0
                         else:
-                            draft_prob = tl.load(draft_probs_ptr + (s + pos) * vocab_size + draft_id)
-                        target_prob = tl.load(target_probs_ptr + (s + pos) * vocab_size + draft_id)
+                            draft_prob = tl.load(
+                                draft_probs_ptr + (s + pos) * vocab_size + draft_id
+                            )
+                        target_prob = tl.load(
+                            target_probs_ptr + (s + pos) * vocab_size + draft_id
+                        )
                         uniform_prob = tl.load(uniform_probs_ptr + s + pos)
                         if draft_prob > 0 and target_prob / draft_prob >= uniform_prob:
                             token_id = draft_id
                         else:
                             rejected = True
                             token_id = tl.load(recovered_token_ids_ptr + s + pos)
-                        tl.store(output_token_ids_ptr + req_idx * (max_spec_len + 1) + pos, token_id)
+                        tl.store(
+                            output_token_ids_ptr + req_idx * (max_spec_len + 1) + pos,
+                            token_id,
+                        )
                 if not rejected:
                     bonus = tl.load(bonus_token_ids_ptr + req_idx)
-                    tl.store(output_token_ids_ptr + req_idx * (max_spec_len + 1) + n, bonus)
+                    tl.store(
+                        output_token_ids_ptr + req_idx * (max_spec_len + 1) + n, bonus
+                    )
 
     @triton.jit
     def _sample_recovered_tokens_kernel(
-        output_token_ids_ptr,     # [num_tokens]
+        output_token_ids_ptr,  # [num_tokens]
         cu_num_draft_tokens_ptr,  # [batch_size]
-        draft_token_ids_ptr,      # [num_tokens]
-        draft_probs_ptr,          # [num_tokens, vocab_size] or None
-        target_probs_ptr,         # [num_tokens, vocab_size]  read-only
-        q_ptr,                    # [batch_size, vocab_size]  exponential samples
+        draft_token_ids_ptr,  # [num_tokens]
+        draft_probs_ptr,  # [num_tokens, vocab_size] or None
+        target_probs_ptr,  # [num_tokens, vocab_size]  read-only
+        q_ptr,  # [batch_size, vocab_size]  exponential samples
         vocab_size,
         PADDED_VOCAB_SIZE: tl.constexpr,
         NO_DRAFT_PROBS: tl.constexpr,
         SUB_BLOCK: tl.constexpr,
     ):
         req_idx = tl.program_id(0)
-        start_idx = 0 if req_idx == 0 else tl.load(cu_num_draft_tokens_ptr + req_idx - 1)
+        start_idx = (
+            0 if req_idx == 0 else tl.load(cu_num_draft_tokens_ptr + req_idx - 1)
+        )
         end_idx = tl.load(cu_num_draft_tokens_ptr + req_idx)
         num_draft_tokens = end_idx - start_idx
 
@@ -239,13 +264,15 @@ if _TRITON_AVAILABLE:
                 vocab_off = vocab_start + tl.arange(0, SUB_BLOCK)
                 prob = tl.load(
                     target_probs_ptr + (start_idx + pos) * vocab_size + vocab_off,
-                    mask=vocab_off < vocab_size, other=0.0,
+                    mask=vocab_off < vocab_size,
+                    other=0.0,
                 )
                 # Zero out the draft-token position without modifying the buffer.
                 prob = tl.where(vocab_off == draft_id, 0.0, prob)
                 q = tl.load(
                     q_ptr + req_idx * vocab_size + vocab_off,
-                    mask=vocab_off < vocab_size, other=float("-inf"),
+                    mask=vocab_off < vocab_size,
+                    other=float("-inf"),
                 )
                 score = prob / q
                 local_id = tl.argmax(score, axis=-1)
@@ -259,16 +286,19 @@ if _TRITON_AVAILABLE:
                 vocab_off = vocab_start + tl.arange(0, SUB_BLOCK)
                 draft_p = tl.load(
                     draft_probs_ptr + (start_idx + pos) * vocab_size + vocab_off,
-                    mask=vocab_off < vocab_size, other=0.0,
+                    mask=vocab_off < vocab_size,
+                    other=0.0,
                 )
                 target_p = tl.load(
                     target_probs_ptr + (start_idx + pos) * vocab_size + vocab_off,
-                    mask=vocab_off < vocab_size, other=0.0,
+                    mask=vocab_off < vocab_size,
+                    other=0.0,
                 )
                 prob = tl.maximum(target_p - draft_p, 0.0)
                 q = tl.load(
                     q_ptr + req_idx * vocab_size + vocab_off,
-                    mask=vocab_off < vocab_size, other=float("-inf"),
+                    mask=vocab_off < vocab_size,
+                    other=float("-inf"),
                 )
                 score = prob / q
                 local_id = tl.argmax(score, axis=-1)
@@ -290,12 +320,13 @@ if _TRITON_AVAILABLE:
 # and never falls back to the NVIDIA-Triton rejection_sample.
 # ---------------------------------------------------------------------------
 
+
 def _rejection_sample_torch(
-    target_logits,      # [batch_size, num_spec_tokens, vocab_size]
-    draft_token_ids,    # [batch_size, num_spec_tokens]
-    bonus_token_ids,    # [batch_size]
-    sampling_inputs,    # lmdeploy SamplingInputs
-    draft_probs=None,   # [batch_size, num_spec_tokens, vocab_size] or None
+    target_logits,  # [batch_size, num_spec_tokens, vocab_size]
+    draft_token_ids,  # [batch_size, num_spec_tokens]
+    bonus_token_ids,  # [batch_size]
+    sampling_inputs,  # lmdeploy SamplingInputs
+    draft_probs=None,  # [batch_size, num_spec_tokens, vocab_size] or None
 ):
     assert draft_probs is None or draft_probs.is_contiguous()
     if not draft_token_ids.is_contiguous():
@@ -315,7 +346,7 @@ def _rejection_sample_torch(
 
     target_probs = target_logits.softmax(dim=-1, dtype=torch.float32)
     if sampling_inputs.top_k is not None:
-        is_greedy = (sampling_inputs.top_k == 1)
+        is_greedy = sampling_inputs.top_k == 1
         if not torch.is_tensor(is_greedy):
             is_greedy = torch.full(
                 (batch_size,), bool(is_greedy), dtype=torch.bool, device=device
@@ -376,9 +407,7 @@ def _rejection_sample_torch(
                     draft_prob = float(
                         draft_probs[batch_idx, pos, draft_token_id].item()
                     )
-                target_prob = float(
-                    target_probs[batch_idx, pos, draft_token_id].item()
-                )
+                target_prob = float(target_probs[batch_idx, pos, draft_token_id].item())
                 uniform_prob = float(uniform_probs[batch_idx, pos].item())
                 if draft_prob > 0 and target_prob / draft_prob >= uniform_prob:
                     token_id = draft_token_id
@@ -399,17 +428,18 @@ def _rejection_sample_torch(
 # Internal driver  (mirrors vllm-ascend rejection_sample logic)
 # ---------------------------------------------------------------------------
 
+
 def _rejection_sample_impl(
-    draft_token_ids,       # [num_tokens]
-    num_draft_tokens,      # list[int], all equal in lmdeploy
-    max_spec_len,          # int
-    cu_num_draft_tokens,   # [batch_size]
-    draft_probs,           # [num_tokens, vocab_size] or None
-    target_probs,          # [num_tokens, vocab_size]  (float32)
-    bonus_token_ids,       # [batch_size, 1]
-    is_greedy,             # [batch_size] bool or None
-    all_greedy,            # bool
-    all_random,            # bool
+    draft_token_ids,  # [num_tokens]
+    num_draft_tokens,  # list[int], all equal in lmdeploy
+    max_spec_len,  # int
+    cu_num_draft_tokens,  # [batch_size]
+    draft_probs,  # [num_tokens, vocab_size] or None
+    target_probs,  # [num_tokens, vocab_size]  (float32)
+    bonus_token_ids,  # [batch_size, 1]
+    is_greedy,  # [batch_size] bool or None
+    all_greedy,  # bool
+    all_random,  # bool
 ):
     batch_size = len(num_draft_tokens)
     num_tokens = draft_token_ids.shape[0]
@@ -436,7 +466,7 @@ def _rejection_sample_impl(
             draft_token_ids,
             target_argmax,
             bonus_token_ids.squeeze(1),
-            is_greedy,          # None means all-greedy
+            is_greedy,  # None means all-greedy
             batch_size,
             max_spec_len,
             BLOCK_SIZE=block_size,
@@ -448,7 +478,9 @@ def _rejection_sample_impl(
     # ------------------------------------------------------------------
     # Random rejection pass — sample recovered tokens, then accept/reject
     # ------------------------------------------------------------------
-    uniform_probs = torch.rand(num_tokens, dtype=torch.float64, device=device).to(torch.float32)
+    uniform_probs = torch.rand(num_tokens, dtype=torch.float64, device=device).to(
+        torch.float32
+    )
 
     # q ~ Exp(1); recovered token = argmax((target - draft) / q)
     q = torch.empty((batch_size, vocab_size), dtype=torch.float32, device=device)
@@ -494,6 +526,7 @@ def _rejection_sample_impl(
 # Public entry point — lmdeploy rejection_sample interface
 # ---------------------------------------------------------------------------
 
+
 def _extract_outputs(output_token_ids, num_spec_tokens):
     """Compute num_rejected_tokens and last_token_ids from output_token_ids.
 
@@ -512,11 +545,11 @@ def _extract_outputs(output_token_ids, num_spec_tokens):
 
 
 def rejection_sample(
-    target_logits,      # [batch_size, num_spec_tokens, vocab_size]
-    draft_token_ids,    # [batch_size, num_spec_tokens]
-    bonus_token_ids,    # [batch_size]
-    sampling_inputs,    # lmdeploy SamplingInputs
-    draft_probs=None,   # [batch_size, num_spec_tokens, vocab_size] or None
+    target_logits,  # [batch_size, num_spec_tokens, vocab_size]
+    draft_token_ids,  # [batch_size, num_spec_tokens]
+    bonus_token_ids,  # [batch_size]
+    sampling_inputs,  # lmdeploy SamplingInputs
+    draft_probs=None,  # [batch_size, num_spec_tokens, vocab_size] or None
 ):
     """Rejection sampler for lmdeploy speculative decoding on Ascend NPU.
 
@@ -548,18 +581,21 @@ def rejection_sample(
     num_tokens = batch_size * num_spec_tokens
     target_logits_flat = target_logits.reshape(num_tokens, vocab_size)
     draft_token_ids_flat = draft_token_ids.reshape(num_tokens).to(torch.int32)
-    draft_probs_flat = draft_probs.reshape(num_tokens, vocab_size) if draft_probs is not None else None
+    draft_probs_flat = (
+        draft_probs.reshape(num_tokens, vocab_size) if draft_probs is not None else None
+    )
 
     # Build cumulative draft-token offsets (uniform: each request has num_spec_tokens).
     cu_num_draft_tokens = (
-        torch.arange(1, batch_size + 1, device=device, dtype=torch.int32) * num_spec_tokens
+        torch.arange(1, batch_size + 1, device=device, dtype=torch.int32)
+        * num_spec_tokens
     )
     num_draft_tokens_list = [num_spec_tokens] * batch_size
 
     # ---- Determine greedy/random policy ------------------------------------
     all_greedy = sampling_inputs.max_top_k == 1
     if all_greedy:
-        is_greedy = None          # signal: all requests are greedy
+        is_greedy = None  # signal: all requests are greedy
         all_random = False
     elif sampling_inputs.top_k is not None:
         is_greedy = (sampling_inputs.top_k == 1).to(torch.bool).to(device)

@@ -117,10 +117,7 @@ def causal_conv1d_fn(
         if has_initial_state[i]:
             if is_ring:
                 slot_idx = read_conv_offsets[i]
-                init_state = (
-                    conv_states[cache_indices[i]]
-                    .index_select(-1, slot_idx)
-                )
+                init_state = conv_states[cache_indices[i]].index_select(-1, slot_idx)
             else:
                 init_state = conv_states[cache_indices[i]][..., : (width - 1)]
         else:
@@ -299,8 +296,10 @@ def _causal_conv1d_update_kernel_npu_tiled(
         lane_active = lane_active & (seqlen_run > 0)
 
         if IS_CIRCULAR_BUFFER:
-            cb_raw = tl.load(cache_seqlens_ptr + b, mask=lane_active, other=0).to(tl.int32)
-            cb_pos = cb_raw % state_len          # write-start: wrapped current position
+            cb_raw = tl.load(cache_seqlens_ptr + b, mask=lane_active, other=0).to(
+                tl.int32
+            )
+            cb_pos = cb_raw % state_len  # write-start: wrapped current position
             cb_read_start = (cb_pos - (KERNEL_WIDTH - 1) + state_len) % state_len
             conv_state_token_offset = tl.full((), 0, tl.int64)
             shift = tl.full((), 0, tl.int32)
@@ -342,25 +341,29 @@ def _causal_conv1d_update_kernel_npu_tiled(
                 ).to(tl.float16)
             if KERNEL_WIDTH >= 3:
                 col1 = tl.load(
-                    conv_states_base + ((cb_read_start + 1) % state_len) * stride_conv_state_tok,
+                    conv_states_base
+                    + ((cb_read_start + 1) % state_len) * stride_conv_state_tok,
                     mask=lane_active & mask_w,
                     other=0.0,
                 ).to(tl.float16)
             if KERNEL_WIDTH >= 4:
                 col2 = tl.load(
-                    conv_states_base + ((cb_read_start + 2) % state_len) * stride_conv_state_tok,
+                    conv_states_base
+                    + ((cb_read_start + 2) % state_len) * stride_conv_state_tok,
                     mask=lane_active & mask_w,
                     other=0.0,
                 ).to(tl.float16)
             if KERNEL_WIDTH >= 5:
                 col3 = tl.load(
-                    conv_states_base + ((cb_read_start + 3) % state_len) * stride_conv_state_tok,
+                    conv_states_base
+                    + ((cb_read_start + 3) % state_len) * stride_conv_state_tok,
                     mask=lane_active & mask_w,
                     other=0.0,
                 ).to(tl.float16)
             if KERNEL_WIDTH >= 6:
                 col4 = tl.load(
-                    conv_states_base + ((cb_read_start + 4) % state_len) * stride_conv_state_tok,
+                    conv_states_base
+                    + ((cb_read_start + 4) % state_len) * stride_conv_state_tok,
                     mask=lane_active & mask_w,
                     other=0.0,
                 ).to(tl.float16)
@@ -441,7 +444,8 @@ def _causal_conv1d_update_kernel_npu_tiled(
                 )
                 x_ptrs = x_base[None, :] + x_tok[:, None] * stride_x_token
                 dst_ptrs = (
-                    conv_states_base[None, :] + write_tok[:, None] * stride_conv_state_tok
+                    conv_states_base[None, :]
+                    + write_tok[:, None] * stride_conv_state_tok
                 )
                 x_vals = tl.load(x_ptrs, mask=m, other=0.0)
                 tl.store(dst_ptrs, x_vals, mask=m)

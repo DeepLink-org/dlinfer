@@ -76,13 +76,25 @@ def patch_async_sampling_logits():
         FusedLogitsProcessor,
     )
 
-    async def async_sampling_logits(self, logits: torch.Tensor, inputs: ModelInputs,
-                                    extra_inputs: ExtraInputs, sampling_inputs: SamplingInputs):
+    async def async_sampling_logits(
+        self,
+        logits: torch.Tensor,
+        inputs: ModelInputs,
+        extra_inputs: ExtraInputs,
+        sampling_inputs: SamplingInputs,
+    ):
         """Sampling logits."""
         if self.spec_agent.is_enabled():
             extra_inputs.target_logits = extra_inputs.target_logits.to(torch.float32)
-            extra_inputs = await self.spec_agent.async_sampling_logits(inputs, extra_inputs, sampling_inputs)
-            return extra_inputs.next_token_ids, extra_inputs.logprobs, extra_inputs.output_token_ids, extra_inputs
+            extra_inputs = await self.spec_agent.async_sampling_logits(
+                inputs, extra_inputs, sampling_inputs
+            )
+            return (
+                extra_inputs.next_token_ids,
+                extra_inputs.logprobs,
+                extra_inputs.output_token_ids,
+                extra_inputs,
+            )
         # record function does not support async function
         # so we can not decorate it on async_sampling_logits
         with record_function("sampling_logits"):
@@ -103,8 +115,9 @@ def patch_async_sampling_logits():
                     indices=logprobs[1],
                 )
         # post sampling
-        next_token_ids, extra_inputs = self.agent_strategy.post_sampling(inputs, logits, next_token_ids,
-                                                                             extra_inputs)
+        next_token_ids, extra_inputs = self.agent_strategy.post_sampling(
+            inputs, logits, next_token_ids, extra_inputs
+        )
         return next_token_ids, logprobs, next_token_ids, extra_inputs
 
     BaseModelAgent.async_sampling_logits = async_sampling_logits
@@ -127,7 +140,7 @@ def patch_rejection_sampler():
             draft_token_ids = draft_token_ids.contiguous()
         if draft_probs is not None and not draft_probs.is_contiguous():
             draft_probs = draft_probs.contiguous()
-        
+
         # origin target_logits is torch.bfloat16
         target_logits = target_logits.to(torch.float32)
         return rejection_sample(
@@ -298,12 +311,12 @@ def patch_gated_delta_net():
             self.cu_seqlens = attn_metadata.q_start_loc
             self.is_multi_token_decoding = attn_metadata.is_multi_token_decoding
             self.max_q_seq_len = attn_metadata.max_q_seq_len
-            
-            self.num_spec_tokens = get_step_ctx_manager().build_ctx.num_spec_tokens         
-            self.cache_seqlens = getattr(attn_metadata, 'cache_seqlens', None)
-            self.spec_state_offsets = getattr(attn_metadata, 'spec_state_offsets', None)
-            self.spec_conv_offsets = getattr(attn_metadata, 'spec_conv_offsets', None)
-            
+
+            self.num_spec_tokens = get_step_ctx_manager().build_ctx.num_spec_tokens
+            self.cache_seqlens = getattr(attn_metadata, "cache_seqlens", None)
+            self.spec_state_offsets = getattr(attn_metadata, "spec_state_offsets", None)
+            self.spec_conv_offsets = getattr(attn_metadata, "spec_conv_offsets", None)
+
             self.state_ids = state_ids.clamp(0)
             self.has_initial_state = attn_metadata.has_initial_state
             self.conv_state_indices = self.state_ids.to(torch.int32)
@@ -358,7 +371,7 @@ def patch_gated_delta_net():
                 read_conv_offsets, write_conv_offsets = spec_conv_offsets
             else:
                 read_conv_offsets, write_conv_offsets = None, None
-            
+
             out = self.causal_conv1d_fn(
                 x.t(),
                 weight,
@@ -388,20 +401,20 @@ def patch_gated_delta_net():
         ):
             update_kwargs = {}
             validate_data = True
-            
+
             cache_seqlens = gated_delta_meta.cache_seqlens
             is_multi_token_decoding = gated_delta_meta.is_multi_token_decoding
-            
+
             if is_multi_token_decoding:
                 # Ring-buffer decode path: positions are derived from cache_seqlens.
-                update_kwargs['cache_seqlens'] = gated_delta_meta.cache_seqlens
+                update_kwargs["cache_seqlens"] = gated_delta_meta.cache_seqlens
                 # Multi-token decode uses varlen format (2-D x tensor); must keep
                 # IS_VARLEN=True by passing query_start_loc, otherwise x gets incorrectly
                 # unsqueezed and cache_seqlens is accessed out-of-bounds.
-                update_kwargs['query_start_loc'] = gated_delta_meta.cu_seqlens
-                update_kwargs['max_query_len'] = gated_delta_meta.max_q_seq_len
+                update_kwargs["query_start_loc"] = gated_delta_meta.cu_seqlens
+                update_kwargs["max_query_len"] = gated_delta_meta.max_q_seq_len
                 validate_data = False
-                
+
             out = self.causal_conv1d_update(
                 x,
                 conv_state,
@@ -429,7 +442,12 @@ def patch_gated_delta_net():
             if gated_delta_meta.is_decoding or gated_delta_meta.is_multi_token_decoding:
                 conv_state_indices = gated_delta_meta.conv_state_indices
                 return self.conv1d_update(
-                    x, weight_reshaped, bias, conv_state, conv_state_indices, gated_delta_meta
+                    x,
+                    weight_reshaped,
+                    bias,
+                    conv_state,
+                    conv_state_indices,
+                    gated_delta_meta,
                 )
             return self.conv1d_func(
                 x, weight_reshaped, bias, conv_state, gated_delta_meta=gated_delta_meta
@@ -474,7 +492,7 @@ def patch_gated_delta_net():
 
             is_decoding = gated_delta_meta.is_decoding
             is_multi_token_decoding = gated_delta_meta.is_multi_token_decoding
-            
+
             if is_decoding:
                 core_attn_out = self.fused_sigmoid_gating_delta_rule_update(
                     A_log=A_log,
@@ -493,13 +511,15 @@ def patch_gated_delta_net():
                 )
                 return core_attn_out, None
             elif is_multi_token_decoding:
-                
+
                 beta = b.sigmoid()
                 # If the model is loaded in fp16, without the .float() here, A might be -inf
                 g = (-A_log.float().exp()) * F.softplus(a.float() + dt_bias)
-                
+
                 state_slots = recurrent_state.size(1)
-                flat_recurrent_state = recurrent_state.view(-1, *recurrent_state.shape[2:])
+                flat_recurrent_state = recurrent_state.view(
+                    -1, *recurrent_state.shape[2:]
+                )
                 core_attn_out, _ = self.fused_recurrent_gated_delta_rule(
                     q=query.contiguous(),
                     k=key.contiguous(),
@@ -516,16 +536,20 @@ def patch_gated_delta_net():
                 )
                 return core_attn_out, None
             else:
-                
+
                 beta = b.sigmoid()
                 # If the model is loaded in fp16, without the .float() here, A might be -inf
                 g = (-A_log.float().exp()) * F.softplus(a.float() + dt_bias)
-                
+
                 if gated_delta_meta.spec_state_offsets is not None:
                     state_ids = gated_delta_meta.state_ids
                     # Circular-buffer read slot: history_len % NUM_STATE
                     read_slots = gated_delta_meta.spec_state_offsets[0]
-                    initial_state = recurrent_state[state_ids, read_slots].transpose(-1, -2).contiguous()
+                    initial_state = (
+                        recurrent_state[state_ids, read_slots]
+                        .transpose(-1, -2)
+                        .contiguous()
+                    )
                 else:
                     initial_state = recurrent_state[gated_delta_meta.state_ids]
                 initial_state[~gated_delta_meta.has_initial_state, ...] = 0
@@ -545,12 +569,12 @@ def patch_gated_delta_net():
                     state_ids = gated_delta_meta.state_ids
                     # Circular-buffer write slot: (history_len + query_len) % NUM_STATE
                     write_slots = gated_delta_meta.spec_state_offsets[1]
-                    recurrent_state[state_ids, write_slots] = last_recurrent_state.transpose(-1, -2).to(
-                        recurrent_state.dtype
+                    recurrent_state[state_ids, write_slots] = (
+                        last_recurrent_state.transpose(-1, -2).to(recurrent_state.dtype)
                     )
                 else:
-                    recurrent_state[gated_delta_meta.state_ids] = last_recurrent_state.to(
-                        recurrent_state.dtype
+                    recurrent_state[gated_delta_meta.state_ids] = (
+                        last_recurrent_state.to(recurrent_state.dtype)
                     )
                 return core_attn_out, last_recurrent_state
 
@@ -584,14 +608,16 @@ def patch_qwen3_5():
     )
 
     @classmethod
-    def custom_build(cls,
-              hf_config,
-              model_path: str = None,
-              tp: int = 1,
-              is_draft_model: bool = False,
-              spec_method: str = None,
-              num_spec_tokens: int = 0,
-              **kwargs):
+    def custom_build(
+        cls,
+        hf_config,
+        model_path: str = None,
+        tp: int = 1,
+        is_draft_model: bool = False,
+        spec_method: str = None,
+        num_spec_tokens: int = 0,
+        **kwargs,
+    ):
         """build."""
         text_config = hf_config.text_config
         # propagate quantization_config from top-level hf_config into text_config
@@ -602,7 +628,7 @@ def patch_qwen3_5():
             text_config.quantization_config = quantization_config
         cfg = DefaultModelConfigBuilder.build(text_config, model_path, tp=tp, **kwargs)
 
-        if getattr(hf_config.text_config, 'attn_output_gate', False):
+        if getattr(hf_config.text_config, "attn_output_gate", False):
             cfg.num_attention_heads *= 2
         # update num layers
         num_layers = cfg.num_layers
@@ -624,11 +650,16 @@ def patch_qwen3_5():
         # Ascend Patch
         conv_state_shape = (conv_kernel_size, conv_dim)
         if num_spec_tokens > 0:
-            recurrent_state_shape = (1 + num_spec_tokens, num_v_heads, head_k_dim, head_v_dim)
+            recurrent_state_shape = (
+                1 + num_spec_tokens,
+                num_v_heads,
+                head_k_dim,
+                head_v_dim,
+            )
         else:
             recurrent_state_shape = (num_v_heads, head_k_dim, head_v_dim)
 
-        device_type = kwargs.get('device_type', 'auto')
+        device_type = kwargs.get("device_type", "auto")
         if is_bf16_supported(device_type):
             dtype = torch.bfloat16
         else:
@@ -740,10 +771,14 @@ def patch_qwen3_5():
         if vision_embeddings is not None and len(vision_embeddings) > 0:
             if inputs_embeds is None:
                 inputs_embeds = self.get_input_embeddings()(input_ids)
-            inputs_embeds[:, vision_embedding_indexing, :] = vision_embeddings.to(inputs_embeds)
+            inputs_embeds[:, vision_embedding_indexing, :] = vision_embeddings.to(
+                inputs_embeds
+            )
 
         # return input embeds for spec decoding
-        return_input_embeds = self.is_spec_decoding and (pixel_values is not None or context.is_chunk_multimodal)
+        return_input_embeds = self.is_spec_decoding and (
+            pixel_values is not None or context.is_chunk_multimodal
+        )
 
         # return input embeds for spec decoding
         return_input_embeds = self.is_spec_decoding and (
@@ -865,35 +900,39 @@ def patch_ray_init():
     import logging
     import lmdeploy.pytorch.ray as _ray_mod
 
-    logger = logging.getLogger('dlinfer.ray')
+    logger = logging.getLogger("dlinfer.ray")
     _orig_init_ray_cluster = _ray_mod.init_ray_cluster
 
     def _infer_local_ray_custom_resources(device_type, world_size):
-        if device_type == 'ascend':
+        if device_type == "ascend":
             n = None
             try:
-                npu_mod = getattr(torch, 'npu', None)
-                if npu_mod is not None and callable(getattr(npu_mod, 'device_count', None)):
+                npu_mod = getattr(torch, "npu", None)
+                if npu_mod is not None and callable(
+                    getattr(npu_mod, "device_count", None)
+                ):
                     n = int(npu_mod.device_count())
                     if n <= 0:
                         n = None
             except Exception:
                 n = None
             if n is None:
-                vis = os.environ.get('ASCEND_RT_VISIBLE_DEVICES', '').strip()
+                vis = os.environ.get("ASCEND_RT_VISIBLE_DEVICES", "").strip()
                 if vis:
-                    n = len([x for x in vis.split(',') if x.strip() != ''])
+                    n = len([x for x in vis.split(",") if x.strip() != ""])
             if n is None or n <= 0:
                 n = int(world_size)
                 logger.warning(
-                    'Could not detect NPU count; registering Ray resource NPU=%d '
-                    'from world_size.', n)
-            return {'NPU': float(n)}
-        if device_type == 'camb':
+                    "Could not detect NPU count; registering Ray resource NPU=%d "
+                    "from world_size.",
+                    n,
+                )
+            return {"NPU": float(n)}
+        if device_type == "camb":
             n = None
             try:
-                mlu = getattr(torch, 'mlu', None)
-                if mlu is not None and callable(getattr(mlu, 'device_count', None)):
+                mlu = getattr(torch, "mlu", None)
+                if mlu is not None and callable(getattr(mlu, "device_count", None)):
                     n = int(mlu.device_count())
                     if n <= 0:
                         n = None
@@ -901,13 +940,16 @@ def patch_ray_init():
                 n = None
             if n is None or n <= 0:
                 n = int(world_size)
-                logger.warning('Could not detect MLU count; registering MLU=%d.', n)
-            return {'MLU': float(n)}
+                logger.warning("Could not detect MLU count; registering MLU=%d.", n)
+            return {"MLU": float(n)}
         return None
 
-    def _patched_init_ray_cluster(world_size, ray_address=None, dp=1, device_type='cuda'):
+    def _patched_init_ray_cluster(
+        world_size, ray_address=None, dp=1, device_type="cuda"
+    ):
         """Same as original but registers custom resources at ray.init() for local clusters."""
         import ray
+
         if not ray.is_initialized():
             num_cpus = world_size
             object_store_memory = _ray_mod._get_obj_store_memory(dp=dp)
@@ -917,16 +959,20 @@ def patch_ray_init():
                 object_store_memory=object_store_memory,
             )
             if ray_address is not None:
-                init_kwargs['address'] = ray_address
+                init_kwargs["address"] = ray_address
             if ray_address is None:
                 custom_res = _infer_local_ray_custom_resources(device_type, world_size)
                 if custom_res:
-                    init_kwargs['resources'] = custom_res
+                    init_kwargs["resources"] = custom_res
             try:
                 ray.init(**init_kwargs)
             except ValueError as e:
-                if e.args is not None and len(e.args) >= 1 and e.args[
-                        0] == 'When connecting to an existing cluster, num_cpus and num_gpus must not be provided.':
+                if (
+                    e.args is not None
+                    and len(e.args) >= 1
+                    and e.args[0]
+                    == "When connecting to an existing cluster, num_cpus and num_gpus must not be provided."
+                ):
                     ray.init(address=ray_address, ignore_reinit_error=True)
                 else:
                     raise
@@ -939,12 +985,17 @@ def patch_ray_init():
             num_devices_in_cluster = ray.cluster_resources().get(device_str, 0)
             if world_size > num_devices_in_cluster:
                 _ray_mod.logger.warning(
-                    'The number of required %ss exceeds the total '
-                    'number of available %ss in the placement group.', device_str, device_str)
+                    "The number of required %ss exceeds the total "
+                    "number of available %ss in the placement group.",
+                    device_str,
+                    device_str,
+                )
             placement_group_specs = [{device_str: 1.0} for _ in range(world_size)]
             current_ip = ray.util.get_node_ip_address()
-            placement_group_specs[0][f'node:{current_ip}'] = 0.001
-            current_placement_group = ray.util.placement_group(placement_group_specs, strategy='PACK')
+            placement_group_specs[0][f"node:{current_ip}"] = 0.001
+            current_placement_group = ray.util.placement_group(
+                placement_group_specs, strategy="PACK"
+            )
             _ray_mod._wait_until_pg_ready(current_placement_group)
             owned_pg = True
 
