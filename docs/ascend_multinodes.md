@@ -1,32 +1,46 @@
-# 华为昇腾 LMDeploy 多节点部署指南（Ray + PyTorchEngine）
+# 华为昇腾 LMDeploy 多节点部署指南
 
-本文介绍如何在 **Atlas 800T A2（2 节点 × 8 卡）** 环境下，通过 **Ray** 组织多机资源，
-并使用 **LMDeploy PyTorchEngine** 以 **tp=16** 的方式启动推理服务或调用 `pipeline`。
+LMDeploy + DLInfer 在昇腾上的多节点部署分两类：**TP 在节点内**(常规)和 **TP 跨节点**(老版本兼容)。本文档分别给出两类的启动流程与脚本。
 
-## 0. 适用范围与前置条件
+## 0. 选择部署模式
 
-- **适用范围**：多机多卡（跨节点）Tensor Parallel（TP）推理。
-- **环境一致性**：建议各节点的驱动/CANN/容器镜像版本一致或兼容。
-- **网络要求**：节点间网络互通、丢包低、时延稳定；TP 对网络质量非常敏感。
-- **重要限制**：当前多机仅支持 **`eager` 模式**（见第 4 节启动参数）。
+每个 DP 实际占用的卡数(也就是每个 DP 内部的 TP size) = 服务总卡数 ÷ `--dp`。
 
-## 1. 创建 Docker 容器（可选）
+> [!NOTE]
+> 关于 lmdeploy 的 `--tp` 与 `--dp` / `--ep` 的关系：
+>
+> `--dp` 默认值是 `1`，`--ep` 默认值是 `1`。
+>
+> - `--ep` 不设(默认为 `1`)时：**总卡数 = `--tp`**
+> - `--ep` 设了(`> 1`)时：**总卡数 = `--tp × --dp`**
+>
+> 每个 DP 内部的 TP size = 总卡数 ÷ `--dp`。
+>
+> 例：`--tp 4 --dp 2` 表示服务用 4 张卡，2 个 DP，每个 DP 的 TP size 是 2。
+>
+> 例：`--tp 16 --dp 2 --ep 32` 表示服务用 32 张卡，2 个 DP，每个 DP 的 TP size 是 16。
 
-为保证各节点运行环境一致，建议使用 Docker。以下命令需在**每个节点**执行；请按需补充模型目录挂载（例如 `-v /path/to/model:/models`）。
+判断走哪种模式：
+
+- **每个 DP 内部的 TP size ≤ 单节点 NPU 数**(即每个 DP 都装得进一个节点)→ 走 [§2 TP 在节点内](#2-tp-在节点内常规)
+- **每个 DP 内部的 TP size > 单节点 NPU 数**(单个 DP 就需要跨节点)→ 走 [§3 TP 跨节点](#3-tp-跨节点)
+
+两种模式都依赖 [§1 通用前置](#1-通用前置两种模式都需要)。
+
+---
+
+## 1. 通用前置(两种模式都需要)
+
+### 1.1 容器镜像与 docker run
+
+每个节点起一个相同镜像的容器，配置一致是必须的。
 
 ```bash
 docker run -it \
   --net=host \
-  --entrypoint /bin/bash \
   --shm-size=500g \
-  --device=/dev/davinci0 \
-  --device=/dev/davinci1 \
-  --device=/dev/davinci2 \
-  --device=/dev/davinci3 \
-  --device=/dev/davinci4 \
-  --device=/dev/davinci5 \
-  --device=/dev/davinci6 \
-  --device=/dev/davinci7 \
+  --device=/dev/davinci0 --device=/dev/davinci1 \
+  ... # 列齐你要用的所有 NPU 设备文件
   --device=/dev/davinci_manager \
   --device=/dev/devmm_svm \
   --device=/dev/hisi_hdc \
@@ -41,172 +55,265 @@ docker run -it \
   -v /var/log/npu/dump/:/var/log/npu/dump/ \
   -v /var/log/npu/:/usr/slog \
   -v /lib/modules:/lib/modules \
-  crpi-4crprmm5baj1v8iv.cn-hangzhou.personal.cr.aliyuncs.com/lmdeploy_dlinfer/ascend:a2-latest
+  <image>
 ```
 
-## 2. 使用 Ray 组建多节点集群
+### 1.2 host 侧 NPU 网络配置
 
-### 2.1 环境变量说明（建议显式配置）
+NPU 网卡的 device IP / netmask / gateway 由 host 维护者通过 `/etc/hccn.conf` 配置，host 启动时下发到设备。本文档假设这一步已经做好。
 
-- **`GLOO_SOCKET_IFNAME`**：PyTorch/Gloo 通信使用的网卡名（例如 `eth0`）。
-- **`TP_SOCKET_IFNAME`**：TP 通信使用的网卡名（通常与 `GLOO_SOCKET_IFNAME` 一致）。
-- **`HCCL_IF_IP`**：HCCL 选择的网卡 **IP**（注意是 IP，不是网卡名）。
-- **`RAY_EXPERIMENTAL_NOSET_ASCEND_RT_VISIBLE_DEVICES=1`**：避免 Ray 自动改写可见设备集合
-  （Ascend 场景下建议保留）。
-
-> [!TIP]
-> 不确定网卡名/IP 时，可在宿主机或容器内用 `ip a` 查看；务必确保多机之间该网段互通。
-
-### 2.2 启动 Head 节点
-
-选择其中一个节点作为 Head 节点，并在该节点的容器中执行（将 `PORT`、`IFNAME`、`NODE_IP` 替换为实际值）：
+容器里可以用 `hccn_tool` 验证(此工具仅作诊断用，推理运行时不依赖)：
 
 ```bash
-# Head node
-export GLOO_SOCKET_IFNAME=IFNAME
-export TP_SOCKET_IFNAME=IFNAME
-export HCCL_IF_IP=NODE_IP
-export RAY_EXPERIMENTAL_NOSET_ASCEND_RT_VISIBLE_DEVICES=1
-
-ray start --head --port=PORT
+# 列出本机每张 NPU 的 device_ip
+for i in {0..7}; do hccn_tool -i $i -ip -g | grep ipaddr; done    # 单机 8 卡
+for i in {0..15}; do hccn_tool -i $i -ip -g | grep ipaddr; done   # 单机 16 卡
 ```
 
-### 2.3 Worker 节点加入集群
+### 1.3 跨节点 device IP 互通检查
 
-在其他节点容器中执行（将 `HEAD_NODE_IP`、`PORT`、`NODE_IP`、`IFNAME` 替换为实际值）：
+部署前**强烈建议**做一次。两机各取一张卡互 ping(走 NPU 网卡，非 host NIC)：
 
 ```bash
-# Worker node
-export GLOO_SOCKET_IFNAME=IFNAME
-export TP_SOCKET_IFNAME=IFNAME
-export HCCL_IF_IP=NODE_IP
-export RAY_EXPERIMENTAL_NOSET_ASCEND_RT_VISIBLE_DEVICES=1
+# 节点 A：查询本机 0 号卡 device_ip
+hccn_tool -i 0 -ip -g
+# 假设返回 ipaddr:192.168.1.8
 
-ray start --address=HEAD_NODE_IP:PORT --node-ip-address=NODE_IP
+# 节点 B：用本机 0 号卡 ping 节点 A 的 0 号卡
+hccn_tool -i 0 -ping -g address 192.168.1.8
 ```
 
-### 2.4 集群状态检查与清理（可选）
+回显 `0.00% packet loss` 才说明 NPU 网络层互通。否则要先排查
+host 侧路由 / 掩码 / VLAN / 防火墙——这一步不通后续 HCCL 一定挂。
 
-在 Head 节点可通过以下命令确认 worker 是否已加入：
+IPv6 用 `-inet6` 参数。
+
+### 1.4 关键环境变量速查表
+
+每个 server 启动脚本里都需要 export 的：
+
+| 变量 | 作用 | 常见取值 |
+| --- | --- | --- |
+| `HCCL_IF_IP` | HCCL 跨机引导用的 host IP(本节点) | 本机 host IP |
+| `GLOO_SOCKET_IFNAME` | PyTorch Gloo 通信走的网卡名 | `eth0` |
+| `TP_SOCKET_IFNAME` | TP rendezvous 走的网卡名 | 通常同上 |
+| `HCCL_SOCKET_IFNAME` | HCCL TCP 引导走的网卡名 | 通常同上 |
+| `HCCL_BUFFSIZE` | HCCL 通信缓冲区大小 (MB) | `1024`，跨机 TP 可调到 `2048` |
+| `HCCL_CONNECT_TIMEOUT` | HCCL 跨机连接超时(秒) | `7200` |
+| `HCCL_OP_EXPANSION_MODE` | HCCL 算子优化策略 | `AIV` |
+| `PYTORCH_NPU_ALLOC_CONF` | 内存分配策略 | `expandable_segments:True` |
+| `LMDEPLOY_DP_MASTER_ADDR` | DP rendezvous 的 master 节点 IP | master 节点 host IP |
+| `LMDEPLOY_DP_MASTER_PORT` | DP rendezvous 端口 | `29555` 等任选 |
+| `ASCEND_RT_VISIBLE_DEVICES` | **可选**，限定本进程可见的 NPU | 如 `0,1,2,3,4,5,6,7` |
+
+---
+
+## 2. TP 在节点内(常规)
+
+### 2.1 适用拓扑示例
+
+| 总卡数 | 配置 | 拓扑 |
+| --- | --- | --- |
+| 32 | `--tp 16 --dp 2 --ep 32` | 2 节点 × 16 NPU，每个 DP 占满一台 |
+| 32 | `--tp 8 --dp 4 --ep 32` | 2 节点 × 16 NPU，每节点跑 2 个 DP |
+| 16 | `--tp 8 --dp 2 --ep 16` | 2 节点 × 8 NPU，每个 DP 占满一台 |
+| 16 | `--tp 4 --dp 4 --ep 16` | 2 节点 × 8 NPU，每节点跑 2 个 DP |
+
+通用约束：**每个 DP 内部的 TP size ≤ 单节点 NPU 数**。
+
+### 2.2 启动步骤
+
+3 步：proxy + 每节点 server。**每节点的脚本要用本节点对应的 IP 和 `--node-rank`**。
+
+#### Step 1：在 master 节点起 proxy
+
+```bash
+lmdeploy serve proxy \
+    --server-name 0.0.0.0 \
+    --server-port 23333 \
+    --routing-strategy 'min_expected_latency' \
+    --serving-strategy Hybrid \
+    --log-level INFO
+```
+
+#### Step 2：在 node 0 起 server
+
+```bash
+export HCCL_CONNECT_TIMEOUT=7200
+export HCCL_OP_EXPANSION_MODE="AIV"
+export HCCL_BUFFSIZE=1024
+export PYTORCH_NPU_ALLOC_CONF="expandable_segments:True"
+export LD_PRELOAD=/usr/lib64/libjemalloc.so.2:$LD_PRELOAD
+export RAY_DEDUP_LOGS=0
+
+# 网络 env(HCCL 自己用)
+export GLOO_SOCKET_IFNAME=eth0
+export TP_SOCKET_IFNAME=eth0
+export HCCL_SOCKET_IFNAME=eth0
+export HCCL_IF_IP=10.0.0.1                # ← node 0 的 host IP
+
+# 可选：限定本节点可见 NPU
+# export ASCEND_RT_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+
+# DP rendezvous：master 节点 host IP，两节点都填同一值；node-rank 是本节点的全局编号
+LMDEPLOY_DP_MASTER_ADDR=10.0.0.1 \
+LMDEPLOY_DP_MASTER_PORT=29555 \
+lmdeploy serve api_server \
+    /path/to/model \
+    --backend pytorch \
+    --device ascend \
+    --tp 16 --dp 2 --ep 32 \
+    --nnodes 2 --node-rank 0 \
+    --dtype bfloat16 \
+    --session-len 65535 \
+    --log-level WARNING \
+    --proxy-url http://10.0.0.1:23333
+```
+
+#### Step 3：在 node 1 起 server
+
+```bash
+export HCCL_CONNECT_TIMEOUT=7200
+export HCCL_OP_EXPANSION_MODE="AIV"
+export HCCL_BUFFSIZE=1024
+export PYTORCH_NPU_ALLOC_CONF="expandable_segments:True"
+export LD_PRELOAD=/usr/lib64/libjemalloc.so.2:$LD_PRELOAD
+export RAY_DEDUP_LOGS=0
+
+export GLOO_SOCKET_IFNAME=eth0
+export TP_SOCKET_IFNAME=eth0
+export HCCL_SOCKET_IFNAME=eth0
+export HCCL_IF_IP=10.0.0.2                # ← node 1 的 host IP
+
+# export ASCEND_RT_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+
+# DP rendezvous 仍指向 master 节点（与 node 0 一致）
+LMDEPLOY_DP_MASTER_ADDR=10.0.0.1 \
+LMDEPLOY_DP_MASTER_PORT=29555 \
+lmdeploy serve api_server \
+    /path/to/model \
+    --backend pytorch \
+    --device ascend \
+    --tp 16 --dp 2 --ep 32 \
+    --nnodes 2 --node-rank 1 \
+    --dtype bfloat16 \
+    --session-len 65535 \
+    --log-level WARNING \
+    --proxy-url http://10.0.0.1:23333
+```
+
+服务起来之后，客户端请求发到 `http://<master 节点 IP>:23333`(proxy 的端口)。
+
+---
+
+## 3. TP 跨节点
+
+这个模式是为了兼容老版本部署方式而保留的，有时也可以用它来快速验证多节点推理的可行性。
+**实际生产推理中大概率用不到**——如果你的 TP size 能塞进一个节点，
+直接走 [§2](#2-tp-在节点内常规) 即可。
+
+### 3.1 与 [§2](#2-tp-在节点内常规) 的关键差异
+
+跨节点 TP 一般用作纯 TP 部署，此时 `--dp` 通常是 `1`；而 TP 在节点内的部署里，`--dp` 取决于实际拓扑，并不固定。
+
+| 项 | TP 在节点内 | TP 跨节点 |
+| --- | --- | --- |
+| 是否需要预先起跨节点 Ray cluster | 否 | 是 |
+| 每节点是否需要起 lmdeploy serve | 是 | 否(只在 master 节点起一次) |
+| `--node-rank` / `--nnodes` | 需要 | 不需要 |
+| 典型 `--dp` 值 | 取决于实际拓扑 | `1`(纯 TP) |
+| proxy | `dp > 1` 时需要 | 不需要 |
+
+### 3.2 启动步骤
+
+4 步：node 0 起 ray head，node 1 加入 ray cluster，确认集群，master 节点起 lmdeploy。
+
+#### Step 1：在 node 0 起 ray head
+
+```bash
+export GLOO_SOCKET_IFNAME=eth0
+export TP_SOCKET_IFNAME=eth0
+export HCCL_SOCKET_IFNAME=eth0
+export HCCL_IF_IP=10.0.0.1                  # ← node 0 的 host IP
+export RAY_EXPERIMENTAL_NOSET_ASCEND_RT_VISIBLE_DEVICES=1
+
+ray start --head --port=22345 --node-ip-address=10.0.0.1
+```
+
+#### Step 2：在 node 1 加入 cluster
+
+```bash
+export GLOO_SOCKET_IFNAME=eth0
+export TP_SOCKET_IFNAME=eth0
+export HCCL_SOCKET_IFNAME=eth0
+export HCCL_IF_IP=10.0.0.2                  # ← node 1 的 host IP
+export RAY_EXPERIMENTAL_NOSET_ASCEND_RT_VISIBLE_DEVICES=1
+
+ray start --address=10.0.0.1:22345 --node-ip-address=10.0.0.2
+```
+
+#### Step 3：确认集群状态
+
+在 master 节点执行：
 
 ```bash
 ray status
 ```
 
-如需清理（Head/Worker 都需要各自执行）：
+期望看到 2 个 node，资源里 NPU 总数 = 两节点 NPU 之和。
+
+#### Step 4：在 master 节点起 lmdeploy
+
+只在 master 节点跑(node 1 不需要跑任何 lmdeploy 命令，只贡献 Ray actor)：
+
+```bash
+export HCCL_CONNECT_TIMEOUT=7200
+export HCCL_OP_EXPANSION_MODE="AIV"
+export HCCL_BUFFSIZE=2048                   # 跨机 TP 建议调大
+export PYTORCH_NPU_ALLOC_CONF="expandable_segments:True"
+export LD_PRELOAD=/usr/lib64/libjemalloc.so.2:$LD_PRELOAD
+export RAY_DEDUP_LOGS=0
+
+export GLOO_SOCKET_IFNAME=eth0
+export TP_SOCKET_IFNAME=eth0
+export HCCL_SOCKET_IFNAME=eth0
+export HCCL_IF_IP=10.0.0.1
+
+lmdeploy serve api_server \
+    /path/to/model \
+    --backend pytorch \
+    --device ascend \
+    --tp 16 --dp 1 \
+    --dtype bfloat16 \
+    --session-len 65535 \
+    --log-level WARNING \
+    --server-name 0.0.0.0 \
+    --server-port 13333
+```
+
+`--tp` 是服务总卡数(此处 = 2 节点 × 8 NPU)，`--dp 1` 表示纯 TP。
+
+服务起来之后，客户端请求发到 `http://<master 节点 IP>:13333`。
+
+### 3.3 收尾
+
+跑完想停掉，两节点都执行：
 
 ```bash
 ray stop
 ```
 
-## 3. 配置 Rank Table（`ASCEND_RANK_TABLE_FILE_PATH`）
+---
 
-LMDeploy Ascend 多机需要配置 **`ASCEND_RANK_TABLE_FILE_PATH`**，指向本机可访问的 rank table 文件路径。
-rank table 的字段含义和配置规范可参考：
-[rank table 配置资源信息](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/850alpha002/hccl/hcclug/hcclug_000067.html)。
+## 4. 多机通信与 HCCL 排障(强烈建议部署前检查)
 
-以下为双机示例（为便于阅读，示例仅列出每机 2 卡，实际请补齐 8 卡并确保 `rank_id` 全局唯一）：
+为获得更好的稳定性与性能，建议配置更好的网络环境(例如 [InfiniBand](https://en.wikipedia.org/wiki/InfiniBand))。
 
-```json
-{
-  "status": "completed",
-  "version": "1.0",
-  "server_count": "2",
-  "server_list": [
-    {
-      "server_id": "10.0.0.1",
-      "device": [
-        {
-          "device_id": "0",
-          "device_ip": "192.168.1.8",
-          "rank_id": "0"
-        },
-        {
-          "device_id": "1",
-          "device_ip": "192.168.1.9",
-          "rank_id": "1"
-        }
-      ]
-    },
-    {
-      "server_id": "10.0.0.2",
-      "device": [
-        {
-          "device_id": "0",
-          "device_ip": "192.168.2.8",
-          "rank_id": "2"
-        },
-        {
-          "device_id": "1",
-          "device_ip": "192.168.2.9",
-          "rank_id": "3"
-        }
-      ]
-    }
-  ]
-}
-```
+若出现 "HCCL 集群通信失败" 等问题，可按以下步骤快速定位(参考 Ascend 案例库：[HCCL 集群通信失败](https://www.hiascend.com/document/caselibrary/detail/topic_0000001953463657))：
 
-> [!IMPORTANT]
-> **`server_id` 必须填写节点的 host IP 地址**（与 Ray 集群启动时使用的 IP 一致），
-> 不要填写 `node_0`、`node_1` 等非 IP 字符串。
+### 4.1 检查 NPU device IP 是否互通
 
-<!-- -->
-
-> [!WARNING]
-> 后续我们将提供自动生成 `rank table` 文件的脚本。
-
-<!-- -->
-
-> [!IMPORTANT]
-> 多机场景下建议将 rank table 文件放在**所有节点相同的路径**，
-> 并在启动服务前确保相关进程环境中已设置 `ASCEND_RANK_TABLE_FILE_PATH`
-> （例如在启动 `ray start`/`lmdeploy` 前统一 `export`）。
-
-## 4. 启动与调用（LMDeploy）
-
-### 4.1 启动 API 服务（在 Head 节点执行）
-
-```bash
-export ASCEND_RANK_TABLE_FILE_PATH=/path/to/rank_table.json
-
-lmdeploy serve api_server \
-  $CONTAINER_MODEL_PATH \
-  --backend pytorch \
-  --device ascend \
-  --eager-mode \
-  --tp 16
-```
-
-### 4.2 使用 `pipeline` 接口
-
-```python
-import os
-from lmdeploy import pipeline, PytorchEngineConfig
-
-os.environ["ASCEND_RANK_TABLE_FILE_PATH"] = "/path/to/rank_table.json"
-
-if __name__ == "__main__":
-  model_path = "/path/to/model"
-  backend_config = PytorchEngineConfig(tp=16, device_type="ascend", eager_mode=True)
-  with pipeline(model_path, backend_config=backend_config) as pipe:
-    outputs = pipe("Hakuna Matata")
-    print(outputs)
-```
-
-> [!IMPORTANT]
-> 当前多机仅支持 **`eager` 模式**，请务必设置 `--eager-mode` / `eager_mode=True`。
-
-## 5. 多机通信与 HCCL 排障（强烈建议部署前检查）
-
-为获得更好的稳定性与性能，建议配置更好的网络环境（例如 [InfiniBand](https://en.wikipedia.org/wiki/InfiniBand)）。
-
-若出现 “HCCL 集群通信失败” 等问题，可按以下步骤快速定位（参考 Ascend 案例库：
-[HCCL集群通信失败](https://www.hiascend.com/document/caselibrary/detail/topic_0000001953463657)）：
-
-### 5.1 检查 NPU device IP 是否互通
-
-以双机（A、B），每机 8 卡为例：
+以双机(A、B)，每机 8 卡为例：
 
 1. 在节点 A 查询各卡 device IP：
 
@@ -214,13 +321,13 @@ if __name__ == "__main__":
    for i in {0..7}; do hccn_tool -i $i -ip -g; done
    ```
 
-1. 在节点 B 使用本机某张卡去 ping 节点 A 的 device IP（示例用 B 节点的 0 卡）：
+2. 在节点 B 使用本机某张卡去 ping 节点 A 的 device IP(示例用 B 节点的 0 卡)：
 
    ```bash
    hccn_tool -i 0 -ping -g address 192.x.x.x
    ```
 
-若回显包含 “0.00% packet loss” 则说明可达；否则需要检查网络配置（路由/掩码/VLAN/防火墙等）。
+若回显包含 "0.00% packet loss" 则说明可达；否则需要检查网络配置(路由 / 掩码 / VLAN / 防火墙等)。
 
 > [!TIP]
 > 若 device IP 为 IPv6，可使用 `-inet6` 参数：
@@ -228,7 +335,7 @@ if __name__ == "__main__":
 > - 查询：`for i in {0..7}; do hccn_tool -i $i -ip -inet6 -g; done`
 > - ping：`hccn_tool -i 0 -ping -inet6 -g ipv6_address x:x:x:x`
 
-### 5.2 检查各节点 TLS 配置是否一致
+### 4.2 检查各节点 TLS 配置是否一致
 
 在两台节点分别执行，确认输出一致：
 
@@ -236,5 +343,4 @@ if __name__ == "__main__":
 for i in {0..7}; do hccn_tool -i $i -tls -g | grep switch; done
 ```
 
-若 TLS 配置不一致，需要统一配置后再重试（更详细的处理建议以案例库说明为准：见
-[HCCL集群通信失败](https://www.hiascend.com/document/caselibrary/detail/topic_0000001953463657)）。
+若 TLS 配置不一致，需要统一配置后再重试(更详细的处理建议以案例库说明为准：见 [HCCL 集群通信失败](https://www.hiascend.com/document/caselibrary/detail/topic_0000001953463657))。
