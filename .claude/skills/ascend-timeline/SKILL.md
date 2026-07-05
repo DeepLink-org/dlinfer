@@ -281,20 +281,14 @@ Chrome Trace JSON format.
 
 | Event | Layer | Meaning |
 |-------|-------|---------|
-| `CAPTURE_WAIT` | device | waiting for previous graph execution to finish |
-| `CAPTURE_RECORD` | device | kernel recorded inside graph replay |
-| `NOTIFY_WAIT` | device | stream sync wait (**`update_step_context` sync point**) |
-| `NOTIFY_RECORD` | device | stream event record |
-| `EVENT_WAIT` | device | stream event wait (AllReduce / comm completion) |
-| `SDMA_SQE` | device | DMA transfers (HostToDevice, kv_seqlens etc.) |
-| `MatMulV2` | device | standard matmul (attention QK/AV) |
-| `GroupedMatmul` | device | MoE expert matmul |
+| `MatMul*` | device | standard matmul (attention QK/AV) |
+| `GroupedMatmul*` | device | MoE expert matmul |
 | `FusedInferAttentionScore` | device | fused attention |
-| `MoeInitRoutingV3` | device | MoE routing (gate + topk) |
+| `MoeInitRouting*` | device | MoE routing (gate + topk) |
 | `AddRmsNorm` | device | fused Add+RMSNorm |
-| `ConcatD` | device | device concat / layout assembly kernel; if it dominates compute streams, report it explicitly |
+| `Concat*` | device | device concat / layout assembly kernel; if it dominates compute streams, report it explicitly |
 | model-specific custom kernels | device | custom attention, convolution, routing, or fused model kernels |
-| `HcclAllreduce` | device | TP AllReduce |
+| `Hccl*` | device | TP AllReduce |
 | `allreduceAicpuKernel`, `broadcastAicpuKernel` | device/AI CPU | communication helper kernels; include in communication analysis |
 | `forward_eager` | CPU | eager forward path, normally prefill |
 | `forward_cudagraph` | CPU | graph replay forward path, required marker for decode timelines |
