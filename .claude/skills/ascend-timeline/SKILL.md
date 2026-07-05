@@ -30,7 +30,9 @@ Every run should produce:
    - device bubbles and likely causes
    - `update_step_context` / `NOTIFY_WAIT` overhead
    - top compute kernels by device time
+   - compute-stream kernel composition and percentages, excluding wait/sync and CPU/dequeue/enqueue events
    - top communication/wait events by device time
+   - communication kernel / communication-wait percentages, including explicit HCCL kernels and stream waits around communication
    - caveats, missing data, or rank/file anomalies
 
 Do not include hard-coded model benchmark numbers in this skill. If performance numbers are needed, derive them from the current run and report them as run-specific results.
@@ -64,6 +66,16 @@ Practical method:
    - decode: after warmup prefill and graph capture, inside a stable decode round
    - MTP: inside a stable decode round after all MTP graph captures are complete
 3. Verify the generated trace contains the expected phase. If the trace starts too early or misses active decode, adjust delay and rerun.
+
+Phase validation is mandatory:
+
+- A **prefill** timeline must contain at least one complete CPU-side `forward_eager` event. It may also contain decode/graph events; that does not invalidate it as long as the complete prefill event is present.
+- A **decode** timeline must contain at least one complete CPU-side `forward_cudagraph` event. It may also contain prefill/eager events; that does not invalidate it as long as the complete decode graph event is present.
+- A timeline whose target marker is missing is invalid for that target phase:
+  - prefill requested but no `forward_eager` → rerun with a corrected `LMDEPLOY_PROFILE_DELAY`
+  - decode requested but no `forward_cudagraph` → rerun with a corrected `LMDEPLOY_PROFILE_DELAY`
+- Mixed windows are acceptable for phase validation, but when reporting target-phase percentages, either explicitly slice to the target phase or state that the full-window percentages include mixed-phase work.
+- Do not infer decode only from `batch_size > 1`, output length, or device kernels. Use the CPU phase markers above to validate the captured window.
 
 Historical values from one machine should not be copied into new runs. Model, batch size, graph capture time, Ray startup, CANN parsing, and local patches can all change the correct value.
 
@@ -247,6 +259,16 @@ Common anomaly patterns:
 
 File size is only a sanity check. Always inspect whether the trace contains the expected time window and device streams before deciding which file to analyze.
 
+For phase correctness, inspect CPU-side model execution markers:
+
+| Target scenario | Required complete CPU marker | Allowed extra marker | Invalid marker pattern |
+|-----------------|------------------------------|----------------------|------------------------|
+| prefill/eager | `forward_eager` | `forward_cudagraph` | no `forward_eager` |
+| decode/graph | `forward_cudagraph` | `forward_eager` | no `forward_cudagraph` |
+| pure phase analysis | target marker present and target interval selected | non-target marker outside selected interval | full-window percentages claimed as pure phase when mixed |
+
+If the marker check fails, keep the raw file but exclude it from the target scenario's analysis and pull a replacement timeline.
+
 ### Viewers
 
 Chrome Trace JSON format.
@@ -259,19 +281,17 @@ Chrome Trace JSON format.
 
 | Event | Layer | Meaning |
 |-------|-------|---------|
-| `CAPTURE_WAIT` | device | waiting for previous graph execution to finish |
-| `CAPTURE_RECORD` | device | kernel recorded inside graph replay |
-| `NOTIFY_WAIT` | device | stream sync wait (**`update_step_context` sync point**) |
-| `NOTIFY_RECORD` | device | stream event record |
-| `EVENT_WAIT` | device | stream event wait (AllReduce / comm completion) |
-| `SDMA_SQE` | device | DMA transfers (HostToDevice, kv_seqlens etc.) |
-| `MatMulV2` | device | standard matmul (attention QK/AV) |
-| `GroupedMatmul` | device | MoE expert matmul |
+| `MatMul*` | device | standard matmul (attention QK/AV) |
+| `GroupedMatmul*` | device | MoE expert matmul |
 | `FusedInferAttentionScore` | device | fused attention |
-| `MoeInitRoutingV3` | device | MoE routing (gate + topk) |
+| `MoeInitRouting*` | device | MoE routing (gate + topk) |
 | `AddRmsNorm` | device | fused Add+RMSNorm |
+| `Concat*` | device | device concat / layout assembly kernel; if it dominates compute streams, report it explicitly |
 | model-specific custom kernels | device | custom attention, convolution, routing, or fused model kernels |
-| `HcclAllreduce` | device | TP AllReduce |
+| `Hccl*` | device | TP AllReduce |
+| `allreduceAicpuKernel`, `broadcastAicpuKernel` | device/AI CPU | communication helper kernels; include in communication analysis |
+| `forward_eager` | CPU | eager forward path, normally prefill |
+| `forward_cudagraph` | CPU | graph replay forward path, required marker for decode timelines |
 | `aten::*`, `cpu_op` | CPU | PyTorch CPU-side ops |
 | `Dequeue@aclnn*` | CPU+device | CANN op dequeue (visible in eager prefill) |
 
@@ -342,24 +362,57 @@ Report at least:
 2. Top device events by **max(duration)**, to catch rare long stalls
 3. Communication/wait subset: `Hccl*`, `EVENT_WAIT`, `MEM_WAIT_VALUE`, `NOTIFY_WAIT`, DMA/SDMA rows
 4. Compute subset: matmul/attention/MoE/normalization/linear-attention kernels
+5. Per-stream compute kernel composition: for the busiest compute streams, list top kernels by sum duration and percent of that stream's compute time
+6. Communication kernel percentage: explicit communication kernels and helper kernels as a percent of device compute time, and communication waits as a percent of all device-side duration
 
 Common expensive compute kernels:
 
 - **`GroupedMatmul`**: MoE compute, scales with active tokens and expert routing
 - **`MatMulV2` / `aclnnMatmul`**: attention and projection matmuls; under MTP, watch draft-head proportion
 - **`FusedInferAttentionScore`**: fused attention, grows with KV cache length
+- **`ConcatD`**: device concat / layout assembly. If it appears near the top, report its stream-level percentage; it can dominate actual compute even when matmul kernels are small.
 - **model-specific custom kernels**: custom attention, convolution, routing, or fused model kernels when they enter the top-duration list
 - **`MoeInitRoutingV3`**, **`AddRmsNorm`**, and other fused elementwise kernels when they enter the top-duration list
 
 Common communication/wait events:
 
 - **`HcclAllreduce` / `HcclAllReduce`**: TP communication; check whether it overlaps with compute or serializes the step
+- **`allreduceAicpuKernel` / `broadcastAicpuKernel`**: communication helper kernels. Count these in explicit communication kernel time, not generic model compute.
 - **`EVENT_WAIT`**: stream waits, often around communication completion
 - **`MEM_WAIT_VALUE`**: MTP/head synchronization or device-side state waits
 - **`NOTIFY_WAIT`**: CPU-device synchronization, especially `update_step_context`
 - **`SDMA_SQE`**: DMA transfers such as HostToDevice metadata movement
 
 When summarizing, separate "top compute" and "top communication/wait" even if one category has lower absolute time. The goal is to avoid missing communication overhead hidden below dominant matmuls.
+
+### 5. Compute Stream Kernel Composition
+
+When the user asks what is really running on device compute streams, do not answer only with total device events or wait events. Produce a compute-only view:
+
+1. Exclude CPU-side events: `cpu_op`, `aten::*`, `Dequeue@*`, and `Enqueue@*`.
+2. Exclude wait/sync/data-movement events from the compute-only denominator: `*_WAIT`, `NOTIFY_*`, `EVENT_*`, `CAPTURE_*`, `SDMA_*`, and `WRITE_VALUE_*`.
+3. Keep device kernel/task rows such as `KERNEL_AICORE`, `KERNEL_AIVEC`, `KERNEL_MIX_AIC`, `KERNEL_MIX_AIV`, `AI_CORE`, `AI_CPU`, and named kernels including `ConcatD`, `GroupedMatmul`, `MatMulV2`, `FusedInferAttentionScore`, `MoeInitRoutingV3`, `RmsNorm`, `AddRmsNorm`, convolution, softmax, routing, and model-specific custom kernels.
+4. Group by physical stream id (`args["Physic Stream Id"]` when available; otherwise `tid`) and report:
+   - total compute time per stream and percent of total compute time
+   - top kernels on each busiest stream by sum(duration), max(duration), and count
+   - kernel-family totals and percentages, e.g. `ConcatD`, `GroupedMatmul`, `MatMul`, `Attention`, `RmsNorm`, `Convolution`, `MoeInitRouting`, and model-specific kernels
+
+This view is different from bubble analysis. A model can be dominated by waits overall but still have a clear compute-stream bottleneck such as `ConcatD`; report both facts separately.
+
+### 6. Communication Kernel Percentage
+
+Communication analysis should include two denominators because explicit communication kernels and stream waits answer different questions:
+
+1. **Explicit communication kernel percentage** over compute/device-kernel time:
+   - Include `Hccl*`, `allreduceAicpuKernel`, `broadcastAicpuKernel`, and other collective helper kernels.
+   - Report sum(duration), max(duration), count, and percent of compute-only device time.
+2. **Communication/wait pressure** over all device-side duration:
+   - Include `EVENT_WAIT`, `MEM_WAIT_VALUE`, and communication-adjacent stream waits.
+   - Keep `NOTIFY_WAIT` separate when it is an `update_step_context` sync rather than collective communication.
+   - Include `SDMA_SQE` / DMA rows separately from collectives.
+   - Report these waits as percent of all device-side duration, not as compute kernels.
+
+Always label which denominator is used. Do not mix `Dequeue@Hccl*` CPU/dequeue time into device communication kernel time unless the user explicitly asks for enqueue/dequeue overhead.
 
 ---
 
@@ -412,5 +465,7 @@ async def profile_task(self):
 □ Check each rank file for CPU events, device streams, expected time window, and anomalies
 □ Open in Perfetto UI (>200MB) or chrome://tracing
 □ Focus on: NOTIFY_WAIT ratio, device idle gaps, top compute kernels, top communication/wait events
+□ For compute questions: exclude wait/sync and CPU/dequeue/enqueue rows; report compute-stream kernel families and percentages
+□ For communication questions: report explicit communication kernel percentage and communication/wait pressure with clearly labeled denominators
 □ Return the raw timeline file paths plus the analysis report
 ```
