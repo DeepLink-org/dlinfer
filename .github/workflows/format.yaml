@@ -22,7 +22,9 @@ jobs:
       uses: tj-actions/changed-files@v40
       id: changed-files
       with:
-        files: '**/*.md'
+        files: |
+          **/*.md
+          !.claude/**/*.md
         separator: ','
     - name: MarkdownLint
       if: steps.changed-files.outputs.any_changed == 'true'
