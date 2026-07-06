@@ -623,6 +623,7 @@ def fused_moe(
     topk: int,
     renormalize: bool,
     moe_metadata: MoeMetadata,
+    chunked_moe_layout=None,
 ) -> Tensor:
     """
     Implement the Fused Mixture of Experts (MoE) model.
@@ -642,7 +643,8 @@ def fused_moe(
         Tensor: The output tensor of the Fused Mixture of Experts (MoE) model.
 
     """
-    return vendor_ops_registry["fused_moe"](
+    fused_moe_impl = vendor_ops_registry["fused_moe"]
+    args = (
         hidden_states,
         gate_up_weights,
         down_weights,
@@ -652,6 +654,9 @@ def fused_moe(
         renormalize,
         moe_metadata,
     )
+    if chunked_moe_layout is None:
+        return fused_moe_impl(*args)
+    return fused_moe_impl(*args, chunked_moe_layout)
 
 
 def linear_impl_abstract_func(

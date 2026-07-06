@@ -635,6 +635,7 @@ def fused_moe(
     topk: int,
     renormalize: bool,
     moe_metadata: MoeMetadata,
+    chunked_moe_layout=None,
 ) -> Tensor:
     topk_ids = topk_ids.to(torch.int32)
     (
@@ -668,6 +669,7 @@ def fused_moe(
             moe_metadata.ep_rank,
             moe_metadata.moe_group_name,
             x_active_mask,
+            chunked_moe_layout,
         )
     elif moe_metadata.moe_comm_type == MoECommType.ALLTOALL:
         moe_output = moe.fused_moe_all2all(
@@ -681,6 +683,7 @@ def fused_moe(
             moe_metadata.ep_rank,
             moe_metadata.ep_group,
             moe_metadata.expert_ids_per_ep_rank,
+            chunked_moe_layout,
         )
     # TODO: fused_moe_allgather
     else:
@@ -692,6 +695,7 @@ def fused_moe(
             topk_ids,
             topk,
             renormalize,
+            chunked_moe_layout,
         )
 
     moe_output = moe.moe_finalize(

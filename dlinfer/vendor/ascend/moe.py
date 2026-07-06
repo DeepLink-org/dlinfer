@@ -1,6 +1,5 @@
 import os
 import torch
-import numpy
 import torch.distributed as dist
 from dlinfer.utils.type_annotation import MoECommType
 
@@ -15,6 +14,63 @@ MAX_GROUP_LIST_SIZE = int(os.environ.get("DLINFER_MAX_GROUP_LIST_SIZE", "1024"))
 #   True  -> catch-all (identical scheme to graph capture)
 #   False -> per-chunk row slicing (weight views, each row computed once)
 _MOE_PREFILL_USE_CATCHALL = os.environ.get("DLINFER_MOE_PREFILL_CATCHALL", "0") == "1"
+
+
+class ChunkedMoeWeightLayout:
+    """Physical chunk layout for graph-mode chunked MoE weights."""
+
+    def __init__(
+        self,
+        num_experts: int,
+        chunk_size: int,
+        packed: bool = False,
+    ):
+        self.num_experts = num_experts
+        self.chunk_size = chunk_size
+        self.packed = packed
+
+
+def build_chunked_moe_storage_layout(num_experts: int):
+    """Return packed storage size/layout for direct weight loading."""
+    if num_experts <= MAX_GROUP_LIST_SIZE:
+        return num_experts, None
+
+    chunk_size = MAX_GROUP_LIST_SIZE - 2
+    num_chunks = (num_experts + chunk_size - 1) // chunk_size
+    storage_num_experts = num_experts + 2 * num_chunks
+    return storage_num_experts, ChunkedMoeWeightLayout(
+        num_experts=num_experts,
+        chunk_size=chunk_size,
+        packed=True,
+    )
+
+
+def chunked_moe_storage_expert_id(expert_id: int, chunked_moe_layout: ChunkedMoeWeightLayout):
+    """Map logical expert id to its packed catch-all storage id."""
+    return expert_id + 2 * (expert_id // chunked_moe_layout.chunk_size) + 1
+
+
+def zero_chunked_moe_weight_padding(
+    gate_up_weights: torch.Tensor,
+    down_weights: torch.Tensor,
+    chunked_moe_layout: ChunkedMoeWeightLayout,
+):
+    """Zero the leading/trailing catch-all experts in packed MoE weights."""
+    start_expert = 0
+    chunk_idx = 0
+    while start_expert < chunked_moe_layout.num_experts:
+        end_expert = min(
+            start_expert + chunked_moe_layout.chunk_size,
+            chunked_moe_layout.num_experts,
+        )
+        offset = start_expert + 2 * chunk_idx
+        end_offset = offset + (end_expert - start_expert) + 1
+        gate_up_weights[offset].zero_()
+        gate_up_weights[end_offset].zero_()
+        down_weights[offset].zero_()
+        down_weights[end_offset].zero_()
+        start_expert = end_expert
+        chunk_idx += 1
 
 
 def _grouped_mlp(
@@ -54,6 +110,7 @@ def _apply_mlp_chunked_eager(
     gate_up_weights: torch.Tensor,
     down_weights: torch.Tensor,
     token_counts: torch.Tensor,
+    chunked_moe_layout: ChunkedMoeWeightLayout = None,
 ):
     """Eager / prefill path for >1024 experts.
 
@@ -62,27 +119,47 @@ def _apply_mlp_chunked_eager(
     cumulative token counts. This slices both weights and rows per chunk, which
     is the cheapest option but needs host-side row offsets (``.tolist()``) and
     is therefore only valid outside NPU graph capture.
+
+    With packed layouts, the same single weight tensor is used and the two
+    catch-all padding rows around each chunk are skipped.
     """
-    num_experts = gate_up_weights.size(0)
+    num_experts = (
+        chunked_moe_layout.num_experts
+        if chunked_moe_layout is not None
+        else gate_up_weights.size(0)
+    )
     row_ends = torch.cumsum(token_counts, dim=0).tolist()
 
     outputs = []
     start_expert = 0
     start_row = 0
+    chunk_idx = 0
     while start_expert < num_experts:
-        end_expert = min(start_expert + MAX_GROUP_LIST_SIZE, num_experts)
+        if chunked_moe_layout is not None and chunked_moe_layout.packed:
+            end_expert = min(
+                start_expert + chunked_moe_layout.chunk_size, num_experts
+            )
+            storage_offset = start_expert + 2 * chunk_idx + 1
+            real_len = end_expert - start_expert
+            gate_up = gate_up_weights[storage_offset : storage_offset + real_len]
+            down = down_weights[storage_offset : storage_offset + real_len]
+        else:
+            end_expert = min(start_expert + MAX_GROUP_LIST_SIZE, num_experts)
+            gate_up = gate_up_weights[start_expert:end_expert]
+            down = down_weights[start_expert:end_expert]
         end_row = row_ends[end_expert - 1]
         outputs.append(
             _grouped_mlp(
                 hidden_states[start_row:end_row],
-                gate_up_weights[start_expert:end_expert],
-                down_weights[start_expert:end_expert],
+                gate_up,
+                down,
                 token_counts[start_expert:end_expert],
                 1,
             )
         )
         start_expert = end_expert
         start_row = end_row
+        chunk_idx += 1
     return torch.cat(outputs, dim=0)
 
 
@@ -91,6 +168,7 @@ def _apply_mlp_chunked_capturable(
     gate_up_weights: torch.Tensor,
     down_weights: torch.Tensor,
     token_counts: torch.Tensor,
+    chunked_moe_layout: ChunkedMoeWeightLayout = None,
 ):
     """NPU-graph-capturable path for >1024 experts.
 
@@ -104,15 +182,27 @@ def _apply_mlp_chunked_capturable(
     expert boundaries and device-side reductions are used, so no host sync
     happens and every tensor keeps a fixed shape across replays.
 
-    Grouped weights/group_list are assembled with ``torch.cat`` per chunk.
+    Packed layouts use static weight slices. Direct calls without a packed
+    layout still assemble grouped weights with ``torch.cat`` per chunk.
     """
     num_experts = gate_up_weights.size(0)
+    if chunked_moe_layout is not None:
+        num_experts = chunked_moe_layout.num_experts
     chunk_size = MAX_GROUP_LIST_SIZE - 2
 
-    zeros_up = gate_up_weights.new_zeros((1,) + tuple(gate_up_weights.shape[1:]))
-    zeros_down = down_weights.new_zeros((1,) + tuple(down_weights.shape[1:]))
+    use_chunked_layout = (
+        chunked_moe_layout is not None
+        and chunked_moe_layout.num_experts == num_experts
+        and chunked_moe_layout.chunk_size == chunk_size
+        and chunked_moe_layout.packed
+    )
+    if not use_chunked_layout:
+        zeros_up = gate_up_weights.new_zeros((1,) + tuple(gate_up_weights.shape[1:]))
+        zeros_down = down_weights.new_zeros((1,) + tuple(down_weights.shape[1:]))
+
     output = None
     start_expert = 0
+    chunk_idx = 0
     while start_expert < num_experts:
         end_expert = min(start_expert + chunk_size, num_experts)
         leading = token_counts[:start_expert].sum().reshape(1)
@@ -120,15 +210,22 @@ def _apply_mlp_chunked_capturable(
         group_list = torch.cat(
             [leading, token_counts[start_expert:end_expert], trailing]
         )
-        gate_up = torch.cat(
-            [zeros_up, gate_up_weights[start_expert:end_expert], zeros_up], dim=0
-        )
-        down = torch.cat(
-            [zeros_down, down_weights[start_expert:end_expert], zeros_down], dim=0
-        )
+        if use_chunked_layout and chunked_moe_layout.packed:
+            offset = start_expert + 2 * chunk_idx
+            chunk_len = end_expert - start_expert + 2
+            gate_up = gate_up_weights[offset : offset + chunk_len]
+            down = down_weights[offset : offset + chunk_len]
+        else:
+            gate_up = torch.cat(
+                [zeros_up, gate_up_weights[start_expert:end_expert], zeros_up], dim=0
+            )
+            down = torch.cat(
+                [zeros_down, down_weights[start_expert:end_expert], zeros_down], dim=0
+            )
         chunk_out = _grouped_mlp(hidden_states, gate_up, down, group_list, 1)
         output = chunk_out if output is None else output + chunk_out
         start_expert = end_expert
+        chunk_idx += 1
     return output
 
 
@@ -138,8 +235,13 @@ def apply_mlp(
     down_weights: torch.Tensor,
     group_list: torch.Tensor,
     group_list_type: int = 1,
+    chunked_moe_layout: ChunkedMoeWeightLayout = None,
 ):
-    num_experts = gate_up_weights.size(0)
+    num_experts = (
+        chunked_moe_layout.num_experts
+        if chunked_moe_layout is not None
+        else gate_up_weights.size(0)
+    )
     if num_experts <= MAX_GROUP_LIST_SIZE:
         return _grouped_mlp(
             hidden_states, gate_up_weights, down_weights, group_list, group_list_type
@@ -156,18 +258,21 @@ def apply_mlp(
         token_counts = group_list
 
     # Graph capture cannot tolerate the host sync of the eager row-slicing path,
-    # so capture always uses the catch-all path. Prefill (non-capturing) can use
-    # either, selected by _MOE_PREFILL_USE_CATCHALL.
+    # so capture always uses the catch-all path. Prefill keeps the cheaper eager
+    # row-slicing path and can read real expert slices from packed weights.
     from dlinfer.framework.lmdeploy_ext.cudagraph.ascend_cudagraph import (
         AscendGraphRunner,
     )
 
-    if AscendGraphRunner.capturing or _MOE_PREFILL_USE_CATCHALL:
+    if (
+        AscendGraphRunner.capturing
+        or _MOE_PREFILL_USE_CATCHALL
+    ):
         return _apply_mlp_chunked_capturable(
-            hidden_states, gate_up_weights, down_weights, token_counts
+            hidden_states, gate_up_weights, down_weights, token_counts, chunked_moe_layout
         )
     return _apply_mlp_chunked_eager(
-        hidden_states, gate_up_weights, down_weights, token_counts
+        hidden_states, gate_up_weights, down_weights, token_counts, chunked_moe_layout
     )
 
 
@@ -253,8 +358,13 @@ def fused_moe_naive(
     topk_ids: torch.Tensor,
     topk: int,
     renormalize: bool,
+    chunked_moe_layout: ChunkedMoeWeightLayout = None,
 ):
-    num_experts = gate_up_weights.size(0)
+    num_experts = (
+        chunked_moe_layout.num_experts
+        if chunked_moe_layout is not None
+        else gate_up_weights.size(0)
+    )
     active_num = hidden_states.size(0) * topk
     # do renormalize
     if renormalize:
@@ -285,6 +395,7 @@ def fused_moe_naive(
         down_weights,
         expert_tokens,
         group_list_type,
+        chunked_moe_layout,
     )
 
     # distribute combine
@@ -307,6 +418,7 @@ def fused_moe_mc2(
     ep_rank: int,
     moe_group_name: str,
     x_active_mask: torch.Tensor,
+    chunked_moe_layout: ChunkedMoeWeightLayout = None,
 ):
     # do renormalize
     if renormalize:
@@ -315,7 +427,11 @@ def fused_moe_mc2(
         topk_weights = topk_weights.contiguous()
 
     # distribute dispatch
-    num_local_experts = gate_up_weights.size(0)
+    num_local_experts = (
+        chunked_moe_layout.num_experts
+        if chunked_moe_layout is not None
+        else gate_up_weights.size(0)
+    )
     quant_mode = 0
     moe_expert_num = num_local_experts * ep_size
     kwargs_mc2 = {
@@ -368,6 +484,7 @@ def fused_moe_mc2(
         down_weights,
         expert_tokens,
         group_list_type,
+        chunked_moe_layout,
     )
 
     # distribute combine
@@ -417,8 +534,13 @@ def fused_moe_all2all(
     ep_rank: int,
     ep_group: dist.ProcessGroup,
     expert_ids_per_ep_rank: torch.Tensor,
+    chunked_moe_layout: ChunkedMoeWeightLayout = None,
 ):
-    num_local_experts = gate_up_weights.size(0)
+    num_local_experts = (
+        chunked_moe_layout.num_experts
+        if chunked_moe_layout is not None
+        else gate_up_weights.size(0)
+    )
     num_experts = num_local_experts * ep_size
 
     def dispatch(hidden_states, topk_ids):
@@ -576,6 +698,7 @@ def fused_moe_all2all(
             down_weights,
             dispatched_outputs["group_list"].to(torch.int64),
             dispatched_outputs["group_list_type"],
+            chunked_moe_layout,
         )
 
         # distribute combine
