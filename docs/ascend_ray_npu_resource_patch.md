@@ -1,28 +1,33 @@
 # Ascend Ray NPU Resource Patch
 
-本文记录一个可选的 Ray 初始化 patch。当前该 patch 默认不启用；如果在 Ascend A2
-等环境中遇到 Ray 无法为 LMDeploy placement group 分配 `NPU` 资源的问题，可以尝试
-临时启用该 patch 进行验证。
+本文记录一个可选的 Ray 初始化 patch。当前该 patch 默认不启用；如果在
+Ascend A2 等环境中遇到 Ray 无法为 LMDeploy placement group 分配 `NPU`
+资源的问题，可以尝试临时启用该 patch 进行验证。
 
 ## 背景
 
-在 LMDeploy PyTorchEngine 使用 Ray 创建 worker placement group 时，Ascend 设备会被映射为
-Ray 自定义资源 `NPU`：
+在 LMDeploy PyTorchEngine 使用 Ray 创建 worker placement group 时，Ascend
+设备会被映射为 Ray 自定义资源 `NPU`：
 
 ```python
 placement_group_specs = [{"NPU": 1.0} for _ in range(world_size)]
 ```
 
-如果 Ray 本地集群启动时没有注册 `NPU` 资源，`ray.cluster_resources()` 中就不会包含足够的
-`NPU`。此时 placement group 会一直等待，最终可能报错：
+如果 Ray 本地集群启动时没有注册 `NPU` 资源，`ray.cluster_resources()` 中就
+不会包含足够的 `NPU`。此时 placement group 会一直等待，最终可能报错：
 
 ```text
 INFO tpu.py:571: Failed to auto-detect TPU type.
-ValueError: Cannot provide a placement group of placement_group_specs=[{'NPU': 1.0, 'node:10.201.20.35': 0.001}, {'NPU': 1.0}, {'NPU': 1.0}, {'NPU': 1.0}] within 1800 seconds. See `ray status` to make sure the cluster has enough resources.
+ValueError: Cannot provide a placement group of placement_group_specs=[
+{'NPU': 1.0, 'node:10.201.20.35': 0.001},
+{'NPU': 1.0}, {'NPU': 1.0}, {'NPU': 1.0}
+] within 1800 seconds.
+See `ray status` to make sure the cluster has enough resources.
 ```
 
-其中 `Failed to auto-detect TPU type` 本身不是 Ascend NPU 的根因，但它经常和 Ray 资源探测日志一起出现。
-真正需要确认的是 `ray status` 或 `ray.cluster_resources()` 中是否缺少 `NPU` 资源。
+其中 `Failed to auto-detect TPU type` 本身不是 Ascend NPU 的根因，但它经常和
+Ray 资源探测日志一起出现。真正需要确认的是 `ray status` 或
+`ray.cluster_resources()` 中是否缺少 `NPU` 资源。
 
 ## 适用场景
 
@@ -73,8 +78,8 @@ def patch_ray_init():
             if n is None or n <= 0:
                 n = int(world_size)
                 logger.warning(
-                    "Could not detect NPU count; registering Ray resource NPU=%d "
-                    "from world_size.",
+                    "Could not detect NPU count; registering Ray resource "
+                    "NPU=%d from world_size.",
                     n,
                 )
             return {"NPU": float(n)}
@@ -83,7 +88,9 @@ def patch_ray_init():
             n = None
             try:
                 mlu = getattr(torch, "mlu", None)
-                if mlu is not None and callable(getattr(mlu, "device_count", None)):
+                if mlu is not None and callable(
+                    getattr(mlu, "device_count", None)
+                ):
                     n = int(mlu.device_count())
                     if n <= 0:
                         n = None
@@ -91,7 +98,9 @@ def patch_ray_init():
                 n = None
             if n is None or n <= 0:
                 n = int(world_size)
-                logger.warning("Could not detect MLU count; registering MLU=%d.", n)
+                logger.warning(
+                    "Could not detect MLU count; registering MLU=%d.", n
+                )
             return {"MLU": float(n)}
 
         return None
@@ -99,7 +108,7 @@ def patch_ray_init():
     def _patched_init_ray_cluster(
         world_size, ray_address=None, dp=1, device_type="cuda"
     ):
-        """Same as original but registers custom resources at ray.init() for local clusters."""
+        """Register custom resources at ray.init() for local clusters."""
         import ray
 
         if not ray.is_initialized():
@@ -113,7 +122,9 @@ def patch_ray_init():
             if ray_address is not None:
                 init_kwargs["address"] = ray_address
             if ray_address is None:
-                custom_res = _infer_local_ray_custom_resources(device_type, world_size)
+                custom_res = _infer_local_ray_custom_resources(
+                    device_type, world_size
+                )
                 if custom_res:
                     init_kwargs["resources"] = custom_res
             try:
@@ -123,7 +134,10 @@ def patch_ray_init():
                     e.args is not None
                     and len(e.args) >= 1
                     and e.args[0]
-                    == "When connecting to an existing cluster, num_cpus and num_gpus must not be provided."
+                    == (
+                        "When connecting to an existing cluster, num_cpus "
+                        "and num_gpus must not be provided."
+                    )
                 ):
                     ray.init(address=ray_address, ignore_reinit_error=True)
                 else:
@@ -208,7 +222,11 @@ ray status
 ## 注意事项
 
 - 该 patch 主要针对 `ray_address is None` 的本地 Ray 初始化路径。
-- 如果使用 `ray start` 预先启动集群，建议优先检查 `ray start` 时是否正确注册了自定义资源。
-- 该 patch 不改变 NPU 可见设备绑定逻辑，只负责把 Ray 调度所需的 `NPU` 资源数量注册进去。
-- 如果 `torch.npu.device_count()` 和 `ASCEND_RT_VISIBLE_DEVICES` 都无法获取设备数量，patch 会退回使用 `world_size`。
-- 在 Ascend A3 上目前没有复现该问题，因此不建议默认打开；建议只在出现上述 placement group 调度失败时尝试。
+- 如果使用 `ray start` 预先启动集群，建议优先检查 `ray start` 时是否正确
+  注册了自定义资源。
+- 该 patch 不改变 NPU 可见设备绑定逻辑，只负责把 Ray 调度所需的 `NPU`
+  资源数量注册进去。
+- 如果 `torch.npu.device_count()` 和 `ASCEND_RT_VISIBLE_DEVICES` 都无法获取
+  设备数量，patch 会退回使用 `world_size`。
+- 在 Ascend A3 上目前没有复现该问题，因此不建议默认打开；建议只在出现
+  上述 placement group 调度失败时尝试。
