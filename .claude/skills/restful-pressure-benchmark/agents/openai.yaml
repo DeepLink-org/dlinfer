@@ -1,0 +1,4 @@
+interface:
+  display_name: "RESTful Pressure Benchmark"
+  short_description: "Run RESTful pressure benchmarks"
+  default_prompt: "Run a RESTful pressure benchmark through profile_restful_api.py, using the LMDeploy service launch skill first, then report throughput, batch behavior, cache settings, and logs."
