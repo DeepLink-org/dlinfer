@@ -45,7 +45,9 @@ def build_chunked_moe_storage_layout(num_experts: int):
     )
 
 
-def chunked_moe_storage_expert_id(expert_id: int, chunked_moe_layout: ChunkedMoeWeightLayout):
+def chunked_moe_storage_expert_id(
+    expert_id: int, chunked_moe_layout: ChunkedMoeWeightLayout
+):
     """Map logical expert id to its packed catch-all storage id."""
     return expert_id + 2 * (expert_id // chunked_moe_layout.chunk_size) + 1
 
@@ -136,9 +138,7 @@ def _apply_mlp_chunked_eager(
     chunk_idx = 0
     while start_expert < num_experts:
         if chunked_moe_layout is not None and chunked_moe_layout.packed:
-            end_expert = min(
-                start_expert + chunked_moe_layout.chunk_size, num_experts
-            )
+            end_expert = min(start_expert + chunked_moe_layout.chunk_size, num_experts)
             storage_offset = start_expert + 2 * chunk_idx + 1
             real_len = end_expert - start_expert
             gate_up = gate_up_weights[storage_offset : storage_offset + real_len]
@@ -264,12 +264,13 @@ def apply_mlp(
         AscendGraphRunner,
     )
 
-    if (
-        AscendGraphRunner.capturing
-        or _MOE_PREFILL_USE_CATCHALL
-    ):
+    if AscendGraphRunner.capturing or _MOE_PREFILL_USE_CATCHALL:
         return _apply_mlp_chunked_capturable(
-            hidden_states, gate_up_weights, down_weights, token_counts, chunked_moe_layout
+            hidden_states,
+            gate_up_weights,
+            down_weights,
+            token_counts,
+            chunked_moe_layout,
         )
     return _apply_mlp_chunked_eager(
         hidden_states, gate_up_weights, down_weights, token_counts, chunked_moe_layout
