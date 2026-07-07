@@ -1,0 +1,4 @@
+interface:
+  display_name: "LMDeploy Service Launch"
+  short_description: "Start lmdeploy API services"
+  default_prompt: "Start an lmdeploy api_server for the requested model and device, preserving logs, checking readiness, and cleaning up the service afterward."
