@@ -1,28 +1,15 @@
-import os
 import torch
 import numpy
 import torch.distributed as dist
 from dlinfer.utils.type_annotation import MoECommType
 
 
-# aclnnGroupedMatmulV5 requires the groupList tensor to have at most 1024
-# entries. Models with more experts than this (e.g. meta-MoE with 2560
-# experts) must split the grouped matmul into several sub-calls. The limit can
-# be overridden via the DLINFER_MAX_GROUP_LIST_SIZE environment variable.
-MAX_GROUP_LIST_SIZE = int(os.environ.get("DLINFER_MAX_GROUP_LIST_SIZE", "1024"))
-
-# Prefill (non-capturing) MoE path for >1024 experts:
-#   True  -> catch-all (identical scheme to graph capture)
-#   False -> per-chunk row slicing (weight views, each row computed once)
-_MOE_PREFILL_USE_CATCHALL = os.environ.get("DLINFER_MOE_PREFILL_CATCHALL", "0") == "1"
-
-
-def _grouped_mlp(
+def apply_mlp(
     hidden_states: torch.Tensor,
     gate_up_weights: torch.Tensor,
     down_weights: torch.Tensor,
     group_list: torch.Tensor,
-    group_list_type: int,
+    group_list_type: int = 1,
 ):
     # up sample
     up_proj = torch.ops.npu.npu_grouped_matmul(
@@ -47,128 +34,6 @@ def _grouped_mlp(
         group_list_type=group_list_type,
     )[0]
     return down_proj
-
-
-def _apply_mlp_chunked_eager(
-    hidden_states: torch.Tensor,
-    gate_up_weights: torch.Tensor,
-    down_weights: torch.Tensor,
-    token_counts: torch.Tensor,
-):
-    """Eager / prefill path for >1024 experts.
-
-    The expanded hidden_states rows are ordered by expert, so each chunk of
-    experts owns a contiguous block of rows whose boundaries come from the
-    cumulative token counts. This slices both weights and rows per chunk, which
-    is the cheapest option but needs host-side row offsets (``.tolist()``) and
-    is therefore only valid outside NPU graph capture.
-    """
-    num_experts = gate_up_weights.size(0)
-    row_ends = torch.cumsum(token_counts, dim=0).tolist()
-
-    outputs = []
-    start_expert = 0
-    start_row = 0
-    while start_expert < num_experts:
-        end_expert = min(start_expert + MAX_GROUP_LIST_SIZE, num_experts)
-        end_row = row_ends[end_expert - 1]
-        outputs.append(
-            _grouped_mlp(
-                hidden_states[start_row:end_row],
-                gate_up_weights[start_expert:end_expert],
-                down_weights[start_expert:end_expert],
-                token_counts[start_expert:end_expert],
-                1,
-            )
-        )
-        start_expert = end_expert
-        start_row = end_row
-    return torch.cat(outputs, dim=0)
-
-
-def _apply_mlp_chunked_capturable(
-    hidden_states: torch.Tensor,
-    gate_up_weights: torch.Tensor,
-    down_weights: torch.Tensor,
-    token_counts: torch.Tensor,
-):
-    """NPU-graph-capturable path for >1024 experts.
-
-    Host-side row slicing (``.tolist()``/``.cpu()``/``.item()``) triggers a
-    synchronizing device->host copy, which is illegal during graph capture.
-    Instead each chunk of experts is run over the *full* row set, with the
-    chunk's real experts flanked by two zero-weight "catch-all" groups covering
-    the rows of all other experts. Because ``swiglu(0) == 0`` and ``0 @ w == 0``
-    those out-of-chunk rows produce exactly zero, so a given row is non-zero in
-    exactly one chunk and the chunk outputs can simply be summed. Only static
-    expert boundaries and device-side reductions are used, so no host sync
-    happens and every tensor keeps a fixed shape across replays.
-
-    Grouped weights/group_list are assembled with ``torch.cat`` per chunk.
-    """
-    num_experts = gate_up_weights.size(0)
-    chunk_size = MAX_GROUP_LIST_SIZE - 2
-
-    zeros_up = gate_up_weights.new_zeros((1,) + tuple(gate_up_weights.shape[1:]))
-    zeros_down = down_weights.new_zeros((1,) + tuple(down_weights.shape[1:]))
-    output = None
-    start_expert = 0
-    while start_expert < num_experts:
-        end_expert = min(start_expert + chunk_size, num_experts)
-        leading = token_counts[:start_expert].sum().reshape(1)
-        trailing = token_counts[end_expert:].sum().reshape(1)
-        group_list = torch.cat(
-            [leading, token_counts[start_expert:end_expert], trailing]
-        )
-        gate_up = torch.cat(
-            [zeros_up, gate_up_weights[start_expert:end_expert], zeros_up], dim=0
-        )
-        down = torch.cat(
-            [zeros_down, down_weights[start_expert:end_expert], zeros_down], dim=0
-        )
-        chunk_out = _grouped_mlp(hidden_states, gate_up, down, group_list, 1)
-        output = chunk_out if output is None else output + chunk_out
-        start_expert = end_expert
-    return output
-
-
-def apply_mlp(
-    hidden_states: torch.Tensor,
-    gate_up_weights: torch.Tensor,
-    down_weights: torch.Tensor,
-    group_list: torch.Tensor,
-    group_list_type: int = 1,
-):
-    num_experts = gate_up_weights.size(0)
-    if num_experts <= MAX_GROUP_LIST_SIZE:
-        return _grouped_mlp(
-            hidden_states, gate_up_weights, down_weights, group_list, group_list_type
-        )
-
-    # More experts than aclnnGroupedMatmulV5 supports: split into chunks of at
-    # most MAX_GROUP_LIST_SIZE groups. Work in per-expert token counts
-    # (group_list_type=1) regardless of the incoming layout.
-    if group_list_type == 0:
-        # group_list is a cumulative sum -> recover per-expert counts
-        token_counts = group_list.clone()
-        token_counts[1:] = group_list[1:] - group_list[:-1]
-    else:
-        token_counts = group_list
-
-    # Graph capture cannot tolerate the host sync of the eager row-slicing path,
-    # so capture always uses the catch-all path. Prefill (non-capturing) can use
-    # either, selected by _MOE_PREFILL_USE_CATCHALL.
-    from dlinfer.framework.lmdeploy_ext.cudagraph.ascend_cudagraph import (
-        AscendGraphRunner,
-    )
-
-    if AscendGraphRunner.capturing or _MOE_PREFILL_USE_CATCHALL:
-        return _apply_mlp_chunked_capturable(
-            hidden_states, gate_up_weights, down_weights, token_counts
-        )
-    return _apply_mlp_chunked_eager(
-        hidden_states, gate_up_weights, down_weights, token_counts
-    )
 
 
 def moe_prepare(
