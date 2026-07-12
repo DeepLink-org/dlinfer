@@ -294,9 +294,8 @@ def moe_prepare(
     # When tp_size > 1, topk_ids may need TP-splitting. Models using
     # moe_gating_topk_softmax already split there; detect by comparing
     # with the original (pre-pad) token count.
-    need_topk_split = (
-        topk_ids is not None and tp_size > 1 and topk_ids.shape[0] == num_tokens
-    )
+    need_topk_pad = topk_ids is not None and topk_ids.shape[0] == num_tokens
+    need_topk_split = need_topk_pad and tp_size > 1
     # pad hidden_states (and topk tensors if needed)
     if pad_size > 0:
         if moe_comm_type == MoECommType.MC2:
@@ -304,7 +303,7 @@ def moe_prepare(
                 x_active_mask, (0, pad_size), value=False
             )
         hidden_states = torch.nn.functional.pad(hidden_states, (0, 0, 0, pad_size))
-        if need_topk_split:
+        if need_topk_pad:
             topk_ids = torch.nn.functional.pad(topk_ids, (0, 0, 0, pad_size))
             topk_weights = torch.nn.functional.pad(topk_weights, (0, 0, 0, pad_size))
     # split hidden_states, x_active_mask, and topk tensors if tp_size > 1
