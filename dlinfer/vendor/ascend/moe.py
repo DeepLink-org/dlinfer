@@ -14,6 +14,12 @@ MAX_GROUP_LIST_SIZE = int(os.environ.get("DLINFER_MAX_GROUP_LIST_SIZE", "1024"))
 #   True  -> catch-all (identical scheme to graph capture)
 #   False -> per-chunk row slicing (weight views, each row computed once)
 _MOE_PREFILL_USE_CATCHALL = os.environ.get("DLINFER_MOE_PREFILL_CATCHALL", "0") == "1"
+_MOE_GROUP_LIST_TYPE = int(os.environ.get("DLINFER_MOE_GROUP_LIST_TYPE", "1"))
+if _MOE_GROUP_LIST_TYPE not in (0, 1, 2):
+    raise ValueError(
+        "DLINFER_MOE_GROUP_LIST_TYPE must be one of 0, 1, or 2, "
+        f"got {_MOE_GROUP_LIST_TYPE}"
+    )
 
 
 class ChunkedMoeWeightLayout:
@@ -82,6 +88,8 @@ def _grouped_mlp(
     group_list: torch.Tensor,
     group_list_type: int,
 ):
+    _check_group_list_type_supported(hidden_states, gate_up_weights, group_list_type)
+
     # up sample
     up_proj = torch.ops.npu.npu_grouped_matmul(
         [hidden_states],
@@ -105,6 +113,60 @@ def _grouped_mlp(
         group_list_type=group_list_type,
     )[0]
     return down_proj
+
+
+def _check_group_list_type_supported(
+    hidden_states: torch.Tensor,
+    gate_up_weights: torch.Tensor,
+    group_list_type: int,
+):
+    if group_list_type == 2 and (
+        hidden_states.dtype != torch.int8 or gate_up_weights.dtype != torch.int8
+    ):
+        raise RuntimeError(
+            "npu_grouped_matmul group_list_type=2 is only supported when both "
+            f"x and weight are int8; got x={hidden_states.dtype}, "
+            f"weight={gate_up_weights.dtype}. bf16 MetaMoE cannot use "
+            "DLINFER_MOE_GROUP_LIST_TYPE=2."
+        )
+
+
+def _token_counts_from_group_list(
+    group_list: torch.Tensor,
+    group_list_type: int,
+    num_experts: int,
+):
+    if group_list_type == 0:
+        token_counts = group_list.clone()
+        token_counts[1:] = group_list[1:] - group_list[:-1]
+        return token_counts
+    if group_list_type == 1:
+        return group_list
+    if group_list_type == 2:
+        token_counts = group_list.new_zeros((num_experts,))
+        group_ids = group_list[:, 0].to(torch.long)
+        group_sizes = group_list[:, 1]
+        return token_counts.scatter(0, group_ids, group_sizes)
+    raise ValueError(f"Unsupported group_list_type: {group_list_type}")
+
+
+def _build_group_list_from_token_counts(
+    token_counts: torch.Tensor,
+    group_list_type: int,
+):
+    if group_list_type == 0:
+        return torch.cumsum(token_counts, dim=0)
+    if group_list_type == 1:
+        return token_counts
+    if group_list_type == 2:
+        group_ids = torch.arange(
+            token_counts.numel(), device=token_counts.device, dtype=token_counts.dtype
+        )
+        group_list = torch.stack([group_ids, token_counts], dim=1)
+        zero_last_key = (token_counts == 0).to(token_counts.dtype)
+        sort_idx = torch.argsort(zero_last_key, stable=True)
+        return group_list[sort_idx]
+    raise ValueError(f"Unsupported group_list_type: {group_list_type}")
 
 
 def _apply_mlp_chunked_eager(
@@ -153,8 +215,11 @@ def _apply_mlp_chunked_eager(
                 hidden_states[start_row:end_row],
                 gate_up,
                 down,
-                token_counts[start_expert:end_expert],
-                1,
+                _build_group_list_from_token_counts(
+                    token_counts[start_expert:end_expert],
+                    _MOE_GROUP_LIST_TYPE,
+                ),
+                _MOE_GROUP_LIST_TYPE,
             )
         )
         start_expert = end_expert
@@ -207,8 +272,12 @@ def _apply_mlp_chunked_capturable(
         end_expert = min(start_expert + chunk_size, num_experts)
         leading = token_counts[:start_expert].sum().reshape(1)
         trailing = token_counts[end_expert:].sum().reshape(1)
-        group_list = torch.cat(
+        chunk_token_counts = torch.cat(
             [leading, token_counts[start_expert:end_expert], trailing]
+        )
+        group_list = _build_group_list_from_token_counts(
+            chunk_token_counts,
+            _MOE_GROUP_LIST_TYPE,
         )
         if use_chunked_layout and chunked_moe_layout.packed:
             offset = start_expert + 2 * chunk_idx
@@ -222,7 +291,13 @@ def _apply_mlp_chunked_capturable(
             down = torch.cat(
                 [zeros_down, down_weights[start_expert:end_expert], zeros_down], dim=0
             )
-        chunk_out = _grouped_mlp(hidden_states, gate_up, down, group_list, 1)
+        chunk_out = _grouped_mlp(
+            hidden_states,
+            gate_up,
+            down,
+            group_list,
+            _MOE_GROUP_LIST_TYPE,
+        )
         output = chunk_out if output is None else output + chunk_out
         start_expert = end_expert
         chunk_idx += 1
@@ -247,15 +322,13 @@ def apply_mlp(
             hidden_states, gate_up_weights, down_weights, group_list, group_list_type
         )
 
-    # More experts than aclnnGroupedMatmulV5 supports: split into chunks of at
-    # most MAX_GROUP_LIST_SIZE groups. Work in per-expert token counts
-    # (group_list_type=1) regardless of the incoming layout.
-    if group_list_type == 0:
-        # group_list is a cumulative sum -> recover per-expert counts
-        token_counts = group_list.clone()
-        token_counts[1:] = group_list[1:] - group_list[:-1]
-    else:
-        token_counts = group_list
+    _check_group_list_type_supported(
+        hidden_states, gate_up_weights, _MOE_GROUP_LIST_TYPE
+    )
+
+    # More experts than aclnnGroupedMatmulV5 supports: split into chunks after
+    # normalizing the dispatch output to per-expert token counts.
+    token_counts = _token_counts_from_group_list(group_list, group_list_type, num_experts)
 
     # Graph capture cannot tolerate the host sync of the eager row-slicing path,
     # so capture always uses the catch-all path. Prefill keeps the cheaper eager
