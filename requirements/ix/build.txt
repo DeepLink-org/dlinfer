@@ -1,0 +1,6 @@
+ninja
+setuptools
+wheel
+scikit-build
+cmake>=3.18
+-r torch.txt
