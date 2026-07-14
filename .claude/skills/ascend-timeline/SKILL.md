@@ -1,6 +1,6 @@
 ---
 name: ascend-timeline
-description: Pull and analyze inference timelines on Ascend with lmdeploy+dlinfer. Covers profiling script templates, delay selection, raw timeline file handling, and analysis reporting.
+description: Pull and analyze inference timelines on Ascend with lmdeploy+dlinfer. Covers profiling script templates, delay selection, raw timeline handling, fixed-real-batch decode/KV-context audit, and analysis reporting.
 ---
 
 # Ascend Timeline: Pulling and Analysis
@@ -33,6 +33,7 @@ Every run should produce:
    - compute-stream kernel composition and percentages, excluding wait/sync and CPU/dequeue/enqueue events
    - top communication/wait events by device time
    - communication kernel / communication-wait percentages, including explicit HCCL kernels and stream waits around communication
+   - for a requested fixed-batch decode trace: qualified replay count, observed real batch size, and KV-context min/max/mean range
    - caveats, missing data, or rank/file anomalies
 
 Do not include hard-coded model benchmark numbers in this skill. If performance numbers are needed, derive them from the current run and report them as run-specific results.
@@ -47,6 +48,10 @@ export LMDEPLOY_PROFILE_CUDA=1         # enable NPU profiling (routes to torch_n
 export LMDEPLOY_PROFILE_DELAY=<secs>   # wait N seconds from first request before starting profiling
 export LMDEPLOY_PROFILE_DURATION=1     # profiling duration (1s is sufficient for analysis)
 export LMDEPLOY_PROFILE_OUT_PREFIX=<path_prefix>  # output filename prefix; rank appended automatically
+export LMDEPLOY_AUDIT_DECODE_BATCH_SIZE=1  # emit real scheduler batch marker in each qualified replay
+export LMDEPLOY_AUDIT_KV_CONTEXT=1         # emit KV-context min/max/mean marker in the same replay
+# Optional fail-fast contract for every graph replay reached by the run:
+export LMDEPLOY_ASSERT_DECODE_BATCH_SIZE=<target_bs>
 ```
 
 ### Choosing `LMDEPLOY_PROFILE_DELAY`
@@ -76,6 +81,7 @@ Phase validation is mandatory:
   - decode requested but no `forward_cudagraph` → rerun with a corrected `LMDEPLOY_PROFILE_DELAY`
 - Mixed windows are acceptable for phase validation, but when reporting target-phase percentages, either explicitly slice to the target phase or state that the full-window percentages include mixed-phase work.
 - Do not infer decode only from `batch_size > 1`, output length, or device kernels. Use the CPU phase markers above to validate the captured window.
+- `forward_cudagraph` proves graph-phase activity only. It does **not** prove the scheduler supplied the requested real batch, because graph replay/capture can be padded or can be warmup work. Use the fixed-batch audit below when that distinction matters.
 
 Historical values from one machine should not be copied into new runs. Model, batch size, graph capture time, Ray startup, CANN parsing, and local patches can all change the correct value.
 
@@ -167,6 +173,7 @@ Record these fields in the run log and final analysis:
 | output_len | max generated tokens |
 | total_rounds | number of measured rounds after warmup |
 | max_batch_size | backend max batch size |
+| target_decode_batch_size | requested real scheduler batch for the selected replay window; distinct from `max_batch_size` |
 | delay | measured `LMDEPLOY_PROFILE_DELAY` |
 | duration | `LMDEPLOY_PROFILE_DURATION` |
 
@@ -188,6 +195,10 @@ export LMDEPLOY_PROFILE_CUDA=1
 export LMDEPLOY_PROFILE_DELAY=<measured_secs>
 export LMDEPLOY_PROFILE_DURATION=1
 export LMDEPLOY_PROFILE_OUT_PREFIX=/path/to/timeline/<case>_
+export LMDEPLOY_AUDIT_DECODE_BATCH_SIZE=1
+export LMDEPLOY_AUDIT_KV_CONTEXT=1
+# Export LMDEPLOY_ASSERT_DECODE_BATCH_SIZE=<BS> only when every reached replay
+# must fail fast if it is not exactly <BS>.
 
 mkdir -p /path/to/timeline
 
@@ -202,6 +213,27 @@ python3 profile_bench.py \
 
 echo "=== Done ==="
 ```
+
+---
+
+## Fixed Real-Batch Decode and KV-Context Audit
+
+Use this procedure whenever the conclusion is “the captured decode replay ran at batch size B”. Here **real batch** means the number of scheduler-valid sequences entering the replay before graph padding. `max_batch_size`, captured graph size, submitted request count, and `forward_cudagraph` count are not proof of that value.
+
+1. Instrument the **actual Ascend replay path**, `dlinfer/framework/lmdeploy_ext/cudagraph/ascend_cudagraph.py:AscendSingleGraphRunner.forward`, rather than a CUDA-only runner. Place `record_function` scopes inside the enclosing `forward_cudagraph` scope and around the context update/replay.
+2. Emit these CPU markers only for scheduler-derived decode contexts (not graph-capture warmup):
+   - `decode_actual_batch_size=<B>`, where `B = len(context.q_seqlens)` before padding.
+   - `decode_kv_context_min=<N>,max=<N>,mean=<N>`, using scalar statistics from the scheduler's valid sequences.
+3. Carry `min_kv_seqlen`, `max_kv_seqlen`, and `sum_kv_seqlen` from scheduler input construction through `ModelInputs` / `StepContext`. Do not calculate them by calling `.item()` on an NPU KV-length tensor in the replay path; that adds a synchronization and changes the timeline being measured.
+4. Enable both audit environment variables above, then preserve the untouched rank JSON files and the run log. Use `LMDEPLOY_ASSERT_DECODE_BATCH_SIZE=<B>` only for a fail-fast whole-run contract; it intentionally fails once the scheduler later reaches a non-B replay.
+
+Qualify a replay only when all of the following are true in the same rank trace:
+
+- the `decode_actual_batch_size=<B>` and `decode_kv_context_*` intervals are both nested in one complete `forward_cudagraph` interval (same process/thread and timestamp containment);
+- every selected batch marker equals the requested B; and
+- the marker pair is one-to-one with the selected replay intervals.
+
+Treat a bare `forward_cudagraph`, or a replay with only one audit marker, as graph warmup/unqualified work and exclude it from the fixed-B summary. Scan every qualified marker, not a single screenshot. Report the qualified replay count, exact B, each marker's KV min/max/mean or their observed ranges, rank agreement, and the selected trace interval. State explicitly that this proves the **qualified captured window**, not the entire request lifetime, unless the fail-fast assertion covered the complete run. The first qualified marker need not be the first decode token if profiling began later.
 
 ---
 
@@ -259,15 +291,7 @@ Common anomaly patterns:
 
 File size is only a sanity check. Always inspect whether the trace contains the expected time window and device streams before deciding which file to analyze.
 
-For phase correctness, inspect CPU-side model execution markers:
-
-| Target scenario | Required complete CPU marker | Allowed extra marker | Invalid marker pattern |
-|-----------------|------------------------------|----------------------|------------------------|
-| prefill/eager | `forward_eager` | `forward_cudagraph` | no `forward_eager` |
-| decode/graph | `forward_cudagraph` | `forward_eager` | no `forward_cudagraph` |
-| pure phase analysis | target marker present and target interval selected | non-target marker outside selected interval | full-window percentages claimed as pure phase when mixed |
-
-If the marker check fails, keep the raw file but exclude it from the target scenario's analysis and pull a replacement timeline.
+Apply the phase validation rules above to every rank. If the marker check fails, keep the raw file but exclude it from the target scenario's analysis and pull a replacement timeline.
 
 ### Viewers
 
@@ -292,6 +316,8 @@ Chrome Trace JSON format.
 | `allreduceAicpuKernel`, `broadcastAicpuKernel` | device/AI CPU | communication helper kernels; include in communication analysis |
 | `forward_eager` | CPU | eager forward path, normally prefill |
 | `forward_cudagraph` | CPU | graph replay forward path, required marker for decode timelines |
+| `decode_actual_batch_size=<B>` | CPU audit | scheduler-derived, pre-padding real decode batch; use only when nested in `forward_cudagraph` |
+| `decode_kv_context_min=<N>,max=<N>,mean=<N>` | CPU audit | KV context statistics for the same qualified replay |
 | `aten::*`, `cpu_op` | CPU | PyTorch CPU-side ops |
 | `Dequeue@aclnn*` | CPU+device | CANN op dequeue (visible in eager prefill) |
 
@@ -429,21 +455,6 @@ Always label which denominator is used. Do not mix `Dequeue@Hccl*` CPU/dequeue t
 **Symptom**: the round active when profiling stops can be much slower than nearby rounds.  
 **Cause**: `dump()` calls `npu_profile.stop()` which can block the async event loop while CANN parses profiling data. Any request round in flight at that moment is frozen until parsing completes.  
 **Workaround**: do not treat the profiler-stop-affected round as workload performance. Use the timeline events and unaffected round logs for analysis.
-**Root fix** (optional):
-
-```python
-# lmdeploy/pytorch/engine/model_agent/profiler.py
-async def profile_task(self):
-    await asyncio.sleep(self.delay)
-    self.profiler.start()
-    self._started = True
-    if self.duration <= 0:
-        return
-    await asyncio.sleep(self.duration)
-    loop = asyncio.get_event_loop()
-    await loop.run_in_executor(None, self.dump)  # non-blocking dump
-```
-
 ### HCCL port conflict between scenarios
 
 **Symptom**: second scenario fails with `hcclCommInitRootInfoConfig error code 7: Failed to bind the IP port`.  
@@ -463,6 +474,10 @@ async def profile_task(self):
 □ output_len long enough that profiling window falls inside test round
 □ After run: preserve all raw timeline JSON files and stdout/stderr logs
 □ Check each rank file for CPU events, device streams, expected time window, and anomalies
+□ For a fixed-B decode claim: enable both audit markers and verify their nesting in the same `forward_cudagraph`
+□ Exclude bare/warmup graph events; scan every qualified marker and require every observed real batch to equal the target
+□ Report qualified replay count plus KV-context min/max/mean values or ranges, separately for each rank
+□ State whether the result covers only the captured qualified window or the full run (fail-fast assertion)
 □ Open in Perfetto UI (>200MB) or chrome://tracing
 □ Focus on: NOTIFY_WAIT ratio, device idle gaps, top compute kernels, top communication/wait events
 □ For compute questions: exclude wait/sync and CPU/dequeue/enqueue rows; report compute-stream kernel families and percentages
