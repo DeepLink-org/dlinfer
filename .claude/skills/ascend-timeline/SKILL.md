@@ -220,7 +220,153 @@ echo "=== Done ==="
 
 Use this procedure whenever the conclusion is “the captured decode replay ran at batch size B”. Here **real batch** means the number of scheduler-valid sequences entering the replay before graph padding. `max_batch_size`, captured graph size, submitted request count, and `forward_cudagraph` count are not proof of that value.
 
-1. Instrument the **actual Ascend replay path**, `dlinfer/framework/lmdeploy_ext/cudagraph/ascend_cudagraph.py:AscendSingleGraphRunner.forward`, rather than a CUDA-only runner. Place `record_function` scopes inside the enclosing `forward_cudagraph` scope and around the context update/replay.
+### Required Temporary Source Patch (Do Not Commit)
+
+This audit requires a local source patch; setting the three audit environment variables alone does **not** create the CPU markers. Apply the exact patches below immediately before a fixed-B run, and reverse the **same** patches immediately after the raw trace and log have been retained. They are diagnostic instrumentation, not product changes, and must not be committed or included in unrelated changes.
+
+Before applying, every target path must be clean. This prevents the final reverse patch from discarding another local change:
+
+```bash
+DLINFER_DIR=/path/to/dlinfer
+LMDEPLOY_DIR=/path/to/lmdeploy
+
+git -C "$DLINFER_DIR" diff --exit-code -- \
+    dlinfer/framework/lmdeploy_ext/cudagraph/ascend_cudagraph.py
+git -C "$LMDEPLOY_DIR" diff --exit-code -- \
+    lmdeploy/pytorch/engine/inputs_maker.py \
+    lmdeploy/pytorch/model_inputs.py \
+    lmdeploy/pytorch/strategies/ar/model_inputs.py \
+    lmdeploy/pytorch/strategies/ar_spec/step_inputs.py
+```
+
+Apply the zero-context unified diffs below from their indicated repository root. First check them with git apply --unidiff-zero --check, then apply the same content with git apply --unidiff-zero (or make the identical change with apply_patch). Zero-context application is intentional: it keeps the patch embedded in this Markdown free of whitespace-only diff lines. The clean preflight above is mandatory before this less-forgiving patch form is used.
+
+If a location no longer matches, do not force or fuzz-apply it: inspect the current clean revision, regenerate the intended minimal patch, and update this skill before profiling.
+
+**Patch A — run from the dlinfer repository root:**
+
+```diff
+diff --git a/dlinfer/framework/lmdeploy_ext/cudagraph/ascend_cudagraph.py b/dlinfer/framework/lmdeploy_ext/cudagraph/ascend_cudagraph.py
+index a16d2a50..90841015 100644
+--- a/dlinfer/framework/lmdeploy_ext/cudagraph/ascend_cudagraph.py
++++ b/dlinfer/framework/lmdeploy_ext/cudagraph/ascend_cudagraph.py
+@@ -3,0 +4,2 @@ import functools
++from contextlib import ExitStack, nullcontext
++from os import getenv
+@@ -6 +7,0 @@ from dataclasses import dataclass
+-from contextlib import ExitStack
+@@ -399,7 +400,21 @@ class AscendSingleGraphRunner:
+-        self.model.update_context_cudagraph(self.meta, context)
+-        if aclgraph_use_torch_npu_update():
+-            self._graph.replay()
+-            self._graph.update(
+-                cpu_update_input=[
+-                    {"actual_seq_lengths_kv": self.meta.input_buffers["kv_seqlens"]}
+-                ]
++        actual_batch_size = len(context.q_seqlens)
++        expected_batch_size = getenv("LMDEPLOY_ASSERT_DECODE_BATCH_SIZE")
++        if expected_batch_size is not None and actual_batch_size != int(expected_batch_size):
++            raise RuntimeError(
++                "Decode batch-size audit failed in Ascend graph replay: "
++                f"expected {expected_batch_size}, got {actual_batch_size}"
++            )
++        audit_scope = nullcontext()
++        if (getenv("LMDEPLOY_AUDIT_DECODE_BATCH_SIZE") is not None
++                and context.min_kv_seqlen is not None):
++            # This scope is inside the rank worker and nested in the matching
++            # forward_cudagraph event. q_seqlens exists before graph padding.
++            audit_scope = record_function(f"decode_actual_batch_size={actual_batch_size}")
++        kv_audit_scope = nullcontext()
++        if (getenv("LMDEPLOY_AUDIT_KV_CONTEXT") is not None
++                and context.min_kv_seqlen is not None):
++            kv_audit_scope = record_function(
++                "decode_kv_context_"
++                f"min={context.min_kv_seqlen},"
++                f"max={context.max_kv_seqlen},"
++                f"mean={context.sum_kv_seqlen / actual_batch_size:g}"
+@@ -407,6 +422,15 @@ class AscendSingleGraphRunner:
+-        else:
+-            update_attn_params(self.update_stream, self.meta, self.max_batches)
+-            self._graph.replay()
+-        output_buffers = self.meta.output_buffers
+-        output = self.model.get_outputs_cudagraph(output_buffers, **kwargs)
+-        return output
++        with audit_scope, kv_audit_scope:
++            self.model.update_context_cudagraph(self.meta, context)
++            if aclgraph_use_torch_npu_update():
++                self._graph.replay()
++                self._graph.update(
++                    cpu_update_input=[
++                        {"actual_seq_lengths_kv": self.meta.input_buffers["kv_seqlens"]}
++                    ]
++                )
++            else:
++                update_attn_params(self.update_stream, self.meta, self.max_batches)
++                self._graph.replay()
++            output_buffers = self.meta.output_buffers
++            output = self.model.get_outputs_cudagraph(output_buffers, **kwargs)
++            return output
+```
+
+**Patch B — run from the lmdeploy repository root:**
+
+```diff
+diff --git a/lmdeploy/pytorch/engine/inputs_maker.py b/lmdeploy/pytorch/engine/inputs_maker.py
+index 76a75ae0..da60b279 100644
+--- a/lmdeploy/pytorch/engine/inputs_maker.py
++++ b/lmdeploy/pytorch/engine/inputs_maker.py
+@@ -702,0 +703 @@ class InputsMakerAsync:
++        min_kv_seqlen = min(kv_seqlens)
+@@ -712,0 +714 @@ class InputsMakerAsync:
++            min_kv_seqlen=min_kv_seqlen,
+diff --git a/lmdeploy/pytorch/model_inputs.py b/lmdeploy/pytorch/model_inputs.py
+index 760e84be..0f0dd047 100644
+--- a/lmdeploy/pytorch/model_inputs.py
++++ b/lmdeploy/pytorch/model_inputs.py
+@@ -141,0 +142 @@ class ModelInputsDelta:
++    min_kv_seqlen: int | None = None
+@@ -218,0 +220,3 @@ class ModelInputs:
++    # CPU scalar retained for timeline auditing; None for inputs that do not
++    # originate from a scheduler decode delta.
++    min_kv_seqlen: int | None = None
+@@ -238,0 +243 @@ class ModelInputs:
++            min_kv_seqlen=(None if self.min_kv_seqlen is None else self.min_kv_seqlen + self.max_q_seqlen),
+@@ -302,0 +308 @@ class StepContext:
++    min_kv_seqlen: int | None = None
+@@ -382,0 +389 @@ class StepContext:
++            min_kv_seqlen=inputs.min_kv_seqlen,
+diff --git a/lmdeploy/pytorch/strategies/ar/model_inputs.py b/lmdeploy/pytorch/strategies/ar/model_inputs.py
+index bc475453..b449f9d6 100644
+--- a/lmdeploy/pytorch/strategies/ar/model_inputs.py
++++ b/lmdeploy/pytorch/strategies/ar/model_inputs.py
+@@ -36,0 +37 @@ def get_model_inputs_next_decoding(inputs: ModelInputs, input_ids: torch.Tensor,
++        min_kv_seqlen=(None if inputs.min_kv_seqlen is None else inputs.min_kv_seqlen + max_q_seqlen),
+@@ -100,0 +102,2 @@ def merge_model_inputs(inputs: ModelInputs, other: ModelInputs) -> ModelInputs:
++        min_kv_seqlen=(None if inputs.min_kv_seqlen is None or other.min_kv_seqlen is None
++                        else min(inputs.min_kv_seqlen, other.min_kv_seqlen)),
+@@ -133,0 +137 @@ def index_select_model_inputs(inputs: ModelInputs,
++                              min_kv_seqlen: int | None = None,
+@@ -155,0 +160 @@ def index_select_model_inputs(inputs: ModelInputs,
++    min_kv_seqlen = min_kv_seqlen or inputs.min_kv_seqlen
+@@ -195,0 +201 @@ def index_select_model_inputs(inputs: ModelInputs,
++        min_kv_seqlen=min_kv_seqlen,
+diff --git a/lmdeploy/pytorch/strategies/ar_spec/step_inputs.py b/lmdeploy/pytorch/strategies/ar_spec/step_inputs.py
+index 5a6a2ca8..2fc74baa 100644
+--- a/lmdeploy/pytorch/strategies/ar_spec/step_inputs.py
++++ b/lmdeploy/pytorch/strategies/ar_spec/step_inputs.py
+@@ -42,0 +43 @@ def _reindex_model_inputs_arspec(
++    min_kv_seqlen = delta.min_kv_seqlen
+@@ -58,0 +60 @@ def _reindex_model_inputs_arspec(
++    min_kv_seqlen = min_kv_seqlen or inputs.min_kv_seqlen
+@@ -90,0 +93 @@ def _reindex_model_inputs_arspec(
++        min_kv_seqlen=min_kv_seqlen,
+```
+
+The lmdeploy portion preserves `min_kv_seqlen` as a CPU scalar from scheduler input creation, through `ModelInputs` and `StepContext`, including the AR and AR-spec transform paths. This is deliberately not replaced by `.item()` on an NPU tensor during replay.
+
+For restoration, use these **same exact** Patch A and Patch B contents with `git apply --unidiff-zero -R --check` followed by `git apply --unidiff-zero -R`, from their respective repository roots. Do not use `git restore`, `git checkout --`, or a broad reverse of the current working tree. After the reverse patches, rerun the two clean checks above; only the preserved timeline/log artifacts and the skill itself should remain changed.
+
+1. With the temporary patch active, instrument the **actual Ascend replay path**, `dlinfer/framework/lmdeploy_ext/cudagraph/ascend_cudagraph.py:AscendSingleGraphRunner.forward`, rather than a CUDA-only runner. The `record_function` scopes are inside the enclosing `forward_cudagraph` scope and cover context update/replay.
 2. Emit these CPU markers only for scheduler-derived decode contexts (not graph-capture warmup):
    - `decode_actual_batch_size=<B>`, where `B = len(context.q_seqlens)` before padding.
    - `decode_kv_context_min=<N>,max=<N>,mean=<N>`, using scalar statistics from the scheduler's valid sequences.
@@ -474,10 +620,12 @@ Always label which denominator is used. Do not mix `Dequeue@Hccl*` CPU/dequeue t
 □ output_len long enough that profiling window falls inside test round
 □ After run: preserve all raw timeline JSON files and stdout/stderr logs
 □ Check each rank file for CPU events, device streams, expected time window, and anomalies
+□ Before a fixed-B audit: verify the five target paths are clean, then check and apply Patch A and Patch B
 □ For a fixed-B decode claim: enable both audit markers and verify their nesting in the same `forward_cudagraph`
 □ Exclude bare/warmup graph events; scan every qualified marker and require every observed real batch to equal the target
 □ Report qualified replay count plus KV-context min/max/mean values or ranges, separately for each rank
 □ State whether the result covers only the captured qualified window or the full run (fail-fast assertion)
+□ After retaining the trace/log: reverse the exact two patches and rerun the clean checks; do not use broad Git restore commands
 □ Open in Perfetto UI (>200MB) or chrome://tracing
 □ Focus on: NOTIFY_WAIT ratio, device idle gaps, top compute kernels, top communication/wait events
 □ For compute questions: exclude wait/sync and CPU/dequeue/enqueue rows; report compute-stream kernel families and percentages
