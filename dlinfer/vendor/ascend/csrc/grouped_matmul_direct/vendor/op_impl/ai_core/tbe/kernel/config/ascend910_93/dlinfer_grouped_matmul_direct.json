@@ -1,0 +1,4996 @@
+{
+  "binList": [
+    {
+      "implMode": "high_performance",
+      "int64Mode": false,
+      "simplifiedKeyMode": 0,
+      "simplifiedKey": [
+        "DlinferGroupedMatmulDirect/d=0,p=1/2,2/2,29/3,2/10,2/0,2/1,2/1,2/3,2",
+        "DlinferGroupedMatmulDirect/d=0,p=0/2,2/2,29/3,2/10,2/0,2/1,2/1,2/3,2",
+        "DlinferGroupedMatmulDirect/d=1,p=1/2,2/2,29/3,2/10,2/0,2/1,2/1,2/3,2",
+        "DlinferGroupedMatmulDirect/d=1,p=0/2,2/2,29/3,2/10,2/0,2/1,2/1,2/3,2"
+      ],
+      "dynamicParamMode": "folded_with_desc",
+      "staticKey": "8b41b4586c56d0b2acef879821e22a2d5d883c4ad53c549732dcdab2f8ca509c,fa6b402a3f5197c0f0cc15f13817b0399903a58934cf9b4eedfdd70862a9d147",
+      "inputs": [
+        [
+          {
+            "name": "x",
+            "index": 0,
+            "dtype": "int8",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "weight",
+            "index": 1,
+            "dtype": "int8",
+            "format": "FRACTAL_NZ",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "bias",
+            "index": 2,
+            "dtype": "int32",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "scale",
+            "index": 3,
+            "dtype": "uint64",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "offset",
+            "index": 4,
+            "dtype": "float32",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_scale",
+            "index": 5,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_offset",
+            "index": 6,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        {
+          "name": "group_list",
+          "index": 7,
+          "dtype": "int64",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        },
+        {
+          "name": "per_token_scale",
+          "index": 8,
+          "dtype": "float32",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        }
+      ],
+      "outputs": [
+        [
+          {
+            "name": "y",
+            "index": 0,
+            "dtype": "int32",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ]
+      ],
+      "attrs": [
+        {
+          "name": "split_item",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "dtype",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "transpose_weight",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "transpose_x",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "group_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "group_list_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "act_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "tuning_config",
+          "dtype": "list_int",
+          "value": []
+        }
+      ],
+      "opMode": "dynamic",
+      "optionalInputMode": "gen_placeholder",
+      "deterministic": "ignore",
+      "optionalOutputMode": "gen_placeholder",
+      "binInfo": {
+        "jsonFilePath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_0af973f410e50e3e3b1ff41aea54265c.json"
+      }
+    },
+    {
+      "implMode": "high_performance",
+      "int64Mode": false,
+      "simplifiedKeyMode": 0,
+      "simplifiedKey": [
+        "DlinferGroupedMatmulDirect/d=0,p=1/29,2/29,29/1,2/10,2/0,2/1,2/1,2/1,2",
+        "DlinferGroupedMatmulDirect/d=0,p=0/29,2/29,29/1,2/10,2/0,2/1,2/1,2/1,2",
+        "DlinferGroupedMatmulDirect/d=1,p=1/29,2/29,29/1,2/10,2/0,2/1,2/1,2/1,2",
+        "DlinferGroupedMatmulDirect/d=1,p=0/29,2/29,29/1,2/10,2/0,2/1,2/1,2/1,2"
+      ],
+      "dynamicParamMode": "folded_with_desc",
+      "staticKey": "13629ba98b813b7dbab170a22eab0bf06e7285a915cbc129d237325e15b6ba66,d9bf188a31acbb54fdb5028b92225dcac4701b0917b44041c2995023017aa1ad",
+      "inputs": [
+        [
+          {
+            "name": "x",
+            "index": 0,
+            "dtype": "int4",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "weight",
+            "index": 1,
+            "dtype": "int4",
+            "format": "FRACTAL_NZ",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "bias",
+            "index": 2,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "scale",
+            "index": 3,
+            "dtype": "uint64",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "offset",
+            "index": 4,
+            "dtype": "float32",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_scale",
+            "index": 5,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_offset",
+            "index": 6,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        {
+          "name": "group_list",
+          "index": 7,
+          "dtype": "int64",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        },
+        {
+          "name": "per_token_scale",
+          "index": 8,
+          "dtype": "float32",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        }
+      ],
+      "outputs": [
+        [
+          {
+            "name": "y",
+            "index": 0,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ]
+      ],
+      "attrs": [
+        {
+          "name": "split_item",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "dtype",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "transpose_weight",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "transpose_x",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "group_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "group_list_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "act_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "tuning_config",
+          "dtype": "list_int",
+          "value": []
+        }
+      ],
+      "opMode": "dynamic",
+      "optionalInputMode": "gen_placeholder",
+      "deterministic": "ignore",
+      "optionalOutputMode": "gen_placeholder",
+      "binInfo": {
+        "jsonFilePath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_14ea801e0230b6c76bab67d2cd45dd31.json"
+      }
+    },
+    {
+      "implMode": "high_performance",
+      "int64Mode": false,
+      "simplifiedKeyMode": 0,
+      "simplifiedKey": [
+        "DlinferGroupedMatmulDirect/d=0,p=1/27,2/27,29/0,2/10,2/0,2/1,2/1,2/27,2",
+        "DlinferGroupedMatmulDirect/d=0,p=0/27,2/27,29/0,2/10,2/0,2/1,2/1,2/27,2",
+        "DlinferGroupedMatmulDirect/d=1,p=1/27,2/27,29/0,2/10,2/0,2/1,2/1,2/27,2",
+        "DlinferGroupedMatmulDirect/d=1,p=0/27,2/27,29/0,2/10,2/0,2/1,2/1,2/27,2"
+      ],
+      "dynamicParamMode": "folded_with_desc",
+      "staticKey": "d4e39095f87cf6a91932800684b59e22dbac70172f185f4b43e4ee2a4d4a5da5,0ddc3ebcab5f87244f7fb305c17262fdc6568a5358d99481c865f521f6e6e220",
+      "inputs": [
+        [
+          {
+            "name": "x",
+            "index": 0,
+            "dtype": "bfloat16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "weight",
+            "index": 1,
+            "dtype": "bfloat16",
+            "format": "FRACTAL_NZ",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "bias",
+            "index": 2,
+            "dtype": "float32",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "scale",
+            "index": 3,
+            "dtype": "uint64",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "offset",
+            "index": 4,
+            "dtype": "float32",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_scale",
+            "index": 5,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_offset",
+            "index": 6,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        {
+          "name": "group_list",
+          "index": 7,
+          "dtype": "int64",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        },
+        {
+          "name": "per_token_scale",
+          "index": 8,
+          "dtype": "float32",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        }
+      ],
+      "outputs": [
+        [
+          {
+            "name": "y",
+            "index": 0,
+            "dtype": "bfloat16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ]
+      ],
+      "attrs": [
+        {
+          "name": "split_item",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "dtype",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "transpose_weight",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "transpose_x",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "group_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "group_list_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "act_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "tuning_config",
+          "dtype": "list_int",
+          "value": []
+        }
+      ],
+      "opMode": "dynamic",
+      "optionalInputMode": "gen_placeholder",
+      "deterministic": "ignore",
+      "optionalOutputMode": "gen_placeholder",
+      "binInfo": {
+        "jsonFilePath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_173388342555b3fc6f112c998da052a2.json"
+      }
+    },
+    {
+      "implMode": "high_performance",
+      "int64Mode": false,
+      "simplifiedKeyMode": 0,
+      "simplifiedKey": [
+        "DlinferGroupedMatmulDirect/d=0,p=1/1,2/29,2/1,2/10,2/0,2/1,2/1,2/1,2",
+        "DlinferGroupedMatmulDirect/d=0,p=0/1,2/29,2/1,2/10,2/0,2/1,2/1,2/1,2",
+        "DlinferGroupedMatmulDirect/d=1,p=1/1,2/29,2/1,2/10,2/0,2/1,2/1,2/1,2",
+        "DlinferGroupedMatmulDirect/d=1,p=0/1,2/29,2/1,2/10,2/0,2/1,2/1,2/1,2"
+      ],
+      "dynamicParamMode": "folded_with_desc",
+      "staticKey": "b341252294cb8f5035344367a36a364c6b361e1b9d4fccc79dea908593dcba83,7b05f5a3db1225db3287298ef758c10399ec9d331ad4d64d2f77b9cf1f812a0b",
+      "inputs": [
+        [
+          {
+            "name": "x",
+            "index": 0,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "weight",
+            "index": 1,
+            "dtype": "int4",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "bias",
+            "index": 2,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "scale",
+            "index": 3,
+            "dtype": "uint64",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "offset",
+            "index": 4,
+            "dtype": "float32",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_scale",
+            "index": 5,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_offset",
+            "index": 6,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        {
+          "name": "group_list",
+          "index": 7,
+          "dtype": "int64",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        },
+        {
+          "name": "per_token_scale",
+          "index": 8,
+          "dtype": "float32",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        }
+      ],
+      "outputs": [
+        [
+          {
+            "name": "y",
+            "index": 0,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ]
+      ],
+      "attrs": [
+        {
+          "name": "split_item",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "dtype",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "transpose_weight",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "transpose_x",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "group_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "group_list_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "act_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "tuning_config",
+          "dtype": "list_int",
+          "value": []
+        }
+      ],
+      "opMode": "dynamic",
+      "optionalInputMode": "gen_placeholder",
+      "deterministic": "ignore",
+      "optionalOutputMode": "gen_placeholder",
+      "binInfo": {
+        "jsonFilePath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_1a98e21bb0869f65d5a8c91d61b0033b.json"
+      }
+    },
+    {
+      "implMode": "high_performance",
+      "int64Mode": false,
+      "simplifiedKeyMode": 0,
+      "simplifiedKey": [
+        "DlinferGroupedMatmulDirect/d=0,p=1/29,2/29,29/1,2/10,2/0,2/1,2/1,2/27,2",
+        "DlinferGroupedMatmulDirect/d=0,p=0/29,2/29,29/1,2/10,2/0,2/1,2/1,2/27,2",
+        "DlinferGroupedMatmulDirect/d=1,p=1/29,2/29,29/1,2/10,2/0,2/1,2/1,2/27,2",
+        "DlinferGroupedMatmulDirect/d=1,p=0/29,2/29,29/1,2/10,2/0,2/1,2/1,2/27,2"
+      ],
+      "dynamicParamMode": "folded_with_desc",
+      "staticKey": "18a1653b6a965a7b7b23b9969942498b985ccb4631b9090d517ea5878f304f5a,2740b74e9b27b6447f39836565aba3e76317bc29a3d4c4d7e0624990da64122f",
+      "inputs": [
+        [
+          {
+            "name": "x",
+            "index": 0,
+            "dtype": "int4",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "weight",
+            "index": 1,
+            "dtype": "int4",
+            "format": "FRACTAL_NZ",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "bias",
+            "index": 2,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "scale",
+            "index": 3,
+            "dtype": "uint64",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "offset",
+            "index": 4,
+            "dtype": "float32",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_scale",
+            "index": 5,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_offset",
+            "index": 6,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        {
+          "name": "group_list",
+          "index": 7,
+          "dtype": "int64",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        },
+        {
+          "name": "per_token_scale",
+          "index": 8,
+          "dtype": "float32",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        }
+      ],
+      "outputs": [
+        [
+          {
+            "name": "y",
+            "index": 0,
+            "dtype": "bfloat16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ]
+      ],
+      "attrs": [
+        {
+          "name": "split_item",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "dtype",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "transpose_weight",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "transpose_x",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "group_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "group_list_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "act_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "tuning_config",
+          "dtype": "list_int",
+          "value": []
+        }
+      ],
+      "opMode": "dynamic",
+      "optionalInputMode": "gen_placeholder",
+      "deterministic": "ignore",
+      "optionalOutputMode": "gen_placeholder",
+      "binInfo": {
+        "jsonFilePath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_1b6f67952c45160f3a6117bfd672257c.json"
+      }
+    },
+    {
+      "implMode": "high_performance",
+      "int64Mode": false,
+      "simplifiedKeyMode": 0,
+      "simplifiedKey": [
+        "DlinferGroupedMatmulDirect/d=0,p=1/2,2/29,29/0,2/10,2/0,2/1,2/1,2/1,2",
+        "DlinferGroupedMatmulDirect/d=0,p=0/2,2/29,29/0,2/10,2/0,2/1,2/1,2/1,2",
+        "DlinferGroupedMatmulDirect/d=1,p=1/2,2/29,29/0,2/10,2/0,2/1,2/1,2/1,2",
+        "DlinferGroupedMatmulDirect/d=1,p=0/2,2/29,29/0,2/10,2/0,2/1,2/1,2/1,2"
+      ],
+      "dynamicParamMode": "folded_with_desc",
+      "staticKey": "a4847c0b99929f7ae30bdcd5dcb5becaeba41561fc1b097028f9e21258768db7,f85725b8721a243ce333e83f9bd0647c8f072d1162577de2c9fd34dd6859c64d",
+      "inputs": [
+        [
+          {
+            "name": "x",
+            "index": 0,
+            "dtype": "int8",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "weight",
+            "index": 1,
+            "dtype": "int4",
+            "format": "FRACTAL_NZ",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "bias",
+            "index": 2,
+            "dtype": "float32",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "scale",
+            "index": 3,
+            "dtype": "uint64",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "offset",
+            "index": 4,
+            "dtype": "float32",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_scale",
+            "index": 5,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_offset",
+            "index": 6,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        {
+          "name": "group_list",
+          "index": 7,
+          "dtype": "int64",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        },
+        {
+          "name": "per_token_scale",
+          "index": 8,
+          "dtype": "float32",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        }
+      ],
+      "outputs": [
+        [
+          {
+            "name": "y",
+            "index": 0,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ]
+      ],
+      "attrs": [
+        {
+          "name": "split_item",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "dtype",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "transpose_weight",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "transpose_x",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "group_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "group_list_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "act_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "tuning_config",
+          "dtype": "list_int",
+          "value": []
+        }
+      ],
+      "opMode": "dynamic",
+      "optionalInputMode": "gen_placeholder",
+      "deterministic": "ignore",
+      "optionalOutputMode": "gen_placeholder",
+      "binInfo": {
+        "jsonFilePath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_25fdaec6c39d32326f15567d56a2e28a.json"
+      }
+    },
+    {
+      "implMode": "high_performance",
+      "int64Mode": false,
+      "simplifiedKeyMode": 0,
+      "simplifiedKey": [
+        "DlinferGroupedMatmulDirect/d=0,p=1/2,2/2,2/3,2/10,2/0,2/1,2/1,2/3,2",
+        "DlinferGroupedMatmulDirect/d=0,p=0/2,2/2,2/3,2/10,2/0,2/1,2/1,2/3,2",
+        "DlinferGroupedMatmulDirect/d=1,p=1/2,2/2,2/3,2/10,2/0,2/1,2/1,2/3,2",
+        "DlinferGroupedMatmulDirect/d=1,p=0/2,2/2,2/3,2/10,2/0,2/1,2/1,2/3,2"
+      ],
+      "dynamicParamMode": "folded_with_desc",
+      "staticKey": "8059ba9619837992c932ff680fb253301eaa4c20ea03fc8c4972d8cf67c60687,22bbb045a142913adde66ef6b543c7e71945d61243cdd268fc2c10f14bfef71a",
+      "inputs": [
+        [
+          {
+            "name": "x",
+            "index": 0,
+            "dtype": "int8",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "weight",
+            "index": 1,
+            "dtype": "int8",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "bias",
+            "index": 2,
+            "dtype": "int32",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "scale",
+            "index": 3,
+            "dtype": "uint64",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "offset",
+            "index": 4,
+            "dtype": "float32",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_scale",
+            "index": 5,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_offset",
+            "index": 6,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        {
+          "name": "group_list",
+          "index": 7,
+          "dtype": "int64",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        },
+        {
+          "name": "per_token_scale",
+          "index": 8,
+          "dtype": "float32",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        }
+      ],
+      "outputs": [
+        [
+          {
+            "name": "y",
+            "index": 0,
+            "dtype": "int32",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ]
+      ],
+      "attrs": [
+        {
+          "name": "split_item",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "dtype",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "transpose_weight",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "transpose_x",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "group_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "group_list_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "act_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "tuning_config",
+          "dtype": "list_int",
+          "value": []
+        }
+      ],
+      "opMode": "dynamic",
+      "optionalInputMode": "gen_placeholder",
+      "deterministic": "ignore",
+      "optionalOutputMode": "gen_placeholder",
+      "binInfo": {
+        "jsonFilePath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_2b41b319d91a3be65856f8813f18378f.json"
+      }
+    },
+    {
+      "implMode": "high_performance",
+      "int64Mode": false,
+      "simplifiedKeyMode": 0,
+      "simplifiedKey": [
+        "DlinferGroupedMatmulDirect/d=0,p=1/2,2/2,2/3,2/0,2/0,2/1,2/1,2/1,2",
+        "DlinferGroupedMatmulDirect/d=0,p=0/2,2/2,2/3,2/0,2/0,2/1,2/1,2/1,2",
+        "DlinferGroupedMatmulDirect/d=1,p=1/2,2/2,2/3,2/0,2/0,2/1,2/1,2/1,2",
+        "DlinferGroupedMatmulDirect/d=1,p=0/2,2/2,2/3,2/0,2/0,2/1,2/1,2/1,2"
+      ],
+      "dynamicParamMode": "folded_with_desc",
+      "staticKey": "45aad95117637f87eb605ae9ed2c2879a00fea3f4b749f77b4415ee545c91046,544a277ccb408894775bb088b1a9f718ba38223aafa0823f78ffa51a27e0653b",
+      "inputs": [
+        [
+          {
+            "name": "x",
+            "index": 0,
+            "dtype": "int8",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "weight",
+            "index": 1,
+            "dtype": "int8",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "bias",
+            "index": 2,
+            "dtype": "int32",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "scale",
+            "index": 3,
+            "dtype": "float32",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "offset",
+            "index": 4,
+            "dtype": "float32",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_scale",
+            "index": 5,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_offset",
+            "index": 6,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        {
+          "name": "group_list",
+          "index": 7,
+          "dtype": "int64",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        },
+        {
+          "name": "per_token_scale",
+          "index": 8,
+          "dtype": "float32",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        }
+      ],
+      "outputs": [
+        [
+          {
+            "name": "y",
+            "index": 0,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ]
+      ],
+      "attrs": [
+        {
+          "name": "split_item",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "dtype",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "transpose_weight",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "transpose_x",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "group_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "group_list_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "act_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "tuning_config",
+          "dtype": "list_int",
+          "value": []
+        }
+      ],
+      "opMode": "dynamic",
+      "optionalInputMode": "gen_placeholder",
+      "deterministic": "ignore",
+      "optionalOutputMode": "gen_placeholder",
+      "binInfo": {
+        "jsonFilePath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_30f8bfbb76700a482746b159d3ea37fb.json"
+      }
+    },
+    {
+      "implMode": "high_performance",
+      "int64Mode": false,
+      "simplifiedKeyMode": 0,
+      "simplifiedKey": [
+        "DlinferGroupedMatmulDirect/d=0,p=1/2,2/2,2/3,2/10,2/0,2/1,2/1,2/2,2",
+        "DlinferGroupedMatmulDirect/d=0,p=0/2,2/2,2/3,2/10,2/0,2/1,2/1,2/2,2",
+        "DlinferGroupedMatmulDirect/d=1,p=1/2,2/2,2/3,2/10,2/0,2/1,2/1,2/2,2",
+        "DlinferGroupedMatmulDirect/d=1,p=0/2,2/2,2/3,2/10,2/0,2/1,2/1,2/2,2"
+      ],
+      "dynamicParamMode": "folded_with_desc",
+      "staticKey": "739a802e05a38a09071755a4cda95d56820a00674eb74107b484bb956c755be5,b7a249aa6a17cca837a75b0df16d3d1c7cd1fa1664365bb412254c2bc106645f",
+      "inputs": [
+        [
+          {
+            "name": "x",
+            "index": 0,
+            "dtype": "int8",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "weight",
+            "index": 1,
+            "dtype": "int8",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "bias",
+            "index": 2,
+            "dtype": "int32",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "scale",
+            "index": 3,
+            "dtype": "uint64",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "offset",
+            "index": 4,
+            "dtype": "float32",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_scale",
+            "index": 5,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_offset",
+            "index": 6,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        {
+          "name": "group_list",
+          "index": 7,
+          "dtype": "int64",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        },
+        {
+          "name": "per_token_scale",
+          "index": 8,
+          "dtype": "float32",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        }
+      ],
+      "outputs": [
+        [
+          {
+            "name": "y",
+            "index": 0,
+            "dtype": "int8",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ]
+      ],
+      "attrs": [
+        {
+          "name": "split_item",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "dtype",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "transpose_weight",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "transpose_x",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "group_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "group_list_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "act_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "tuning_config",
+          "dtype": "list_int",
+          "value": []
+        }
+      ],
+      "opMode": "dynamic",
+      "optionalInputMode": "gen_placeholder",
+      "deterministic": "ignore",
+      "optionalOutputMode": "gen_placeholder",
+      "binInfo": {
+        "jsonFilePath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_32b6a71f310564e9332c0f75514b7049.json"
+      }
+    },
+    {
+      "implMode": "high_performance",
+      "int64Mode": false,
+      "simplifiedKeyMode": 0,
+      "simplifiedKey": [
+        "DlinferGroupedMatmulDirect/d=0,p=1/1,2/2,2/1,2/10,2/0,2/1,2/1,2/1,2",
+        "DlinferGroupedMatmulDirect/d=0,p=0/1,2/2,2/1,2/10,2/0,2/1,2/1,2/1,2",
+        "DlinferGroupedMatmulDirect/d=1,p=1/1,2/2,2/1,2/10,2/0,2/1,2/1,2/1,2",
+        "DlinferGroupedMatmulDirect/d=1,p=0/1,2/2,2/1,2/10,2/0,2/1,2/1,2/1,2"
+      ],
+      "dynamicParamMode": "folded_with_desc",
+      "staticKey": "a2a29e208da73038001e15c9f5afba2f89b3394b48b702e5418de2635ed8084d,61a5fd1fd70cdb16b149aca1874ecf9d74f9c32a84b8ec3322edd432bf6c0e07",
+      "inputs": [
+        [
+          {
+            "name": "x",
+            "index": 0,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "weight",
+            "index": 1,
+            "dtype": "int8",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "bias",
+            "index": 2,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "scale",
+            "index": 3,
+            "dtype": "uint64",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "offset",
+            "index": 4,
+            "dtype": "float32",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_scale",
+            "index": 5,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_offset",
+            "index": 6,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        {
+          "name": "group_list",
+          "index": 7,
+          "dtype": "int64",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        },
+        {
+          "name": "per_token_scale",
+          "index": 8,
+          "dtype": "float32",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        }
+      ],
+      "outputs": [
+        [
+          {
+            "name": "y",
+            "index": 0,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ]
+      ],
+      "attrs": [
+        {
+          "name": "split_item",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "dtype",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "transpose_weight",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "transpose_x",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "group_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "group_list_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "act_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "tuning_config",
+          "dtype": "list_int",
+          "value": []
+        }
+      ],
+      "opMode": "dynamic",
+      "optionalInputMode": "gen_placeholder",
+      "deterministic": "ignore",
+      "optionalOutputMode": "gen_placeholder",
+      "binInfo": {
+        "jsonFilePath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_38f063a60c111f0a125f7e242d10cccf.json"
+      }
+    },
+    {
+      "implMode": "high_performance",
+      "int64Mode": false,
+      "simplifiedKeyMode": 0,
+      "simplifiedKey": [
+        "DlinferGroupedMatmulDirect/d=0,p=1/1,2/1,29/1,2/10,2/0,2/1,2/1,2/1,2",
+        "DlinferGroupedMatmulDirect/d=0,p=0/1,2/1,29/1,2/10,2/0,2/1,2/1,2/1,2",
+        "DlinferGroupedMatmulDirect/d=1,p=1/1,2/1,29/1,2/10,2/0,2/1,2/1,2/1,2",
+        "DlinferGroupedMatmulDirect/d=1,p=0/1,2/1,29/1,2/10,2/0,2/1,2/1,2/1,2"
+      ],
+      "dynamicParamMode": "folded_with_desc",
+      "staticKey": "4fcb19cc155249cee35987efc2a997f60ebb50b7ad0c22120b1237bd975d58eb,5cf37210872c01ad8c8f05d6a8c5d1f42cfbab310986687eb859b1bd802d1e7c",
+      "inputs": [
+        [
+          {
+            "name": "x",
+            "index": 0,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "weight",
+            "index": 1,
+            "dtype": "float16",
+            "format": "FRACTAL_NZ",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "bias",
+            "index": 2,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "scale",
+            "index": 3,
+            "dtype": "uint64",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "offset",
+            "index": 4,
+            "dtype": "float32",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_scale",
+            "index": 5,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_offset",
+            "index": 6,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        {
+          "name": "group_list",
+          "index": 7,
+          "dtype": "int64",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        },
+        {
+          "name": "per_token_scale",
+          "index": 8,
+          "dtype": "float32",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        }
+      ],
+      "outputs": [
+        [
+          {
+            "name": "y",
+            "index": 0,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ]
+      ],
+      "attrs": [
+        {
+          "name": "split_item",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "dtype",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "transpose_weight",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "transpose_x",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "group_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "group_list_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "act_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "tuning_config",
+          "dtype": "list_int",
+          "value": []
+        }
+      ],
+      "opMode": "dynamic",
+      "optionalInputMode": "gen_placeholder",
+      "deterministic": "ignore",
+      "optionalOutputMode": "gen_placeholder",
+      "binInfo": {
+        "jsonFilePath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_54e7c7c453eafc8bfd2f8e35ad14e952.json"
+      }
+    },
+    {
+      "implMode": "high_performance",
+      "int64Mode": false,
+      "simplifiedKeyMode": 0,
+      "simplifiedKey": [
+        "DlinferGroupedMatmulDirect/d=0,p=1/2,2/29,2/0,2/10,2/0,2/1,2/1,2/27,2",
+        "DlinferGroupedMatmulDirect/d=0,p=0/2,2/29,2/0,2/10,2/0,2/1,2/1,2/27,2",
+        "DlinferGroupedMatmulDirect/d=1,p=1/2,2/29,2/0,2/10,2/0,2/1,2/1,2/27,2",
+        "DlinferGroupedMatmulDirect/d=1,p=0/2,2/29,2/0,2/10,2/0,2/1,2/1,2/27,2"
+      ],
+      "dynamicParamMode": "folded_with_desc",
+      "staticKey": "b78628594c90cbd20276f56387a3fe7d70992796683188dac9585f2f2c3843d0,eb6ba8895861666637b0bc4575c4dba66e669e558e2ff95fa9e721644e74a38d",
+      "inputs": [
+        [
+          {
+            "name": "x",
+            "index": 0,
+            "dtype": "int8",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "weight",
+            "index": 1,
+            "dtype": "int4",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "bias",
+            "index": 2,
+            "dtype": "float32",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "scale",
+            "index": 3,
+            "dtype": "uint64",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "offset",
+            "index": 4,
+            "dtype": "float32",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_scale",
+            "index": 5,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_offset",
+            "index": 6,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        {
+          "name": "group_list",
+          "index": 7,
+          "dtype": "int64",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        },
+        {
+          "name": "per_token_scale",
+          "index": 8,
+          "dtype": "float32",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        }
+      ],
+      "outputs": [
+        [
+          {
+            "name": "y",
+            "index": 0,
+            "dtype": "bfloat16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ]
+      ],
+      "attrs": [
+        {
+          "name": "split_item",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "dtype",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "transpose_weight",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "transpose_x",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "group_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "group_list_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "act_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "tuning_config",
+          "dtype": "list_int",
+          "value": []
+        }
+      ],
+      "opMode": "dynamic",
+      "optionalInputMode": "gen_placeholder",
+      "deterministic": "ignore",
+      "optionalOutputMode": "gen_placeholder",
+      "binInfo": {
+        "jsonFilePath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_651dac79c82df857a3d4d03bc03a7cf0.json"
+      }
+    },
+    {
+      "implMode": "high_performance",
+      "int64Mode": false,
+      "simplifiedKeyMode": 0,
+      "simplifiedKey": [
+        "DlinferGroupedMatmulDirect/d=0,p=1/2,2/2,29/3,2/27,2/0,2/1,2/1,2/27,2",
+        "DlinferGroupedMatmulDirect/d=0,p=0/2,2/2,29/3,2/27,2/0,2/1,2/1,2/27,2",
+        "DlinferGroupedMatmulDirect/d=1,p=1/2,2/2,29/3,2/27,2/0,2/1,2/1,2/27,2",
+        "DlinferGroupedMatmulDirect/d=1,p=0/2,2/2,29/3,2/27,2/0,2/1,2/1,2/27,2"
+      ],
+      "dynamicParamMode": "folded_with_desc",
+      "staticKey": "7ee92b880724aef3a3277ca7649a512d291908a635012aa90e015adcaf741903,ac024fac9c65de08068669ae7ea632fcbc14b835feee61f458bde27efc192482",
+      "inputs": [
+        [
+          {
+            "name": "x",
+            "index": 0,
+            "dtype": "int8",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "weight",
+            "index": 1,
+            "dtype": "int8",
+            "format": "FRACTAL_NZ",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "bias",
+            "index": 2,
+            "dtype": "int32",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "scale",
+            "index": 3,
+            "dtype": "bfloat16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "offset",
+            "index": 4,
+            "dtype": "float32",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_scale",
+            "index": 5,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_offset",
+            "index": 6,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        {
+          "name": "group_list",
+          "index": 7,
+          "dtype": "int64",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        },
+        {
+          "name": "per_token_scale",
+          "index": 8,
+          "dtype": "float32",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        }
+      ],
+      "outputs": [
+        [
+          {
+            "name": "y",
+            "index": 0,
+            "dtype": "bfloat16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ]
+      ],
+      "attrs": [
+        {
+          "name": "split_item",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "dtype",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "transpose_weight",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "transpose_x",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "group_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "group_list_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "act_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "tuning_config",
+          "dtype": "list_int",
+          "value": []
+        }
+      ],
+      "opMode": "dynamic",
+      "optionalInputMode": "gen_placeholder",
+      "deterministic": "ignore",
+      "optionalOutputMode": "gen_placeholder",
+      "binInfo": {
+        "jsonFilePath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_693b2681fd562fa85e51f6297bfb5d5a.json"
+      }
+    },
+    {
+      "implMode": "high_performance",
+      "int64Mode": false,
+      "simplifiedKeyMode": 0,
+      "simplifiedKey": [
+        "DlinferGroupedMatmulDirect/d=0,p=1/27,2/27,2/0,2/10,2/0,2/1,2/1,2/27,2",
+        "DlinferGroupedMatmulDirect/d=0,p=0/27,2/27,2/0,2/10,2/0,2/1,2/1,2/27,2",
+        "DlinferGroupedMatmulDirect/d=1,p=1/27,2/27,2/0,2/10,2/0,2/1,2/1,2/27,2",
+        "DlinferGroupedMatmulDirect/d=1,p=0/27,2/27,2/0,2/10,2/0,2/1,2/1,2/27,2"
+      ],
+      "dynamicParamMode": "folded_with_desc",
+      "staticKey": "e3fe5fb04d6809c2a00838a1a4bfea5de45c4034c057e608ab6b277da815a07a,fc282608b185db5ba03378f8a51f56cf2e3c06d947dccce5551d62f055cca6dd",
+      "inputs": [
+        [
+          {
+            "name": "x",
+            "index": 0,
+            "dtype": "bfloat16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "weight",
+            "index": 1,
+            "dtype": "bfloat16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "bias",
+            "index": 2,
+            "dtype": "float32",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "scale",
+            "index": 3,
+            "dtype": "uint64",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "offset",
+            "index": 4,
+            "dtype": "float32",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_scale",
+            "index": 5,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_offset",
+            "index": 6,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        {
+          "name": "group_list",
+          "index": 7,
+          "dtype": "int64",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        },
+        {
+          "name": "per_token_scale",
+          "index": 8,
+          "dtype": "float32",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        }
+      ],
+      "outputs": [
+        [
+          {
+            "name": "y",
+            "index": 0,
+            "dtype": "bfloat16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ]
+      ],
+      "attrs": [
+        {
+          "name": "split_item",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "dtype",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "transpose_weight",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "transpose_x",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "group_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "group_list_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "act_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "tuning_config",
+          "dtype": "list_int",
+          "value": []
+        }
+      ],
+      "opMode": "dynamic",
+      "optionalInputMode": "gen_placeholder",
+      "deterministic": "ignore",
+      "optionalOutputMode": "gen_placeholder",
+      "binInfo": {
+        "jsonFilePath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_6a4b53c9c870c698c07eba4c4b35f3c8.json"
+      }
+    },
+    {
+      "implMode": "high_performance",
+      "int64Mode": false,
+      "simplifiedKeyMode": 0,
+      "simplifiedKey": [
+        "DlinferGroupedMatmulDirect/d=0,p=1/29,2/29,2/1,2/10,2/0,2/1,2/1,2/27,2",
+        "DlinferGroupedMatmulDirect/d=0,p=0/29,2/29,2/1,2/10,2/0,2/1,2/1,2/27,2",
+        "DlinferGroupedMatmulDirect/d=1,p=1/29,2/29,2/1,2/10,2/0,2/1,2/1,2/27,2",
+        "DlinferGroupedMatmulDirect/d=1,p=0/29,2/29,2/1,2/10,2/0,2/1,2/1,2/27,2"
+      ],
+      "dynamicParamMode": "folded_with_desc",
+      "staticKey": "1ed4764a2067b34de7ad9316df128d7c57f4b86c00310be6ad812b79ca1e56d4,369fb10680882b00990ee64c6a9168a7c35a891b48fa35c532a84505a8cd59a6",
+      "inputs": [
+        [
+          {
+            "name": "x",
+            "index": 0,
+            "dtype": "int4",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "weight",
+            "index": 1,
+            "dtype": "int4",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "bias",
+            "index": 2,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "scale",
+            "index": 3,
+            "dtype": "uint64",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "offset",
+            "index": 4,
+            "dtype": "float32",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_scale",
+            "index": 5,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_offset",
+            "index": 6,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        {
+          "name": "group_list",
+          "index": 7,
+          "dtype": "int64",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        },
+        {
+          "name": "per_token_scale",
+          "index": 8,
+          "dtype": "float32",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        }
+      ],
+      "outputs": [
+        [
+          {
+            "name": "y",
+            "index": 0,
+            "dtype": "bfloat16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ]
+      ],
+      "attrs": [
+        {
+          "name": "split_item",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "dtype",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "transpose_weight",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "transpose_x",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "group_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "group_list_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "act_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "tuning_config",
+          "dtype": "list_int",
+          "value": []
+        }
+      ],
+      "opMode": "dynamic",
+      "optionalInputMode": "gen_placeholder",
+      "deterministic": "ignore",
+      "optionalOutputMode": "gen_placeholder",
+      "binInfo": {
+        "jsonFilePath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_798a2ceb092836c6d05f0fe9fec9bf5a.json"
+      }
+    },
+    {
+      "implMode": "high_performance",
+      "int64Mode": false,
+      "simplifiedKeyMode": 0,
+      "simplifiedKey": [
+        "DlinferGroupedMatmulDirect/d=0,p=1/2,2/29,29/0,2/10,2/0,2/1,2/1,2/27,2",
+        "DlinferGroupedMatmulDirect/d=0,p=0/2,2/29,29/0,2/10,2/0,2/1,2/1,2/27,2",
+        "DlinferGroupedMatmulDirect/d=1,p=1/2,2/29,29/0,2/10,2/0,2/1,2/1,2/27,2",
+        "DlinferGroupedMatmulDirect/d=1,p=0/2,2/29,29/0,2/10,2/0,2/1,2/1,2/27,2"
+      ],
+      "dynamicParamMode": "folded_with_desc",
+      "staticKey": "48b2e2a4c56aac6e2ffa2314d3a7e4ff90095eb3952dfdda0e3ed89ac831d60a,1448128e62c4dfbd70471cdb63281ff760f4ded0ff3fd7a5671c6c75308ddc7b",
+      "inputs": [
+        [
+          {
+            "name": "x",
+            "index": 0,
+            "dtype": "int8",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "weight",
+            "index": 1,
+            "dtype": "int4",
+            "format": "FRACTAL_NZ",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "bias",
+            "index": 2,
+            "dtype": "float32",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "scale",
+            "index": 3,
+            "dtype": "uint64",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "offset",
+            "index": 4,
+            "dtype": "float32",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_scale",
+            "index": 5,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_offset",
+            "index": 6,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        {
+          "name": "group_list",
+          "index": 7,
+          "dtype": "int64",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        },
+        {
+          "name": "per_token_scale",
+          "index": 8,
+          "dtype": "float32",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        }
+      ],
+      "outputs": [
+        [
+          {
+            "name": "y",
+            "index": 0,
+            "dtype": "bfloat16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ]
+      ],
+      "attrs": [
+        {
+          "name": "split_item",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "dtype",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "transpose_weight",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "transpose_x",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "group_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "group_list_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "act_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "tuning_config",
+          "dtype": "list_int",
+          "value": []
+        }
+      ],
+      "opMode": "dynamic",
+      "optionalInputMode": "gen_placeholder",
+      "deterministic": "ignore",
+      "optionalOutputMode": "gen_placeholder",
+      "binInfo": {
+        "jsonFilePath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_86283a1ad10e4c6b780edccce2045ed2.json"
+      }
+    },
+    {
+      "implMode": "high_performance",
+      "int64Mode": false,
+      "simplifiedKeyMode": 0,
+      "simplifiedKey": [
+        "DlinferGroupedMatmulDirect/d=0,p=1/1,2/1,2/1,2/10,2/0,2/1,2/1,2/1,2",
+        "DlinferGroupedMatmulDirect/d=0,p=0/1,2/1,2/1,2/10,2/0,2/1,2/1,2/1,2",
+        "DlinferGroupedMatmulDirect/d=1,p=1/1,2/1,2/1,2/10,2/0,2/1,2/1,2/1,2",
+        "DlinferGroupedMatmulDirect/d=1,p=0/1,2/1,2/1,2/10,2/0,2/1,2/1,2/1,2"
+      ],
+      "dynamicParamMode": "folded_with_desc",
+      "staticKey": "7642f687f619d1419cccee1f466a3624fb1be887b15029a41aab74acab2e247b,3a506a2e7d3168ad349cbf48232cdaa6d81af8783e4a3b179adc1c11a8249b62",
+      "inputs": [
+        [
+          {
+            "name": "x",
+            "index": 0,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "weight",
+            "index": 1,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "bias",
+            "index": 2,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "scale",
+            "index": 3,
+            "dtype": "uint64",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "offset",
+            "index": 4,
+            "dtype": "float32",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_scale",
+            "index": 5,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_offset",
+            "index": 6,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        {
+          "name": "group_list",
+          "index": 7,
+          "dtype": "int64",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        },
+        {
+          "name": "per_token_scale",
+          "index": 8,
+          "dtype": "float32",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        }
+      ],
+      "outputs": [
+        [
+          {
+            "name": "y",
+            "index": 0,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ]
+      ],
+      "attrs": [
+        {
+          "name": "split_item",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "dtype",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "transpose_weight",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "transpose_x",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "group_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "group_list_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "act_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "tuning_config",
+          "dtype": "list_int",
+          "value": []
+        }
+      ],
+      "opMode": "dynamic",
+      "optionalInputMode": "gen_placeholder",
+      "deterministic": "ignore",
+      "optionalOutputMode": "gen_placeholder",
+      "binInfo": {
+        "jsonFilePath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_8c63cc461dff16c68ca75c3349addb45.json"
+      }
+    },
+    {
+      "implMode": "high_performance",
+      "int64Mode": false,
+      "simplifiedKeyMode": 0,
+      "simplifiedKey": [
+        "DlinferGroupedMatmulDirect/d=0,p=1/2,2/29,2/0,2/10,2/0,2/1,2/1,2/1,2",
+        "DlinferGroupedMatmulDirect/d=0,p=0/2,2/29,2/0,2/10,2/0,2/1,2/1,2/1,2",
+        "DlinferGroupedMatmulDirect/d=1,p=1/2,2/29,2/0,2/10,2/0,2/1,2/1,2/1,2",
+        "DlinferGroupedMatmulDirect/d=1,p=0/2,2/29,2/0,2/10,2/0,2/1,2/1,2/1,2"
+      ],
+      "dynamicParamMode": "folded_with_desc",
+      "staticKey": "caeeb937450177ae3decff4a8369e1ee663b72480ec5c0e15d09ff7cfd5d4c4c,4eb99686380906190c2e041fd26dc5039d0ecaec520483bb3de5d55afcdc452c",
+      "inputs": [
+        [
+          {
+            "name": "x",
+            "index": 0,
+            "dtype": "int8",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "weight",
+            "index": 1,
+            "dtype": "int4",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "bias",
+            "index": 2,
+            "dtype": "float32",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "scale",
+            "index": 3,
+            "dtype": "uint64",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "offset",
+            "index": 4,
+            "dtype": "float32",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_scale",
+            "index": 5,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_offset",
+            "index": 6,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        {
+          "name": "group_list",
+          "index": 7,
+          "dtype": "int64",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        },
+        {
+          "name": "per_token_scale",
+          "index": 8,
+          "dtype": "float32",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        }
+      ],
+      "outputs": [
+        [
+          {
+            "name": "y",
+            "index": 0,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ]
+      ],
+      "attrs": [
+        {
+          "name": "split_item",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "dtype",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "transpose_weight",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "transpose_x",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "group_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "group_list_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "act_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "tuning_config",
+          "dtype": "list_int",
+          "value": []
+        }
+      ],
+      "opMode": "dynamic",
+      "optionalInputMode": "gen_placeholder",
+      "deterministic": "ignore",
+      "optionalOutputMode": "gen_placeholder",
+      "binInfo": {
+        "jsonFilePath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_9c97f570647d771ce20bbd181d0d3603.json"
+      }
+    },
+    {
+      "implMode": "high_performance",
+      "int64Mode": false,
+      "simplifiedKeyMode": 0,
+      "simplifiedKey": [
+        "DlinferGroupedMatmulDirect/d=0,p=1/2,2/2,29/27,2/27,2/0,2/1,2/1,2/27,2",
+        "DlinferGroupedMatmulDirect/d=0,p=0/2,2/2,29/27,2/27,2/0,2/1,2/1,2/27,2",
+        "DlinferGroupedMatmulDirect/d=1,p=1/2,2/2,29/27,2/27,2/0,2/1,2/1,2/27,2",
+        "DlinferGroupedMatmulDirect/d=1,p=0/2,2/2,29/27,2/27,2/0,2/1,2/1,2/27,2"
+      ],
+      "dynamicParamMode": "folded_with_desc",
+      "staticKey": "7f9262eeb300688132b2bf28b9f90c76897495e552128d47a991dd28b7238ec8,21b90310f63da323c7e21bf098d7c948a9acf2072957a557f39bfb225f7b0f62",
+      "inputs": [
+        [
+          {
+            "name": "x",
+            "index": 0,
+            "dtype": "int8",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "weight",
+            "index": 1,
+            "dtype": "int8",
+            "format": "FRACTAL_NZ",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "bias",
+            "index": 2,
+            "dtype": "bfloat16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "scale",
+            "index": 3,
+            "dtype": "bfloat16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "offset",
+            "index": 4,
+            "dtype": "float32",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_scale",
+            "index": 5,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_offset",
+            "index": 6,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        {
+          "name": "group_list",
+          "index": 7,
+          "dtype": "int64",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        },
+        {
+          "name": "per_token_scale",
+          "index": 8,
+          "dtype": "float32",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        }
+      ],
+      "outputs": [
+        [
+          {
+            "name": "y",
+            "index": 0,
+            "dtype": "bfloat16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ]
+      ],
+      "attrs": [
+        {
+          "name": "split_item",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "dtype",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "transpose_weight",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "transpose_x",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "group_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "group_list_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "act_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "tuning_config",
+          "dtype": "list_int",
+          "value": []
+        }
+      ],
+      "opMode": "dynamic",
+      "optionalInputMode": "gen_placeholder",
+      "deterministic": "ignore",
+      "optionalOutputMode": "gen_placeholder",
+      "binInfo": {
+        "jsonFilePath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_a002667212e4f3701fcc94ba4ec937fc.json"
+      }
+    },
+    {
+      "implMode": "high_performance",
+      "int64Mode": false,
+      "simplifiedKeyMode": 0,
+      "simplifiedKey": [
+        "DlinferGroupedMatmulDirect/d=0,p=1/2,2/2,29/3,2/0,2/0,2/1,2/1,2/1,2",
+        "DlinferGroupedMatmulDirect/d=0,p=0/2,2/2,29/3,2/0,2/0,2/1,2/1,2/1,2",
+        "DlinferGroupedMatmulDirect/d=1,p=1/2,2/2,29/3,2/0,2/0,2/1,2/1,2/1,2",
+        "DlinferGroupedMatmulDirect/d=1,p=0/2,2/2,29/3,2/0,2/0,2/1,2/1,2/1,2"
+      ],
+      "dynamicParamMode": "folded_with_desc",
+      "staticKey": "cbed479e9994a98b31a843855bd9156d8a9b64dfdf3cff06590c5d0997547724,686addb2e3cc88c15cb6b9d55a0fe21419e140a5d7d759babd56baf96b8a09ae",
+      "inputs": [
+        [
+          {
+            "name": "x",
+            "index": 0,
+            "dtype": "int8",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "weight",
+            "index": 1,
+            "dtype": "int8",
+            "format": "FRACTAL_NZ",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "bias",
+            "index": 2,
+            "dtype": "int32",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "scale",
+            "index": 3,
+            "dtype": "float32",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "offset",
+            "index": 4,
+            "dtype": "float32",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_scale",
+            "index": 5,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_offset",
+            "index": 6,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        {
+          "name": "group_list",
+          "index": 7,
+          "dtype": "int64",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        },
+        {
+          "name": "per_token_scale",
+          "index": 8,
+          "dtype": "float32",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        }
+      ],
+      "outputs": [
+        [
+          {
+            "name": "y",
+            "index": 0,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ]
+      ],
+      "attrs": [
+        {
+          "name": "split_item",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "dtype",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "transpose_weight",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "transpose_x",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "group_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "group_list_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "act_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "tuning_config",
+          "dtype": "list_int",
+          "value": []
+        }
+      ],
+      "opMode": "dynamic",
+      "optionalInputMode": "gen_placeholder",
+      "deterministic": "ignore",
+      "optionalOutputMode": "gen_placeholder",
+      "binInfo": {
+        "jsonFilePath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_d5c9aa8fc65613bf4b96a3255c73f0bd.json"
+      }
+    },
+    {
+      "implMode": "high_performance",
+      "int64Mode": false,
+      "simplifiedKeyMode": 0,
+      "simplifiedKey": [
+        "DlinferGroupedMatmulDirect/d=0,p=1/2,2/2,2/3,2/27,2/0,2/1,2/1,2/27,2",
+        "DlinferGroupedMatmulDirect/d=0,p=0/2,2/2,2/3,2/27,2/0,2/1,2/1,2/27,2",
+        "DlinferGroupedMatmulDirect/d=1,p=1/2,2/2,2/3,2/27,2/0,2/1,2/1,2/27,2",
+        "DlinferGroupedMatmulDirect/d=1,p=0/2,2/2,2/3,2/27,2/0,2/1,2/1,2/27,2"
+      ],
+      "dynamicParamMode": "folded_with_desc",
+      "staticKey": "6a08dd823f1f9e0f3f19546e7dc653a64fc4332b621c98537e385e87f271f1eb,4c7637d71a7c4a26b96ff967781880b9dbac1eae2fe876a2e4543935d46123d8",
+      "inputs": [
+        [
+          {
+            "name": "x",
+            "index": 0,
+            "dtype": "int8",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "weight",
+            "index": 1,
+            "dtype": "int8",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "bias",
+            "index": 2,
+            "dtype": "int32",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "scale",
+            "index": 3,
+            "dtype": "bfloat16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "offset",
+            "index": 4,
+            "dtype": "float32",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_scale",
+            "index": 5,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_offset",
+            "index": 6,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        {
+          "name": "group_list",
+          "index": 7,
+          "dtype": "int64",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        },
+        {
+          "name": "per_token_scale",
+          "index": 8,
+          "dtype": "float32",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        }
+      ],
+      "outputs": [
+        [
+          {
+            "name": "y",
+            "index": 0,
+            "dtype": "bfloat16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ]
+      ],
+      "attrs": [
+        {
+          "name": "split_item",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "dtype",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "transpose_weight",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "transpose_x",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "group_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "group_list_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "act_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "tuning_config",
+          "dtype": "list_int",
+          "value": []
+        }
+      ],
+      "opMode": "dynamic",
+      "optionalInputMode": "gen_placeholder",
+      "deterministic": "ignore",
+      "optionalOutputMode": "gen_placeholder",
+      "binInfo": {
+        "jsonFilePath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_dc06464e9cd662577a331629f094b639.json"
+      }
+    },
+    {
+      "implMode": "high_performance",
+      "int64Mode": false,
+      "simplifiedKeyMode": 0,
+      "simplifiedKey": [
+        "DlinferGroupedMatmulDirect/d=0,p=1/29,2/29,2/1,2/10,2/0,2/1,2/1,2/1,2",
+        "DlinferGroupedMatmulDirect/d=0,p=0/29,2/29,2/1,2/10,2/0,2/1,2/1,2/1,2",
+        "DlinferGroupedMatmulDirect/d=1,p=1/29,2/29,2/1,2/10,2/0,2/1,2/1,2/1,2",
+        "DlinferGroupedMatmulDirect/d=1,p=0/29,2/29,2/1,2/10,2/0,2/1,2/1,2/1,2"
+      ],
+      "dynamicParamMode": "folded_with_desc",
+      "staticKey": "0cf3662aaeedb453dbfc3340f161bc738cae2620c79f0ea70b461f664866bdbb,32abe20720d62a54c8667afc7c6aba0ce2920d2c52d09302dfaef4f326c92a1f",
+      "inputs": [
+        [
+          {
+            "name": "x",
+            "index": 0,
+            "dtype": "int4",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "weight",
+            "index": 1,
+            "dtype": "int4",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "bias",
+            "index": 2,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "scale",
+            "index": 3,
+            "dtype": "uint64",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "offset",
+            "index": 4,
+            "dtype": "float32",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_scale",
+            "index": 5,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_offset",
+            "index": 6,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        {
+          "name": "group_list",
+          "index": 7,
+          "dtype": "int64",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        },
+        {
+          "name": "per_token_scale",
+          "index": 8,
+          "dtype": "float32",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        }
+      ],
+      "outputs": [
+        [
+          {
+            "name": "y",
+            "index": 0,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ]
+      ],
+      "attrs": [
+        {
+          "name": "split_item",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "dtype",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "transpose_weight",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "transpose_x",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "group_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "group_list_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "act_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "tuning_config",
+          "dtype": "list_int",
+          "value": []
+        }
+      ],
+      "opMode": "dynamic",
+      "optionalInputMode": "gen_placeholder",
+      "deterministic": "ignore",
+      "optionalOutputMode": "gen_placeholder",
+      "binInfo": {
+        "jsonFilePath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_eafa4417edec4bfc453e0f2ee6c780be.json"
+      }
+    },
+    {
+      "implMode": "high_performance",
+      "int64Mode": false,
+      "simplifiedKeyMode": 0,
+      "simplifiedKey": [
+        "DlinferGroupedMatmulDirect/d=0,p=1/2,2/2,29/27,2/0,2/0,2/1,2/1,2/27,2",
+        "DlinferGroupedMatmulDirect/d=0,p=0/2,2/2,29/27,2/0,2/0,2/1,2/1,2/27,2",
+        "DlinferGroupedMatmulDirect/d=1,p=1/2,2/2,29/27,2/0,2/0,2/1,2/1,2/27,2",
+        "DlinferGroupedMatmulDirect/d=1,p=0/2,2/2,29/27,2/0,2/0,2/1,2/1,2/27,2"
+      ],
+      "dynamicParamMode": "folded_with_desc",
+      "staticKey": "869a68bdea2dd8420c14782947400dfd7df5cb874ff146d56a88f6fdb4f45571,2472b330dcd83b6ea8be0c9f6481cc59285d4d8f3b8babde3361e63b812a3442",
+      "inputs": [
+        [
+          {
+            "name": "x",
+            "index": 0,
+            "dtype": "int8",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "weight",
+            "index": 1,
+            "dtype": "int8",
+            "format": "FRACTAL_NZ",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "bias",
+            "index": 2,
+            "dtype": "bfloat16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "scale",
+            "index": 3,
+            "dtype": "float32",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "offset",
+            "index": 4,
+            "dtype": "float32",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_scale",
+            "index": 5,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_offset",
+            "index": 6,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        {
+          "name": "group_list",
+          "index": 7,
+          "dtype": "int64",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        },
+        {
+          "name": "per_token_scale",
+          "index": 8,
+          "dtype": "float32",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        }
+      ],
+      "outputs": [
+        [
+          {
+            "name": "y",
+            "index": 0,
+            "dtype": "bfloat16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ]
+      ],
+      "attrs": [
+        {
+          "name": "split_item",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "dtype",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "transpose_weight",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "transpose_x",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "group_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "group_list_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "act_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "tuning_config",
+          "dtype": "list_int",
+          "value": []
+        }
+      ],
+      "opMode": "dynamic",
+      "optionalInputMode": "gen_placeholder",
+      "deterministic": "ignore",
+      "optionalOutputMode": "gen_placeholder",
+      "binInfo": {
+        "jsonFilePath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_ee878b42b4770d3e18f321c0a424d90d.json"
+      }
+    },
+    {
+      "implMode": "high_performance",
+      "int64Mode": false,
+      "simplifiedKeyMode": 0,
+      "simplifiedKey": [
+        "DlinferGroupedMatmulDirect/d=0,p=1/27,2/29,2/0,2/10,2/0,2/27,2/27,2/27,2",
+        "DlinferGroupedMatmulDirect/d=0,p=0/27,2/29,2/0,2/10,2/0,2/27,2/27,2/27,2",
+        "DlinferGroupedMatmulDirect/d=1,p=1/27,2/29,2/0,2/10,2/0,2/27,2/27,2/27,2",
+        "DlinferGroupedMatmulDirect/d=1,p=0/27,2/29,2/0,2/10,2/0,2/27,2/27,2/27,2"
+      ],
+      "dynamicParamMode": "folded_with_desc",
+      "staticKey": "1e5148e57556bbb3f5b3b56202bf96fa1385f30013c54515bca1c41bc343cdd8,794827a1fc00d8c156af51c6e630777bd09e99ac23b12ec77aebaf37792007a1",
+      "inputs": [
+        [
+          {
+            "name": "x",
+            "index": 0,
+            "dtype": "bfloat16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "weight",
+            "index": 1,
+            "dtype": "int4",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "bias",
+            "index": 2,
+            "dtype": "float32",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "scale",
+            "index": 3,
+            "dtype": "uint64",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "offset",
+            "index": 4,
+            "dtype": "float32",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_scale",
+            "index": 5,
+            "dtype": "bfloat16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_offset",
+            "index": 6,
+            "dtype": "bfloat16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        {
+          "name": "group_list",
+          "index": 7,
+          "dtype": "int64",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        },
+        {
+          "name": "per_token_scale",
+          "index": 8,
+          "dtype": "float32",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        }
+      ],
+      "outputs": [
+        [
+          {
+            "name": "y",
+            "index": 0,
+            "dtype": "bfloat16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ]
+      ],
+      "attrs": [
+        {
+          "name": "split_item",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "dtype",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "transpose_weight",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "transpose_x",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "group_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "group_list_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "act_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "tuning_config",
+          "dtype": "list_int",
+          "value": []
+        }
+      ],
+      "opMode": "dynamic",
+      "optionalInputMode": "gen_placeholder",
+      "deterministic": "ignore",
+      "optionalOutputMode": "gen_placeholder",
+      "binInfo": {
+        "jsonFilePath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_f188226a1116f53431714694c30721e0.json"
+      }
+    },
+    {
+      "implMode": "high_performance",
+      "int64Mode": false,
+      "simplifiedKeyMode": 0,
+      "simplifiedKey": [
+        "DlinferGroupedMatmulDirect/d=0,p=1/0,2/0,2/0,2/10,2/0,2/1,2/1,2/0,2",
+        "DlinferGroupedMatmulDirect/d=0,p=0/0,2/0,2/0,2/10,2/0,2/1,2/1,2/0,2",
+        "DlinferGroupedMatmulDirect/d=1,p=1/0,2/0,2/0,2/10,2/0,2/1,2/1,2/0,2",
+        "DlinferGroupedMatmulDirect/d=1,p=0/0,2/0,2/0,2/10,2/0,2/1,2/1,2/0,2"
+      ],
+      "dynamicParamMode": "folded_with_desc",
+      "staticKey": "1dc62a954f0a0ed5bedd40c3ed7da65bc5f39641047fc31f4c729fd90ccac962,6b7232196fc8ea58b9aa45e108c858b3a29fa25014501455ae4ea9c6b188399b",
+      "inputs": [
+        [
+          {
+            "name": "x",
+            "index": 0,
+            "dtype": "float32",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "weight",
+            "index": 1,
+            "dtype": "float32",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "bias",
+            "index": 2,
+            "dtype": "float32",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "scale",
+            "index": 3,
+            "dtype": "uint64",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "offset",
+            "index": 4,
+            "dtype": "float32",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_scale",
+            "index": 5,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_offset",
+            "index": 6,
+            "dtype": "float16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        {
+          "name": "group_list",
+          "index": 7,
+          "dtype": "int64",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        },
+        {
+          "name": "per_token_scale",
+          "index": 8,
+          "dtype": "float32",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        }
+      ],
+      "outputs": [
+        [
+          {
+            "name": "y",
+            "index": 0,
+            "dtype": "float32",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ]
+      ],
+      "attrs": [
+        {
+          "name": "split_item",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "dtype",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "transpose_weight",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "transpose_x",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "group_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "group_list_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "act_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "tuning_config",
+          "dtype": "list_int",
+          "value": []
+        }
+      ],
+      "opMode": "dynamic",
+      "optionalInputMode": "gen_placeholder",
+      "deterministic": "ignore",
+      "optionalOutputMode": "gen_placeholder",
+      "binInfo": {
+        "jsonFilePath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_fc8a39813d19017ede290022206c2fec.json"
+      }
+    },
+    {
+      "implMode": "high_performance",
+      "int64Mode": false,
+      "simplifiedKeyMode": 0,
+      "simplifiedKey": [
+        "DlinferGroupedMatmulDirect/d=0,p=1/27,2/2,2/0,2/10,2/0,2/27,2/27,2/27,2",
+        "DlinferGroupedMatmulDirect/d=0,p=0/27,2/2,2/0,2/10,2/0,2/27,2/27,2/27,2",
+        "DlinferGroupedMatmulDirect/d=1,p=1/27,2/2,2/0,2/10,2/0,2/27,2/27,2/27,2",
+        "DlinferGroupedMatmulDirect/d=1,p=0/27,2/2,2/0,2/10,2/0,2/27,2/27,2/27,2"
+      ],
+      "dynamicParamMode": "folded_with_desc",
+      "staticKey": "ac0299366b76bed29b6dbac225c2c251c2a0ec34808e266ad4a6b2582a05290b,6c8ec7c0db2b7c1681223d2abd391f3cb1930e296cd1f1572a40d28b40d142e6",
+      "inputs": [
+        [
+          {
+            "name": "x",
+            "index": 0,
+            "dtype": "bfloat16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "weight",
+            "index": 1,
+            "dtype": "int8",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "bias",
+            "index": 2,
+            "dtype": "float32",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "scale",
+            "index": 3,
+            "dtype": "uint64",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "offset",
+            "index": 4,
+            "dtype": "float32",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_scale",
+            "index": 5,
+            "dtype": "bfloat16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_offset",
+            "index": 6,
+            "dtype": "bfloat16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ],
+        {
+          "name": "group_list",
+          "index": 7,
+          "dtype": "int64",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        },
+        {
+          "name": "per_token_scale",
+          "index": 8,
+          "dtype": "float32",
+          "format": "ND",
+          "paramType": "optional",
+          "shape": [
+            -2
+          ],
+          "format_match_mode": "FormatAgnostic"
+        }
+      ],
+      "outputs": [
+        [
+          {
+            "name": "y",
+            "index": 0,
+            "dtype": "bfloat16",
+            "format": "ND",
+            "paramType": "dynamic",
+            "shape": [
+              -2
+            ],
+            "format_match_mode": "FormatAgnostic"
+          }
+        ]
+      ],
+      "attrs": [
+        {
+          "name": "split_item",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "dtype",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "transpose_weight",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "transpose_x",
+          "dtype": "bool",
+          "value": false
+        },
+        {
+          "name": "group_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "group_list_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "act_type",
+          "dtype": "int",
+          "value": 0
+        },
+        {
+          "name": "tuning_config",
+          "dtype": "list_int",
+          "value": []
+        }
+      ],
+      "opMode": "dynamic",
+      "optionalInputMode": "gen_placeholder",
+      "deterministic": "ignore",
+      "optionalOutputMode": "gen_placeholder",
+      "binInfo": {
+        "jsonFilePath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_ffc5799737aef33466523ffb32ef924a.json"
+      }
+    }
+  ]
+}
