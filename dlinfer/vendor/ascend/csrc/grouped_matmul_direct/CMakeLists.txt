@@ -1,13 +1,13 @@
 include(ascend)
 
-set(GMM_DIRECT_VENDOR_DIR ${CMAKE_CURRENT_SOURCE_DIR}/vendor)
-set(GMM_DIRECT_OPAPI ${GMM_DIRECT_VENDOR_DIR}/op_api/lib/libcust_opapi.so)
-
-if(NOT EXISTS ${GMM_DIRECT_OPAPI})
-  message(FATAL_ERROR "Missing bundled direct2560 op-api: ${GMM_DIRECT_OPAPI}")
-endif()
+# Build the direct-2560 operator from source as part of the Python wheel build.
+set(ASCEND_CANN_PACKAGE_PATH "${ASCEND_TOOLKIT_HOME}")
+set(ASCEND_COMPUTE_UNIT ascend910_93)
+set(ASCEND_PYTHON_EXECUTABLE "${Python_EXECUTABLE}")
+add_subdirectory(opp)
 
 add_library(_grouped_matmul_direct MODULE grouped_matmul_direct.cpp)
+add_dependencies(_grouped_matmul_direct cust_opapi)
 find_library(TORCH_PYTHON_LIBRARY torch_python
   PATHS "${TORCH_INSTALL_PREFIX}/lib"
   REQUIRED
@@ -15,7 +15,6 @@ find_library(TORCH_PYTHON_LIBRARY torch_python
 )
 set_target_properties(_grouped_matmul_direct PROPERTIES
   PREFIX ""
-  BUILD_RPATH "${GMM_DIRECT_VENDOR_DIR}/lib"
   INSTALL_RPATH "\$ORIGIN/grouped_matmul_direct/op_api/lib"
 )
 
@@ -25,7 +24,7 @@ target_compile_definitions(_grouped_matmul_direct PRIVATE
 )
 target_compile_options(_grouped_matmul_direct PRIVATE -O2 -Wall -Wextra)
 target_include_directories(_grouped_matmul_direct PRIVATE
-  ${GMM_DIRECT_VENDOR_DIR}/op_api/include
+  ${DLINFER_GMM_OPP_BINARY_DIR}/autogen
   ${TORCH_INCLUDE_DIRS}
   ${CANN_INCLUDE_DIRS}
   ${CANN_INCLUDE_DIRS}/aclnn
@@ -34,13 +33,16 @@ target_link_libraries(_grouped_matmul_direct PRIVATE
   Python::Python
   torch
   ${TORCH_PYTHON_LIBRARY}
-  ${GMM_DIRECT_OPAPI}
+  cust_opapi
   ${CANN_LIBRARIES}
 )
 
 install(TARGETS _grouped_matmul_direct
   LIBRARY DESTINATION dlinfer/vendor/ascend
 )
-install(DIRECTORY ${GMM_DIRECT_VENDOR_DIR}/
-  DESTINATION dlinfer/vendor/ascend/grouped_matmul_direct
+install(TARGETS cust_opapi
+  LIBRARY DESTINATION dlinfer/vendor/ascend/grouped_matmul_direct/op_api/lib
+)
+install(FILES ${DLINFER_GMM_OPP_BINARY_DIR}/autogen/aclnn_dlinfer_grouped_matmul_direct.h
+  DESTINATION dlinfer/vendor/ascend/grouped_matmul_direct/op_api/include
 )

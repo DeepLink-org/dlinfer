@@ -17,7 +17,6 @@ MAX_GROUP_LIST_SIZE = int(os.environ.get("DLINFER_MAX_GROUP_LIST_SIZE", "1024"))
 _MOE_PREFILL_USE_CATCHALL = os.environ.get("DLINFER_MOE_PREFILL_CATCHALL", "0") == "1"
 _GMM_EXPERIMENT_MODE = os.environ.get("DLINFER_GMM_EXPERIMENT", "chunked")
 _GMM_EXPERIMENT_ALLOWED_MODES = {"chunked", "direct2560"}
-_GMM_EXPERIMENT_PATH_PRINTED = False
 if _GMM_EXPERIMENT_MODE not in _GMM_EXPERIMENT_ALLOWED_MODES:
     raise RuntimeError(
         "DLINFER_GMM_EXPERIMENT must be set before Python starts to one of "
@@ -53,6 +52,12 @@ def build_chunked_moe_storage_layout(num_experts: int):
                 "DLINFER_GMM_EXPERIMENT=direct2560 is restricted to exactly "
                 f"2560 logical experts, got {num_experts}"
             )
+        print(
+            "DLInfer MoE2560 enabled: backend=bundled_pybind "
+            "logical_experts=2560 weight_rows=2560 packed=False "
+            "group_list_type=1",
+            flush=True,
+        )
         return num_experts, None
 
     chunk_size = MAX_GROUP_LIST_SIZE - 2
@@ -271,8 +276,6 @@ def apply_mlp(
     group_list_type: int = 1,
     chunked_moe_layout: ChunkedMoeWeightLayout = None,
 ):
-    global _GMM_EXPERIMENT_PATH_PRINTED
-
     num_experts = (
         chunked_moe_layout.num_experts
         if chunked_moe_layout is not None
@@ -306,34 +309,6 @@ def apply_mlp(
             raise RuntimeError(
                 f"direct2560 requires group_list_type=1, got {group_list_type}"
             )
-        if group_list.dim() != 1 or group_list.shape[0] != 2560:
-            raise RuntimeError(
-                "direct2560 requires a one-dimensional 2560-entry group_list, "
-                f"got {tuple(group_list.shape)}"
-            )
-        supported_dtypes = (torch.bfloat16, torch.float16)
-        if gate_up_weights.dtype not in supported_dtypes:
-            raise RuntimeError(f"direct2560 unsupported dtype {gate_up_weights.dtype}")
-        if (
-            down_weights.dtype != gate_up_weights.dtype
-            or hidden_states.dtype != gate_up_weights.dtype
-        ):
-            raise RuntimeError("direct2560 hidden/gate_up/down dtypes must match")
-        if any(
-            tensor.device.type != "npu"
-            for tensor in (hidden_states, gate_up_weights, down_weights, group_list)
-        ):
-            raise RuntimeError(
-                "direct2560 requires hidden, weights and group_list on NPU"
-            )
-        if not _GMM_EXPERIMENT_PATH_PRINTED:
-            _GMM_EXPERIMENT_PATH_PRINTED = True
-            print(
-                "DLINFER GMM experiment: direct2560 "
-                f"logical_experts={num_experts} weight_rows={gate_up_weights.size(0)} "
-                "packed=False group_list_type=1 backend=bundled_pybind",
-                flush=True,
-            )
         return _grouped_mlp(
             hidden_states,
             gate_up_weights,
@@ -341,16 +316,6 @@ def apply_mlp(
             group_list,
             group_list_type=1,
             use_bundled_direct=True,
-        )
-
-    if not _GMM_EXPERIMENT_PATH_PRINTED:
-        _GMM_EXPERIMENT_PATH_PRINTED = True
-        print(
-            "DLINFER GMM experiment: chunked "
-            f"logical_experts={num_experts} weight_rows={gate_up_weights.size(0)} "
-            f"packed={getattr(chunked_moe_layout, 'packed', False)} "
-            f"chunk_size={getattr(chunked_moe_layout, 'chunk_size', None)}",
-            flush=True,
         )
 
     # More experts than aclnnGroupedMatmulV5 supports: split into chunks of at

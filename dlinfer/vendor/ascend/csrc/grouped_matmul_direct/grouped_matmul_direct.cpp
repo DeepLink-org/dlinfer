@@ -2,7 +2,7 @@
 // adapted for DLInfer pybind packaging.
 #include <acl/acl.h>
 #include <aclnn/aclnn_base.h>
-#include <aclnnop/aclnn_grouped_matmul_v5.h>
+#include <aclnn_dlinfer_grouped_matmul_direct.h>
 #include <torch/extension.h>
 
 #include <array>
@@ -67,7 +67,11 @@ AclTensorPtr MakeAclTensor(const at::Tensor& tensor) {
 AclTensorPtr MakeTransposedWeightAclTensor(const at::Tensor& tensor) {
     TORCH_CHECK(tensor.dim() == 3 && tensor.is_contiguous(), "stored weight must be contiguous [E, N, K]");
     const std::array<int64_t, 3> view_shape{tensor.size(0), tensor.size(2), tensor.size(1)};
-    const std::array<int64_t, 3> view_strides{tensor.stride(0), tensor.stride(2), tensor.stride(1)};
+    // The kernel consumes the raw [E, N, K] storage with transposeWeight=true,
+    // while host tiling needs the logical [E, K, N] shape. Mark the ACL view
+    // contiguous so the generic individual-op executor does not insert a copy.
+    const std::array<int64_t, 3> view_strides{
+        view_shape[1] * view_shape[2], view_shape[2], 1};
     const std::array<int64_t, 3> storage_shape{tensor.size(0), tensor.size(1), tensor.size(2)};
     auto* acl_tensor = aclCreateTensor(view_shape.data(),
                                        view_shape.size(),
@@ -86,6 +90,31 @@ AclTensorListPtr MakeAclTensorList(aclTensor* tensor) {
     std::array<aclTensor*, 1> tensors{tensor};
     auto* list = aclCreateTensorList(tensors.data(), tensors.size());
     TORCH_CHECK(list != nullptr, "aclCreateTensorList failed");
+    return AclTensorListPtr(list);
+}
+
+AclTensorPtr MakeEmptyAclTensor(const aclDataType dtype) {
+    constexpr std::array<int64_t, 1> shape{0};
+    constexpr std::array<int64_t, 1> strides{1};
+    auto* tensor = aclCreateTensor(shape.data(),
+                                   shape.size(),
+                                   dtype,
+                                   strides.data(),
+                                   0,
+                                   ACL_FORMAT_ND,
+                                   shape.data(),
+                                   shape.size(),
+                                   nullptr);
+    TORCH_CHECK(tensor != nullptr, "aclCreateTensor failed for empty input");
+    return AclTensorPtr(tensor);
+}
+
+AclTensorListPtr MakeEmptyAclTensorList(const aclDataType dtype) {
+    auto tensor = MakeEmptyAclTensor(dtype);
+    auto* raw_tensor = tensor.get();
+    auto* list = aclCreateTensorList(&raw_tensor, 1);
+    TORCH_CHECK(list != nullptr, "aclCreateTensorList failed for empty input");
+    tensor.release();
     return AclTensorListPtr(list);
 }
 
@@ -111,6 +140,12 @@ at::Tensor GroupedMatmulDirect(const at::Tensor& x, const at::Tensor& weight, co
     auto x_list = MakeAclTensorList(x_acl.get());
     auto weight_list = MakeAclTensorList(weight_acl.get());
     auto out_list = MakeAclTensorList(out_acl.get());
+    auto empty_bias = MakeEmptyAclTensorList(ToAclDataType(x.scalar_type()));
+    auto empty_scale = MakeEmptyAclTensorList(ACL_UINT64);
+    auto empty_offset = MakeEmptyAclTensorList(ACL_FLOAT);
+    auto empty_antiquant_scale = MakeEmptyAclTensorList(ToAclDataType(x.scalar_type()));
+    auto empty_antiquant_offset = MakeEmptyAclTensorList(ToAclDataType(x.scalar_type()));
+    auto empty_per_token_scale = MakeEmptyAclTensor(ACL_FLOAT);
     // aclTensorList owns the tensors passed to aclCreateTensorList. Transfer
     // ownership to the lists so the individual guards do not destroy them a
     // second time when this function returns.
@@ -120,29 +155,28 @@ at::Tensor GroupedMatmulDirect(const at::Tensor& x, const at::Tensor& weight, co
 
     uint64_t workspace_size = 0;
     aclOpExecutor* executor = nullptr;
-    const auto status = aclnnDlinferGroupedMatmulDirectV5GetWorkspaceSize(x_list.get(),
-                                                                          weight_list.get(),
-                                                                          nullptr,
-                                                                          nullptr,
-                                                                          nullptr,
-                                                                          nullptr,
-                                                                          nullptr,
-                                                                          nullptr,
-                                                                          group_list_acl.get(),
-                                                                          nullptr,
-                                                                          nullptr,
-                                                                          nullptr,
-                                                                          2,
-                                                                          0,
-                                                                          group_list_type,
-                                                                          0,
-                                                                          nullptr,
-                                                                          out_list.get(),
-                                                                          nullptr,
-                                                                          nullptr,
-                                                                          &workspace_size,
-                                                                          &executor);
-    TORCH_CHECK(status == ACL_SUCCESS, "aclnnDlinferGroupedMatmulDirectV5GetWorkspaceSize failed, status=", status);
+    const auto status = aclnnDlinferGroupedMatmulDirectGetWorkspaceSize(
+        x_list.get(),
+        weight_list.get(),
+        empty_bias.get(),
+        empty_scale.get(),
+        empty_offset.get(),
+        empty_antiquant_scale.get(),
+        empty_antiquant_offset.get(),
+        group_list_acl.get(),
+        empty_per_token_scale.get(),
+        2,
+        0,
+        true,
+        false,
+        0,
+        group_list_type,
+        0,
+        nullptr,
+        out_list.get(),
+        &workspace_size,
+        &executor);
+    TORCH_CHECK(status == ACL_SUCCESS, "aclnnDlinferGroupedMatmulDirectGetWorkspaceSize failed, status=", status);
     TORCH_CHECK(executor != nullptr, "GroupedMatmul returned a null executor");
 
     void* workspace_addr = nullptr;
@@ -153,8 +187,8 @@ at::Tensor GroupedMatmulDirect(const at::Tensor& x, const at::Tensor& weight, co
 
     TORCH_CHECK(stream_handle != 0, "current NPU stream handle must not be null");
     const auto stream = reinterpret_cast<aclrtStream>(stream_handle);
-    const auto execute_status = aclnnDlinferGroupedMatmulDirectV5(workspace_addr, workspace_size, executor, stream);
-    TORCH_CHECK(execute_status == ACL_SUCCESS, "aclnnDlinferGroupedMatmulDirectV5 failed, status=", execute_status);
+    const auto execute_status = aclnnDlinferGroupedMatmulDirect(workspace_addr, workspace_size, executor, stream);
+    TORCH_CHECK(execute_status == ACL_SUCCESS, "aclnnDlinferGroupedMatmulDirect failed, status=", execute_status);
     return out;
 }
 
