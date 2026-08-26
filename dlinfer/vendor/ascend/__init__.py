@@ -1,5 +1,6 @@
 # Copyright (c) 2024, DeepLink. All rights reserved.
-from pathlib import Path
+from .version import ensure_ascend_runtime
 
-import torch
-from . import pytorch_patch, torch_npu_ops
+ensure_ascend_runtime()
+
+from . import pytorch_patch, torch_npu_ops  # noqa: E402,F401

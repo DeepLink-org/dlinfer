@@ -11,6 +11,7 @@ is_torch_251 = False
 is_torch_260 = False
 is_torch_271 = False
 is_torch_280 = False
+is_torch_290 = False
 
 
 if torch_version.startswith("2.0"):
@@ -29,6 +30,8 @@ elif torch_version.startswith("2.7.1"):
     is_torch_271 = True
 elif torch_version.startswith("2.8.0"):
     is_torch_280 = True
+elif torch_version.startswith("2.9.0"):
+    is_torch_290 = True
 else:
     raise ValueError(f"unsupported dicp torch version: {torch.__version__}")
 

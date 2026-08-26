@@ -419,6 +419,7 @@ def paged_prefill_attention(
         kv_scales,
         kv_zeros,
         quant_bits,
+        head_size_v,
     )
 
 

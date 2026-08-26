@@ -294,6 +294,7 @@ def paged_prefill_attention(
     kv_scales: Optional[Tensor],
     kv_zeros: Optional[Tensor],
     quant_bits: Optional[int],
+    head_size_v: Optional[int] = None,
 ) -> Tensor:
     if softmax_scale is None:
         softmax_scale = float(1 / math.sqrt(query.size(-1)))

@@ -2,6 +2,7 @@
 import math
 import torch
 import torch.distributed as dist
+import torch_npu
 
 from typing import List
 from dlinfer.vendor import vendor_ops_registry
@@ -197,43 +198,66 @@ def prefill_attention(
     else:
         # Handle qwenvl vision part flash-attention
         q_seq_len = get_cpu_seq_len(q_seq_len)
-        torch.ops.atb._npu_flash_attention_unpad(
+        is_tnd = (
+            query.dim() == 3
+            and query.shape[-2] == num_q_heads
+            and key.shape[-2] == num_kv_heads
+        )
+        input_layout = "TND" if is_tnd else "BSH"
+        actual_seq_lengths = q_seq_len.cumsum(dim=0) if is_tnd else None
+        fia_kwargs = {}
+        if is_tnd and query.shape[-1] > value.shape[-1]:
+            nope_dim = value.shape[-1]
+            fia_kwargs["query_rope"] = query[..., nope_dim:].contiguous()
+            fia_kwargs["key_rope"] = key[..., nope_dim:].contiguous()
+            query = query[..., :nope_dim].contiguous()
+            key = key[..., :nope_dim].contiguous()
+        output, _ = torch_npu.npu_fused_infer_attention_score(
             query=query,
             key=key,
             value=value,
-            seq_len=q_seq_len,
-            scale_value=scale_value,
-            num_heads=num_q_heads,
-            num_kv_heads=num_kv_heads,
-            out=attn_output,
-        )
-        return attn_output
-    if SocVersion.is_Ascend910():
-        torch.ops.atb._npu_flash_attention(
-            query=query,
-            key=key,
-            value=value,
-            mask=mask,
-            seq_len=q_seq_len,
-            scale_value=scale_value,
-            num_heads=num_q_heads,
-            num_kv_heads=num_kv_heads,
-            out=attn_output,
-        )
-    elif SocVersion.is_Ascend310P():
-        # Used for Qwen2.5-VL model vision block
-        query = query.unsqueeze(0)
-        key = key.unsqueeze(0)
-        value = value.unsqueeze(0)
-        attn_output[:] = torch.ops.npu.npu_prompt_flash_attention(
-            query,
-            key,
-            value,
+            input_layout=input_layout,
+            actual_seq_lengths=actual_seq_lengths,
+            actual_seq_lengths_kv=actual_seq_lengths,
+            scale=scale_value,
             num_heads=num_q_heads,
             num_key_value_heads=num_kv_heads,
-            input_layout="BSND",
-            scale_value=scale_value,
+            sparse_mode=0,
+            **fia_kwargs,
         )
+        attn_output.copy_(output)
+        return attn_output
+    if SocVersion.is_Ascend910():
+        q_seq_len = get_cpu_seq_len(q_seq_len)
+        actual_seq_lengths = q_seq_len.cumsum(dim=0)
+
+        # The backend supplies the fixed split-fuse causal mask required by
+        # sparse mode 3 for both standard attention and MLA.
+        fia_kwargs = {}
+        if query.shape[-1] > value.shape[-1]:
+            # MLA concatenates the NOPE and ROPE parts in Q/K. FIA accepts
+            # large MLA head dimensions only when the ROPE part is separate.
+            nope_dim = value.shape[-1]
+            fia_kwargs["query_rope"] = query[..., nope_dim:].contiguous()
+            fia_kwargs["key_rope"] = key[..., nope_dim:].contiguous()
+            query = query[..., :nope_dim].contiguous()
+            key = key[..., :nope_dim].contiguous()
+
+        output, _ = torch_npu.npu_fused_infer_attention_score(
+            query=query,
+            key=key,
+            value=value,
+            atten_mask=mask,
+            input_layout="TND",
+            actual_seq_lengths=actual_seq_lengths,
+            actual_seq_lengths_kv=actual_seq_lengths,
+            scale=scale_value,
+            num_heads=num_q_heads,
+            num_key_value_heads=num_kv_heads,
+            sparse_mode=3,
+            **fia_kwargs,
+        )
+        attn_output.copy_(output)
     else:
         raise ValueError(
             f"dlinfer doesn't support {SocVersion.device_name()} device currently."
@@ -448,19 +472,75 @@ def paged_prefill_attention(
     kv_scales: Optional[Tensor],
     kv_zeros: Optional[Tensor],
     quant_bits: Optional[int],
+    head_size_v: Optional[int] = None,
 ) -> Tensor:
     if alibi_slopes is not None:
         raise RuntimeError(
             "paged_decode_attention does not " "support alibi_slopes yet"
         )
 
+    if isinstance(block_table, torch.Tensor) and block_table.dtype != torch.int32:
+        block_table = block_table.to(torch.int32)
+
     scale_value = softmax_scale if softmax_scale else 1.0 / math.sqrt(query.shape[-1])
     query = query.contiguous()
+
+    # lmdeploy's DeepSeek MLA path absorbs W_UK into Q. Its paged cache is
+    # therefore [latent K/V, RoPE K], while value_cache is a view of the
+    # latent part. Follow vllm-ascend's multi-token paged attention path:
+    # feed the latent and RoPE components separately to FIA v2, and use the
+    # split-fuse causal mask with sparse mode 3.
+    is_mla = key_cache.shape[-1] != value_cache.shape[-1]
+    if is_mla:
+        num_tokens = query.shape[0]
+        mla_vheadsize = head_size_v or value_cache.shape[-1]
+        if query.shape[-1] <= mla_vheadsize:
+            raise RuntimeError(
+                "MLA paged prefill expects query to contain both latent and RoPE parts"
+            )
+
+        q_nope = query[..., :mla_vheadsize].contiguous()
+        q_rope = query[..., mla_vheadsize:].contiguous()
+
+        # FIA v2 expects paged KV cache in
+        # [block, kv_head, block_size, dim].
+        key_cache = key_cache.permute(0, 2, 1, 3)
+        value_cache = value_cache.permute(0, 2, 1, 3)
+        k_nope = key_cache[..., :mla_vheadsize]
+        k_rope = key_cache[..., mla_vheadsize:]
+        v_nope = value_cache[..., :mla_vheadsize]
+        mask = attn_mask[0] if len(attn_mask) else None
+
+        output, _ = torch_npu.npu_fused_infer_attention_score_v2(
+            q_nope,
+            k_nope,
+            v_nope,
+            query_rope=q_rope,
+            key_rope=k_rope,
+            num_query_heads=num_q_heads,
+            num_key_value_heads=num_kv_heads,
+            input_layout="TND_NTD",
+            atten_mask=mask,
+            sparse_mode=3,
+            softmax_scale=scale_value,
+            block_table=block_table,
+            block_size=block_size,
+            actual_seq_qlen=q_seq_len,
+            actual_seq_kvlen=kv_seq_len,
+        )
+
+        # TND_NTD returns [num_heads, num_tokens, value_head_size].
+        output = output[:, :num_tokens].transpose(0, 1)
+        if attn_output is not None:
+            attn_output.copy_(output)
+            return attn_output
+        return output
+
     block_num = key_cache.size(0)
     key_cache = key_cache.view(block_num, block_size, -1)
     value_cache = value_cache.view(block_num, block_size, -1)
 
-    attn_output, _ = torch.ops.npu.npu_fused_infer_attention_score(
+    output, _ = torch.ops.npu.npu_fused_infer_attention_score(
         query=query,
         key=key_cache,
         value=value_cache,
@@ -476,7 +556,10 @@ def paged_prefill_attention(
         sparse_mode=3,
     )
 
-    return attn_output
+    if attn_output is not None:
+        attn_output.copy_(output)
+        return attn_output
+    return output
 
 
 @register_ops(vendor_ops_registry)
