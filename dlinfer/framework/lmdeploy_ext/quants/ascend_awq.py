@@ -132,7 +132,10 @@ def AscendMergedAwqLinear__init__(
     device: Optional[torch.device] = None,
     is_tp: bool = True,
     out_names: Optional[List[int]] = None,
+    layer_type: str = "attn",
+    dtype: Optional[torch.dtype] = torch.float16,
 ):
+    self.init_tp_args(is_tp, all_reduce=False, colwise=True, layer_type=layer_type)
     if replicate is None:
         replicate = tuple(False for _ in all_out_features)
 
@@ -160,6 +163,8 @@ def AscendMergedAwqLinear__init__(
         device,
         colwise=True,
         is_tp=is_tp,
+        layer_type=layer_type,
+        dtype=dtype,
     )
     self.qweight.weight_loader = self.weight_loader
     self.qweight.weight_spliter = self.weight_spliter_wz
