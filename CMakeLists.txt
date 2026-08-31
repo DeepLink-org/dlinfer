@@ -48,4 +48,8 @@ else()
   message(STATUS "DLINFER_BUILD_DICP=OFF: skipping DICP vendor build (set env DLINFER_BUILD_DICP=ON to enable)")
 endif()
 
+if(DEVICE STREQUAL "ascend")
+  add_subdirectory(dlinfer/vendor/ascend/csrc/grouped_matmul_direct)
+endif()
+
 install(CODE "message(STATUS \"Install completed for device: ${DEVICE}\")")
