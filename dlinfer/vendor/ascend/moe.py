@@ -2,6 +2,7 @@ import os
 import torch
 import torch.distributed as dist
 from dlinfer.utils.type_annotation import MoECommType
+from dlinfer.vendor.ascend import grouped_matmul_direct
 
 
 # aclnnGroupedMatmulV5 requires the groupList tensor to have at most 1024
@@ -14,6 +15,13 @@ MAX_GROUP_LIST_SIZE = int(os.environ.get("DLINFER_MAX_GROUP_LIST_SIZE", "1024"))
 #   True  -> catch-all (identical scheme to graph capture)
 #   False -> per-chunk row slicing (weight views, each row computed once)
 _MOE_PREFILL_USE_CATCHALL = os.environ.get("DLINFER_MOE_PREFILL_CATCHALL", "0") == "1"
+_GMM_EXPERIMENT_MODE = os.environ.get("DLINFER_GMM_EXPERIMENT", "chunked")
+_GMM_EXPERIMENT_ALLOWED_MODES = {"chunked", "direct2560"}
+if _GMM_EXPERIMENT_MODE not in _GMM_EXPERIMENT_ALLOWED_MODES:
+    raise RuntimeError(
+        "DLINFER_GMM_EXPERIMENT must be set before Python starts to one of "
+        f"{sorted(_GMM_EXPERIMENT_ALLOWED_MODES)}, got {_GMM_EXPERIMENT_MODE!r}"
+    )
 
 
 class ChunkedMoeWeightLayout:
@@ -33,6 +41,23 @@ class ChunkedMoeWeightLayout:
 def build_chunked_moe_storage_layout(num_experts: int):
     """Return packed storage size/layout for direct weight loading."""
     if num_experts <= MAX_GROUP_LIST_SIZE:
+        return num_experts, None
+
+    # Select the physical expert-weight layout before checkpoint loading and
+    # graph capture. Direct mode keeps exactly one continuous 2560-row tensor.
+    use_direct = _GMM_EXPERIMENT_MODE == "direct2560"
+    if use_direct:
+        if num_experts != 2560:
+            raise RuntimeError(
+                "DLINFER_GMM_EXPERIMENT=direct2560 is restricted to exactly "
+                f"2560 logical experts, got {num_experts}"
+            )
+        print(
+            "DLInfer MoE2560 enabled: backend=bundled_pybind "
+            "logical_experts=2560 weight_rows=2560 packed=False "
+            "group_list_type=1",
+            flush=True,
+        )
         return num_experts, None
 
     chunk_size = MAX_GROUP_LIST_SIZE - 2
@@ -81,29 +106,43 @@ def _grouped_mlp(
     down_weights: torch.Tensor,
     group_list: torch.Tensor,
     group_list_type: int,
+    use_bundled_direct: bool = False,
 ):
+    grouped_matmul = (
+        grouped_matmul_direct.grouped_matmul
+        if use_bundled_direct
+        else lambda x, weight, groups, list_type: torch.ops.npu.npu_grouped_matmul(
+            [x],
+            [weight],
+            group_list=groups,
+            split_item=2,
+            group_type=0,
+            group_list_type=list_type,
+        )[0]
+    )
+
     # up sample
-    up_proj = torch.ops.npu.npu_grouped_matmul(
-        [hidden_states],
-        [gate_up_weights.transpose(1, 2)],
-        group_list=group_list,
-        split_item=2,
-        group_type=0,
-        group_list_type=group_list_type,
-    )[0]
+    up_weight = (
+        gate_up_weights if use_bundled_direct else gate_up_weights.transpose(1, 2)
+    )
+    up_proj = grouped_matmul(
+        hidden_states,
+        up_weight,
+        group_list,
+        group_list_type,
+    )
 
     # activation
     gate_cache = torch.ops.npu.npu_swiglu(up_proj, -1)
 
     # down sample
-    down_proj = torch.ops.npu.npu_grouped_matmul(
-        [gate_cache],
-        [down_weights.transpose(1, 2)],
-        group_list=group_list,
-        split_item=2,
-        group_type=0,
-        group_list_type=group_list_type,
-    )[0]
+    down_weight = down_weights if use_bundled_direct else down_weights.transpose(1, 2)
+    down_proj = grouped_matmul(
+        gate_cache,
+        down_weight,
+        group_list,
+        group_list_type,
+    )
     return down_proj
 
 
@@ -245,6 +284,38 @@ def apply_mlp(
     if num_experts <= MAX_GROUP_LIST_SIZE:
         return _grouped_mlp(
             hidden_states, gate_up_weights, down_weights, group_list, group_list_type
+        )
+
+    use_direct = _GMM_EXPERIMENT_MODE == "direct2560"
+    if use_direct:
+        if not grouped_matmul_direct.is_available():
+            raise RuntimeError(
+                "DLINFER_GMM_EXPERIMENT=direct2560 requires the bundled "
+                "GroupedMatmul extension: "
+                f"{grouped_matmul_direct.unavailable_reason()}"
+            )
+        if num_experts != 2560:
+            raise RuntimeError(f"direct2560 requires 2560 experts, got {num_experts}")
+        if chunked_moe_layout is not None:
+            raise RuntimeError("direct2560 received a packed chunked weight layout")
+        if gate_up_weights.dim() != 3 or down_weights.dim() != 3:
+            raise RuntimeError("direct2560 requires rank-3 single-weight tensors")
+        if gate_up_weights.size(0) != 2560 or down_weights.size(0) != 2560:
+            raise RuntimeError(
+                "direct2560 requires continuous 2560-row weights, got "
+                f"gate_up={gate_up_weights.size(0)}, down={down_weights.size(0)}"
+            )
+        if group_list_type != 1:
+            raise RuntimeError(
+                f"direct2560 requires group_list_type=1, got {group_list_type}"
+            )
+        return _grouped_mlp(
+            hidden_states,
+            gate_up_weights,
+            down_weights,
+            group_list,
+            group_list_type=1,
+            use_bundled_direct=True,
         )
 
     # More experts than aclnnGroupedMatmulV5 supports: split into chunks of at
