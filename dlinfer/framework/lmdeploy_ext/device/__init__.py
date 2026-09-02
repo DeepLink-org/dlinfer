@@ -155,6 +155,38 @@ def patch_rejection_sampler():
 
 
 ##### patch cache engine #####
+
+
+def _validate_split_mla_cache_layout(caches, model_config):
+    """Validate the invariant layout produced for split MLA caches."""
+    if len(caches) < 2:
+        raise ValueError('split MLA cache allocation must provide K and V caches')
+
+    # allocate_caches keeps a leading layer dimension; each layer view passed
+    # to attention is therefore one dimension smaller.
+    rope_cache, nope_cache = caches[:2]
+    if rope_cache.ndim != 5 or nope_cache.ndim != 5:
+        raise ValueError(
+            'split MLA caches must be 5D before layer slicing, got '
+            f'{rope_cache.ndim}D and {nope_cache.ndim}D')
+
+    expected_rope_width = model_config.k_head_dim
+    expected_nope_width = model_config.v_head_dim
+    if rope_cache.shape[-1] != expected_rope_width:
+        raise ValueError(
+            'split MLA RoPE cache has an unexpected width: '
+            f'expected {expected_rope_width}, got {rope_cache.shape[-1]}')
+    if nope_cache.shape[-1] != expected_nope_width:
+        raise ValueError(
+            'split MLA noPE cache has an unexpected width: '
+            f'expected {expected_nope_width}, got {nope_cache.shape[-1]}')
+
+    if not rope_cache.is_contiguous():
+        raise ValueError('split MLA RoPE cache must be contiguous')
+    if not nope_cache.is_contiguous():
+        raise ValueError('split MLA noPE cache must be contiguous')
+
+
 def patch_contiguous_cache_engine():
     from lmdeploy.pytorch.config import CacheConfig, ModelConfig
     from functools import reduce
@@ -191,8 +223,9 @@ def patch_contiguous_cache_engine():
             mem_pool_size += desc.aligned_size
             alignments.append(desc.alignment)
 
-        # compute gcd of alignments
-        alignments_gcd = reduce(gcd, alignments) if alignments else 1
+        # Include descriptor sizes because some caches are smaller than their alignment.
+        allocation_units = alignments + [desc.size for desc in cache_descs]
+        alignments_gcd = reduce(gcd, allocation_units) if allocation_units else 1
         assert (
             mem_pool_size % alignments_gcd == 0
         ), "mem_pool_size must be divisible by alignments_gcd"
@@ -215,9 +248,106 @@ def patch_contiguous_cache_engine():
             )
             remain_pool = remain_pool[desc.aligned_size // alignments_gcd :, :, :, :]
             caches.append(cache)
+
+        if getattr(model_config, 'split_mla_kv_cache', False):
+            _validate_split_mla_cache_layout(caches, model_config)
         return mem_pool, caches
 
     cache_engine.CacheEngine.allocate_caches = _cache_engine_allocate_caches
+
+
+def patch_glm_moe_dsa_split_cache():
+    """Use independent contiguous noPE and RoPE caches for Ascend DSA."""
+    from lmdeploy.pytorch.configurations.glm_moe_dsa import (
+        GlmMoeDsaModelConfigBuilder,
+    )
+    from lmdeploy.pytorch.distributed import get_dist_manager
+    from lmdeploy.pytorch.models.glm_moe_dsa import GlmMoeDsaAttention
+
+    if getattr(GlmMoeDsaModelConfigBuilder,
+               '_dlinfer_split_cache_patched', False):
+        return
+
+    original_build = GlmMoeDsaModelConfigBuilder.build
+
+    @classmethod
+    def custom_build(cls,
+                     hf_config,
+                     model_path: str | None = None,
+                     **kwargs):
+        config = original_build(hf_config,
+                                model_path=model_path,
+                                **kwargs)
+        # Cache only the RoPE key in K and the latent/noPE value in V.  Their
+        # combined width is unchanged, but each cache can now be contiguous.
+        config.k_head_dim = hf_config.qk_rope_head_dim
+        config.v_head_dim = hf_config.kv_lora_rank
+        config.split_mla_kv_cache = True
+        return config
+
+    def custom_forward(
+        self,
+        hidden_states,
+        rotary_pos_emb,
+        past_key_value=None,
+        attn_metadata=None,
+        topk_indices_buffer=None,
+        skip_topk: bool = False,
+    ):
+        dist_config = get_dist_manager().current_config()
+        num_heads = (self.num_heads if dist_config.dp > 1 else
+                     self.num_heads // dist_config.attn_tp)
+        nope_size = self.kv_lora_rank
+        q_len = hidden_states.size(1)
+
+        query_states, key_states, value_states, q_pe, k_pe, qr = (
+            self._qkv_proj(hidden_states, num_heads=num_heads))
+        cos, sin = rotary_pos_emb
+        q_pe, k_pe = self.apply_rotary_pos_emb(q_pe,
+                                               k_pe,
+                                               cos,
+                                               sin,
+                                               inplace=False)
+        query_states[..., nope_size:] = q_pe
+        key_states[..., nope_size:] = k_pe
+
+        if topk_indices_buffer is None:
+            raise RuntimeError(
+                f'Layer {self.layer_idx} requires a DSA top-k indices buffer.')
+        if self.indexer is not None and not skip_topk:
+            topk_indices = topk_indices_buffer.write(
+                self.indexer(hidden_states,
+                             qr,
+                             rotary_pos_emb,
+                             past_key_value[-2:],
+                             attn_metadata=attn_metadata))
+        else:
+            topk_indices = topk_indices_buffer.read(q_len,
+                                                    hidden_states.device)
+
+        rope_cache, nope_cache = past_key_value[:2]
+
+        attn_output = self.attn_fwd(
+            query_states,
+            key_states,
+            value_states,
+            rope_cache,
+            nope_cache,
+            attn_metadata,
+            k_scales_zeros=(None if len(past_key_value) == 2 else
+                            past_key_value[2]),
+            v_scales_zeros=(None if len(past_key_value) == 2 else
+                            past_key_value[3]),
+            nsa_indices=topk_indices,
+        )
+        attn_bmm_out = attn_output.new_empty(q_len, num_heads,
+                                             self.v_head_dim)
+        self.vc(attn_output, attn_bmm_out)
+        return self.o_proj(attn_bmm_out.flatten(-2, -1)[None])
+
+    GlmMoeDsaModelConfigBuilder.build = custom_build
+    GlmMoeDsaModelConfigBuilder._dlinfer_split_cache_patched = True
+    GlmMoeDsaAttention.forward = custom_forward
 
 
 ##### patch state cache engine #####
@@ -366,9 +496,9 @@ def patch_gated_delta_net():
             attn_metadata: Any,
         ):
             self.is_decoding = attn_metadata.is_decoding
-            self.cu_seqlens = attn_metadata.q_start_loc
+            self.cu_seqlens = attn_metadata.cu_seqlens_q
             self.is_multi_token_decoding = attn_metadata.is_multi_token_decoding
-            self.max_q_seq_len = attn_metadata.max_q_seq_len
+            self.max_q_seq_len = attn_metadata.max_q_seqlen
 
             self.num_spec_tokens = get_step_ctx_manager().build_ctx.num_spec_tokens
             self.cache_seqlens = getattr(attn_metadata, "cache_seqlens", None)
@@ -955,6 +1085,7 @@ def vendor_device_init():
         patch_contiguous_cache_engine()
     if vendor_name == "ascend":
         patch_rejection_sampler()
+        patch_glm_moe_dsa_split_cache()
         patch_state_cache_engine()
         patch_gated_delta_net()
         patch_qwen3_5()

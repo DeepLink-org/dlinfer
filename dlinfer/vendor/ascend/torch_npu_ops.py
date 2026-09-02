@@ -15,13 +15,16 @@ from dlinfer.utils.type_annotation import (
     MoECommType,
     MoeMetadata,
 )
-from .utils import SocVersion, get_cpu_seq_len
+from .utils import SocVersion
 from .attention import decode_attention, decode_attention_mla
 from . import moe
 
 __all__ = [
     "add_rms_norm",
     "apply_rotary_pos_emb",
+    "apply_rotary_pos_emb_interleaved",
+    "lightning_indexer",
+    "sparse_flash_attention",
     "prefill_attention",
     "incre_flash_attention",
     "fill_kv_cache",
@@ -32,11 +35,13 @@ __all__ = [
     "get_cache_len",
     "weight_quant_matmul",
     "fused_moe",
+    "fused_moe_w8a8",
     "linear",
     "rms_norm_w8a8",
     "add_rms_norm_w8a8",
     "dynamic_quant",
     "linear_w8a8",
+    "linear_w8a8_static",
 ]
 
 
@@ -89,9 +94,10 @@ def linear_w8a8(
 ) -> Tensor:
 
     out_dtype = torch.bfloat16 if out_dtype == torch.float16 else out_dtype
-    hidden_states = hidden_states.squeeze(0)
-    linear_scale = linear_scale.squeeze()
-    rms_scale = rms_scale.squeeze(0)
+    output_shape = (*hidden_states.shape[:-1], weight.shape[0])
+    hidden_states = hidden_states.reshape(-1, hidden_states.shape[-1])
+    linear_scale = linear_scale.reshape(-1)
+    rms_scale = rms_scale.reshape(-1)
 
     output = torch.ops.npu.npu_quant_matmul(
         hidden_states,
@@ -101,8 +107,40 @@ def linear_w8a8(
         bias=bias,
         output_dtype=out_dtype,
     )
-    output = output.unsqueeze(0)
-    return output
+    return output.reshape(output_shape)
+
+
+@register_ops(vendor_ops_registry)
+def linear_w8a8_static(
+    hidden_states: Tensor,
+    weight: Tensor,
+    input_scale: Tensor,
+    input_offset: Tensor,
+    deq_scale: Tensor,
+    out_dtype: torch.dtype,
+    quant_dtype: torch.dtype,
+    quant_bias: Optional[Tensor],
+) -> Tensor:
+    """ModelSlim static per-tensor activation / per-channel weight W8A8."""
+    out_dtype = torch.bfloat16 if out_dtype == torch.float16 else out_dtype
+    input_size = hidden_states.shape[-1]
+    reciprocal_scale = input_scale.reciprocal().reshape(-1).expand(input_size)
+    offset = input_offset.to(input_scale.dtype).reshape(-1).expand(input_size)
+    quantized = torch.ops.npu.npu_quantize(
+        hidden_states,
+        reciprocal_scale,
+        offset,
+        torch.qint8,
+        -1,
+        False,
+    )
+    return torch.ops.npu.npu_quant_matmul(
+        quantized,
+        weight.t(),
+        deq_scale.reshape(-1),
+        bias=quant_bias,
+        output_dtype=out_dtype,
+    )
 
 
 @register_ops(vendor_ops_registry)
@@ -169,11 +207,102 @@ def apply_rotary_pos_emb(
 
 
 @register_ops(vendor_ops_registry)
+def apply_rotary_pos_emb_interleaved(
+    x: Tensor,
+    cos: Tensor,
+    sin: Tensor,
+    return_native_layout: bool = True,
+) -> Tensor:
+    """Apply adjacent-pair RoPE with the native Ascend interleave operator.
+
+    Return the vendor's native front/back-half layout by default. Set
+    return_native_layout=False to restore adjacent pairs.
+    """
+    if x.ndim != 4 or cos.ndim != 4 or sin.ndim != 4:
+        raise ValueError(
+            "npu_interleave_rope expects 4D x/cos/sin tensors, got "
+            f"{x.ndim}D, {cos.ndim}D and {sin.ndim}D"
+        )
+    output = torch_npu.npu_interleave_rope(
+        x.contiguous(), cos.contiguous(), sin.contiguous()
+    )
+    if return_native_layout:
+        return output
+
+    # The native op returns rotated even and odd elements in separate halves.
+    output_even, output_odd = output.chunk(2, dim=-1)
+    return torch.stack((output_even, output_odd), dim=-1).flatten(-2)
+
+@register_ops(vendor_ops_registry)
+def lightning_indexer(
+    query: Tensor,
+    key: Tensor,
+    weights: Tensor,
+    actual_seq_lengths_query: Optional[Tensor],
+    actual_seq_lengths_key: Optional[Tensor],
+    block_table: Optional[Tensor],
+    sparse_count: int,
+) -> Tensor:
+    """BF16 Lightning Indexer backed by the native torch-npu operator."""
+    indices, _ = torch_npu.npu_lightning_indexer(
+        query=query.contiguous(),
+        key=key,
+        weights=weights.contiguous(),
+        actual_seq_lengths_query=actual_seq_lengths_query,
+        actual_seq_lengths_key=actual_seq_lengths_key,
+        block_table=block_table,
+        layout_query="TND",
+        layout_key="PA_BSND",
+        sparse_count=sparse_count,
+        sparse_mode=3,
+    )
+    return indices
+
+
+@register_ops(vendor_ops_registry)
+def sparse_flash_attention(
+    query: Tensor,
+    key: Tensor,
+    value: Tensor,
+    sparse_indices: Tensor,
+    scale_value: float,
+    block_table: Optional[Tensor],
+    actual_seq_lengths_query: Optional[Tensor],
+    kv_seqlens: Optional[Tensor],
+    query_rope: Optional[Tensor],
+    key_rope: Optional[Tensor],
+) -> Tensor:
+    """BF16 sparse flash attention backed by the native torch-npu operator."""
+    if query.dtype not in (torch.bfloat16, torch.float16):
+        raise TypeError(
+            f"sparse_flash_attention expects BF16/FP16 query, got {query.dtype}"
+        )
+
+    output, _, _ = torch_npu.npu_sparse_flash_attention(
+        query=query.contiguous(),
+        key=key,
+        value=value,
+        sparse_indices=sparse_indices.contiguous(),
+        scale_value=scale_value,
+        block_table=block_table,
+        actual_seq_lengths_query=actual_seq_lengths_query,
+        actual_seq_lengths_kv=kv_seqlens,
+        query_rope=None if query_rope is None else query_rope.contiguous(),
+        key_rope=key_rope,
+        sparse_block_size=1,
+        layout_query="TND",
+        layout_kv="PA_BSND",
+        sparse_mode=3,
+        attention_mode=2,
+    )
+    return output
+
+
+@register_ops(vendor_ops_registry)
 def prefill_attention(
     query: Tensor,
     key: Tensor,
     value: Tensor,
-    q_start_loc: Tensor,
     q_seq_len: Tensor,
     max_q_seq_len: int,
     num_q_heads: int,
@@ -182,6 +311,7 @@ def prefill_attention(
     softmax_scale: Optional[float],
     alibi_slopes: Optional[Sequence[float]],
     attn_output: Optional[Tensor],
+    actual_seq_lengths_cpu: Optional[Tensor],
 ) -> Tensor:
     if alibi_slopes is not None:
         raise RuntimeError(
@@ -197,14 +327,18 @@ def prefill_attention(
         mask = attn_mask[0]
     else:
         # Handle qwenvl vision part flash-attention
-        q_seq_len = get_cpu_seq_len(q_seq_len)
         is_tnd = (
             query.dim() == 3
             and query.shape[-2] == num_q_heads
             and key.shape[-2] == num_kv_heads
         )
         input_layout = "TND" if is_tnd else "BSH"
-        actual_seq_lengths = q_seq_len.cumsum(dim=0) if is_tnd else None
+        if is_tnd and actual_seq_lengths_cpu is None:
+            raise ValueError(
+                "actual_seq_lengths_cpu is required for TND prefill attention"
+            )
+        if not is_tnd:
+            actual_seq_lengths_cpu = None
         fia_kwargs = {}
         if is_tnd and query.shape[-1] > value.shape[-1]:
             nope_dim = value.shape[-1]
@@ -217,8 +351,8 @@ def prefill_attention(
             key=key,
             value=value,
             input_layout=input_layout,
-            actual_seq_lengths=actual_seq_lengths,
-            actual_seq_lengths_kv=actual_seq_lengths,
+            actual_seq_lengths=actual_seq_lengths_cpu,
+            actual_seq_lengths_kv=actual_seq_lengths_cpu,
             scale=scale_value,
             num_heads=num_q_heads,
             num_key_value_heads=num_kv_heads,
@@ -228,9 +362,6 @@ def prefill_attention(
         attn_output.copy_(output)
         return attn_output
     if SocVersion.is_Ascend910():
-        q_seq_len = get_cpu_seq_len(q_seq_len)
-        actual_seq_lengths = q_seq_len.cumsum(dim=0)
-
         # The backend supplies the fixed split-fuse causal mask required by
         # sparse mode 3 for both standard attention and MLA.
         fia_kwargs = {}
@@ -249,8 +380,8 @@ def prefill_attention(
             value=value,
             atten_mask=mask,
             input_layout="TND",
-            actual_seq_lengths=actual_seq_lengths,
-            actual_seq_lengths_kv=actual_seq_lengths,
+            actual_seq_lengths=actual_seq_lengths_cpu,
+            actual_seq_lengths_kv=actual_seq_lengths_cpu,
             scale=scale_value,
             num_heads=num_q_heads,
             num_key_value_heads=num_kv_heads,
@@ -343,6 +474,32 @@ def fill_kv_cache(
     v_scales_zeros: Sequence[Optional[Tensor]],
     quant_bits: int,
 ) -> Tuple[Tensor, Tensor]:
+    split_mla_cache = (
+        key_cache.dim() == 4
+        and value_cache.dim() == 4
+        and key_cache.size(-1) > 0
+        and value_cache.size(-1) > 0
+        and key.size(-1) == key_cache.size(-1) + value_cache.size(-1)
+        and value.size(-1) == value_cache.size(-1)
+    )
+    if split_mla_cache:
+        # key_cache -> rope_cache, value_cache -> nope_cache
+        rope_head_size = key_cache.size(-1)
+        key_rope = key[..., -rope_head_size:].contiguous()
+        value_nope = value.contiguous()
+        key_cache_reshaped = torch.flatten(key_cache, start_dim=0, end_dim=1)
+        value_cache_reshaped = torch.flatten(
+            value_cache, start_dim=0, end_dim=1
+        )
+        kv_indices = kv_indices.view(-1, 1)
+        torch.ops.npu.npu_scatter_nd_update_(
+            key_cache_reshaped, kv_indices, key_rope
+        )
+        torch.ops.npu.npu_scatter_nd_update_(
+            value_cache_reshaped, kv_indices, value_nope
+        )
+        return key_cache, value_cache
+
     # only support contiguous k,v
     key = key.contiguous()
     value = value.contiguous()
@@ -396,8 +553,8 @@ def paged_decode_attention(
     value_cache: Tensor,
     block_table: Optional[Tensor],
     block_size: int,
-    q_seq_len: Tensor,
-    kv_seq_len: Tensor,
+    actual_q_seqlens_cpu: Tensor,
+    kv_seqlens_cpu: Tensor,
     max_kv_seq_len: int,
     num_q_heads: int,
     num_kv_heads: int,
@@ -429,8 +586,8 @@ def paged_decode_attention(
             scale_value=scale_value,
             block_table=block_table,
             block_size=block_size,
-            q_seq_len=q_seq_len,
-            kv_seq_len=kv_seq_len,
+            actual_q_seqlens_cpu=actual_q_seqlens_cpu,
+            kv_seqlens_cpu=kv_seqlens_cpu,
             softmax_scale=softmax_scale,
             attn_output=attn_output,
         )
@@ -442,7 +599,7 @@ def paged_decode_attention(
             num_q_heads=num_q_heads,
             scale_value=scale_value,
             block_table=block_table,
-            kv_seq_len=kv_seq_len,
+            kv_seqlens_cpu=kv_seqlens_cpu,
             mla_vheadsize=value_headsize,
             attn_output=attn_output,
         )
@@ -457,10 +614,8 @@ def paged_prefill_attention(
     value_cache: Tensor,
     block_table: Tensor,
     block_size: int,
-    q_start_loc: Tensor,
-    q_seq_len: Tensor,
-    kv_seq_len: Tensor,
-    cu_seq_lens_kv: Tensor,
+    actual_q_seqlens_cpu: Tensor,
+    kv_seqlens_cpu: Tensor,
     max_q_seq_len: int,
     max_kv_seq_len: int,
     num_q_heads: int,
@@ -525,8 +680,8 @@ def paged_prefill_attention(
             softmax_scale=scale_value,
             block_table=block_table,
             block_size=block_size,
-            actual_seq_qlen=q_seq_len,
-            actual_seq_kvlen=kv_seq_len,
+            actual_seq_qlen=actual_q_seqlens_cpu,
+            actual_seq_kvlen=kv_seqlens_cpu,
         )
 
         # TND_NTD returns [num_heads, num_tokens, value_head_size].
@@ -548,8 +703,8 @@ def paged_prefill_attention(
         block_table=block_table,
         input_layout="TND",
         block_size=block_size,
-        actual_seq_lengths=q_seq_len,
-        actual_seq_lengths_kv=kv_seq_len,
+        actual_seq_lengths=actual_q_seqlens_cpu,
+        actual_seq_lengths_kv=kv_seqlens_cpu,
         num_key_value_heads=num_kv_heads,
         num_heads=num_q_heads,
         scale=scale_value,
@@ -612,77 +767,6 @@ def moe_gating_topk_softmax(
             router_logits, None, topk
         )
     return routing_weights, selected_idx
-
-
-# TODO only for internlm in transformers lib.
-# see issue #9 for details
-@register_ops(vendor_ops_registry)
-def fused_attention(
-    query_states: Tensor,
-    key_states: Tensor,
-    value_states: Tensor,
-    mask: Sequence[Optional[Tensor]],
-) -> Tensor:
-    batch_size = query_states.shape[0]
-    query_states = query_states.squeeze(0)
-    key_states = key_states.squeeze(0)
-    value_states = value_states.squeeze(0)
-    q_seq_len, num_q_heads, _ = query_states.shape
-    kv_seq_len, num_kv_heads, _ = value_states.shape
-    attn_output = torch.empty_like(query_states)
-
-    for i in range(batch_size):
-        if q_seq_len == kv_seq_len:
-            # mask must be a square
-            if not mask[i : i + 1][0].shape[-1] == mask[i : i + 1][0].shape[-2]:
-                min_shape = min(
-                    mask[i : i + 1][0].shape[-1], mask[i : i + 1][0].shape[-2]
-                )
-                square_mask = mask[i : i + 1][0][..., :min_shape, :min_shape]
-                square_mask = square_mask.contiguous()
-            else:
-                square_mask = mask[i : i + 1][0]
-
-            prefill_attention(
-                query_states,
-                key_states,
-                value_states,
-                torch.tensor(
-                    [kv_seq_len - q_seq_len],
-                    dtype=torch.int64,
-                    device=query_states.device,
-                ),
-                torch.tensor(
-                    [kv_seq_len], dtype=torch.int64, device=query_states.device
-                ),
-                q_seq_len,
-                num_q_heads,
-                num_kv_heads,
-                [
-                    square_mask,
-                ],
-                None,
-                None,
-                attn_output,
-            )
-        else:
-            paged_decode_attention(
-                query_states,
-                key_states,
-                value_states,
-                None,
-                0,
-                torch.tensor(
-                    [kv_seq_len], dtype=torch.int64, device=query_states.device
-                ),
-                kv_seq_len,
-                num_q_heads,
-                num_kv_heads,
-                None,
-                None,
-                attn_output,
-            )
-    return attn_output
 
 
 # Quantification of W4A16 is currently supported and tested.
@@ -790,6 +874,96 @@ def fused_moe(
     )
 
     return moe_output
+
+
+@register_ops(vendor_ops_registry)
+def fused_moe_w8a8(
+    hidden_states: Tensor,
+    gate_up_weights: Tensor,
+    gate_up_scales: Tensor,
+    down_weights: Tensor,
+    down_scales: Tensor,
+    topk_weights: Tensor,
+    topk_ids: Tensor,
+    topk: int,
+    renormalize: bool,
+    moe_metadata: MoeMetadata,
+) -> Tensor:
+    """Dynamic W8A8 MoE using only public torch_npu operators."""
+    topk_ids = topk_ids.to(torch.int32)
+    (
+        hidden_states,
+        num_tokens,
+        paded_num_tokens,
+        x_active_mask,
+        topk_ids,
+        topk_weights,
+    ) = moe.moe_prepare(
+        hidden_states,
+        moe_metadata.x_active_mask,
+        moe_metadata.pad_size,
+        moe_metadata.tp_size,
+        moe_metadata.ep_size,
+        moe_metadata.tp_rank,
+        moe_metadata.moe_comm_type,
+        topk_ids,
+        topk_weights,
+    )
+
+    if moe_metadata.moe_comm_type == MoECommType.MC2:
+        moe_output = moe.fused_moe_mc2(
+            hidden_states,
+            gate_up_weights,
+            down_weights,
+            topk_weights,
+            topk_ids,
+            renormalize,
+            moe_metadata.ep_size,
+            moe_metadata.ep_rank,
+            moe_metadata.moe_group_name,
+            x_active_mask,
+            None,
+            gate_up_scales,
+            down_scales,
+        )
+    elif moe_metadata.moe_comm_type == MoECommType.ALLTOALL:
+        moe_output = moe.fused_moe_all2all(
+            hidden_states,
+            gate_up_weights,
+            down_weights,
+            topk_weights,
+            topk_ids,
+            renormalize,
+            moe_metadata.ep_size,
+            moe_metadata.ep_rank,
+            moe_metadata.ep_group,
+            moe_metadata.expert_ids_per_ep_rank,
+            None,
+            gate_up_scales,
+            down_scales,
+        )
+    else:
+        moe_output = moe.fused_moe_naive(
+            hidden_states,
+            gate_up_weights,
+            down_weights,
+            topk_weights,
+            topk_ids,
+            topk,
+            renormalize,
+            None,
+            gate_up_scales,
+            down_scales,
+        )
+
+    return moe.moe_finalize(
+        moe_output,
+        num_tokens,
+        paded_num_tokens,
+        moe_metadata.ep_size,
+        moe_metadata.tp_size,
+        moe_metadata.tp_group,
+    )
 
 
 @register_ops(vendor_ops_registry)

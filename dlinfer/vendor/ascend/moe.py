@@ -107,6 +107,79 @@ def _grouped_mlp(
     return down_proj
 
 
+def _grouped_mlp_w8a8(
+    hidden_states: torch.Tensor,
+    gate_up_weights: torch.Tensor,
+    gate_up_scales: torch.Tensor,
+    down_weights: torch.Tensor,
+    down_scales: torch.Tensor,
+    group_list: torch.Tensor,
+    group_list_type: int,
+):
+    """Public-op W8A8 MoE fallback: quant GMM1, SwiGLU, quant GMM2.
+
+    This intentionally uses only public NPU operators.  The intermediate GMM1
+    output is dequantized to the model dtype, then requantized per token after
+    SwiGLU, matching vllm-ascend's non-fused fallback.
+    """
+    quantized, input_scale = torch.ops.npu.npu_dynamic_quant(
+        hidden_states, dst_type=torch.int8
+    )
+    gate_up = torch.ops.npu.npu_grouped_matmul(
+        [quantized],
+        [gate_up_weights.transpose(1, 2)],
+        scale=[gate_up_scales.squeeze(-1)],
+        per_token_scale=[input_scale],
+        group_list=group_list,
+        split_item=2,
+        group_type=0,
+        group_list_type=group_list_type,
+        output_dtype=hidden_states.dtype,
+    )[0]
+
+    activated = torch.ops.npu.npu_swiglu(gate_up, -1)
+    activated_quant, activated_scale = torch.ops.npu.npu_dynamic_quant(
+        activated, dst_type=torch.int8
+    )
+    return torch.ops.npu.npu_grouped_matmul(
+        [activated_quant],
+        [down_weights.transpose(1, 2)],
+        scale=[down_scales.squeeze(-1)],
+        per_token_scale=[activated_scale],
+        group_list=group_list,
+        split_item=2,
+        group_type=0,
+        group_list_type=group_list_type,
+        output_dtype=hidden_states.dtype,
+    )[0]
+
+
+def apply_mlp_w8a8(
+    hidden_states: torch.Tensor,
+    gate_up_weights: torch.Tensor,
+    gate_up_scales: torch.Tensor,
+    down_weights: torch.Tensor,
+    down_scales: torch.Tensor,
+    group_list: torch.Tensor,
+    group_list_type: int,
+):
+    """Apply GLM-5.2 W8A8 experts through the non-fused public-op path."""
+    if gate_up_weights.size(0) > MAX_GROUP_LIST_SIZE:
+        raise RuntimeError(
+            "W8A8 fallback supports at most 1024 local experts; "
+            f"got {gate_up_weights.size(0)}"
+        )
+    return _grouped_mlp_w8a8(
+        hidden_states,
+        gate_up_weights,
+        gate_up_scales,
+        down_weights,
+        down_scales,
+        group_list,
+        group_list_type,
+    )
+
+
 def _apply_mlp_chunked_eager(
     hidden_states: torch.Tensor,
     gate_up_weights: torch.Tensor,
@@ -359,6 +432,8 @@ def fused_moe_naive(
     topk: int,
     renormalize: bool,
     chunked_moe_layout: ChunkedMoeWeightLayout = None,
+    gate_up_scales: torch.Tensor = None,
+    down_scales: torch.Tensor = None,
 ):
     num_experts = (
         chunked_moe_layout.num_experts
@@ -389,14 +464,25 @@ def fused_moe_naive(
     # MLP
     group_list_type = 1
     expert_tokens = expert_tokens.to(torch.int64)
-    mlp_output = apply_mlp(
-        expanded_hidden_states,
-        gate_up_weights,
-        down_weights,
-        expert_tokens,
-        group_list_type,
-        chunked_moe_layout,
-    )
+    if gate_up_scales is None:
+        mlp_output = apply_mlp(
+            expanded_hidden_states,
+            gate_up_weights,
+            down_weights,
+            expert_tokens,
+            group_list_type,
+            chunked_moe_layout,
+        )
+    else:
+        mlp_output = apply_mlp_w8a8(
+            expanded_hidden_states,
+            gate_up_weights,
+            gate_up_scales,
+            down_weights,
+            down_scales,
+            expert_tokens,
+            group_list_type,
+        )
 
     # distribute combine
     moe_output = torch.ops.npu.npu_moe_token_unpermute(
@@ -419,6 +505,8 @@ def fused_moe_mc2(
     moe_group_name: str,
     x_active_mask: torch.Tensor,
     chunked_moe_layout: ChunkedMoeWeightLayout = None,
+    gate_up_scales: torch.Tensor = None,
+    down_scales: torch.Tensor = None,
 ):
     # do renormalize
     if renormalize:
@@ -478,14 +566,25 @@ def fused_moe_mc2(
 
     # MLP
     group_list_type = 0
-    mlp_output = apply_mlp(
-        expanded_hidden_states,
-        gate_up_weights,
-        down_weights,
-        expert_tokens,
-        group_list_type,
-        chunked_moe_layout,
-    )
+    if gate_up_scales is None:
+        mlp_output = apply_mlp(
+            expanded_hidden_states,
+            gate_up_weights,
+            down_weights,
+            expert_tokens,
+            group_list_type,
+            chunked_moe_layout,
+        )
+    else:
+        mlp_output = apply_mlp_w8a8(
+            expanded_hidden_states,
+            gate_up_weights,
+            gate_up_scales,
+            down_weights,
+            down_scales,
+            expert_tokens,
+            group_list_type,
+        )
 
     # distribute combine
     kwargs_mc2 = {
@@ -535,6 +634,8 @@ def fused_moe_all2all(
     ep_group: dist.ProcessGroup,
     expert_ids_per_ep_rank: torch.Tensor,
     chunked_moe_layout: ChunkedMoeWeightLayout = None,
+    gate_up_scales: torch.Tensor = None,
+    down_scales: torch.Tensor = None,
 ):
     num_local_experts = (
         chunked_moe_layout.num_experts
@@ -692,14 +793,26 @@ def fused_moe_all2all(
         dispatched_outputs = dispatch(hidden_states, topk_ids)
 
         # MLP
-        mlp_output = apply_mlp(
-            dispatched_outputs["hidden_states"],
-            gate_up_weights,
-            down_weights,
-            dispatched_outputs["group_list"].to(torch.int64),
-            dispatched_outputs["group_list_type"],
-            chunked_moe_layout,
-        )
+        group_list = dispatched_outputs["group_list"].to(torch.int64)
+        if gate_up_scales is None:
+            mlp_output = apply_mlp(
+                dispatched_outputs["hidden_states"],
+                gate_up_weights,
+                down_weights,
+                group_list,
+                dispatched_outputs["group_list_type"],
+                chunked_moe_layout,
+            )
+        else:
+            mlp_output = apply_mlp_w8a8(
+                dispatched_outputs["hidden_states"],
+                gate_up_weights,
+                gate_up_scales,
+                down_weights,
+                down_scales,
+                group_list,
+                dispatched_outputs["group_list_type"],
+            )
 
         # distribute combine
         context_metadata = dispatched_outputs["context_metadata"]
