@@ -143,6 +143,7 @@ def _assert_prefill_attention_matches_torch(
     key = key.to(DEVICE)
     value = value.to(DEVICE)
     seq_lens_tensor = torch.tensor(seq_lens, dtype=torch.int32)
+    actual_seq_lengths_cpu = seq_lens_tensor.cumsum(dim=0, dtype=torch.int32)
     max_seq_len = max(seq_lens)
     output = torch.empty(
         (num_tokens, NUM_Q_HEADS, value_head_dim), dtype=DTYPE, device=DEVICE
@@ -152,7 +153,6 @@ def _assert_prefill_attention_matches_torch(
         query=query,
         key=key,
         value=value,
-        q_start_loc=None,
         q_seq_len=seq_lens_tensor,
         max_q_seq_len=max_seq_len,
         num_q_heads=NUM_Q_HEADS,
@@ -161,6 +161,7 @@ def _assert_prefill_attention_matches_torch(
         softmax_scale=softmax_scale,
         alibi_slopes=None,
         attn_output=output,
+        actual_seq_lengths_cpu=actual_seq_lengths_cpu,
     )
 
     assert actual.data_ptr() == output.data_ptr()
@@ -229,10 +230,8 @@ def test_paged_prefill_attention_mla_matches_torch(fai_causal_mask):
         value_cache=value_cache,
         block_table=block_table.to(DEVICE),
         block_size=block_size,
-        q_start_loc=None,
         q_seq_len=torch.tensor(cumulative_q_seq_lens, dtype=torch.int32),
         kv_seq_len=torch.tensor(kv_seq_lens, dtype=torch.int32),
-        cu_seq_lens_kv=None,
         max_q_seq_len=max(q_seq_lens),
         max_kv_seq_len=max(kv_seq_lens),
         num_q_heads=NUM_Q_HEADS,
@@ -279,10 +278,8 @@ def test_paged_prefill_attention_mla_graph_replay(fai_causal_mask):
         value_cache=key_cache[..., :MLA_V_HEAD_DIM],
         block_table=block_table.to(DEVICE),
         block_size=block_size,
-        q_start_loc=None,
         q_seq_len=torch.tensor(q_seq_lens, dtype=torch.int32),
         kv_seq_len=torch.tensor(capture_kv_seq_lens, dtype=torch.int32),
-        cu_seq_lens_kv=None,
         max_q_seq_len=max(q_seq_lens),
         max_kv_seq_len=max(capture_kv_seq_lens),
         num_q_heads=NUM_Q_HEADS,
@@ -349,7 +346,7 @@ def test_decode_attention_mla_matches_torch():
         num_q_heads=NUM_Q_HEADS,
         scale_value=MLA_SOFTMAX_SCALE,
         block_table=block_table.to(DEVICE),
-        kv_seq_len=torch.tensor(kv_seq_lens, dtype=torch.int32),
+        kv_seqlens_cpu=torch.tensor(kv_seq_lens, dtype=torch.int32),
         mla_vheadsize=MLA_V_HEAD_DIM,
         attn_output=output,
     )

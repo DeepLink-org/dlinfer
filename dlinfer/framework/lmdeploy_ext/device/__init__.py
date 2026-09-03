@@ -319,7 +319,6 @@ def patch_glm_moe_dsa_split_cache():
                 self.indexer(hidden_states,
                              qr,
                              rotary_pos_emb,
-                             past_key_value[-2:],
                              attn_metadata=attn_metadata))
         else:
             topk_indices = topk_indices_buffer.read(q_len,
