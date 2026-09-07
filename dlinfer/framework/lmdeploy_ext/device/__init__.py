@@ -154,6 +154,125 @@ def patch_rejection_sampler():
     _reject_sampler_mod.rejection_sample = _patched_rejection_sample
 
 
+def patch_modelslim_quantization_config():
+    """Add Ascend ModelSlim dispatch to LMDeploy's quantization config."""
+    from collections.abc import Mapping
+
+    from lmdeploy.pytorch.config import QuantizationConfig
+
+    if getattr(QuantizationConfig, '_dlinfer_modelslim_patched', False):
+        return
+
+    original_from_config = QuantizationConfig.from_config
+    original_get_quant_method = QuantizationConfig.get_quant_method
+
+    @classmethod
+    def custom_from_config(cls, hf_config):
+        quant_sources = []
+        quant_config = getattr(hf_config, 'quantization_config', None)
+        if quant_config is not None:
+            quant_sources.append(quant_config)
+        for config_name in ('llm_config', 'text_config'):
+            nested_config = getattr(hf_config, config_name, None)
+            nested_quant_config = getattr(nested_config,
+                                          'quantization_config', None)
+            if nested_quant_config is not None:
+                quant_sources.append(nested_quant_config)
+
+        if not quant_sources:
+            return original_from_config(hf_config)
+        if any(
+                isinstance(config, Mapping)
+                and config.get('quant_method') == 'compressed-tensors'
+                for config in quant_sources):
+            return original_from_config(hf_config)
+
+        quant_config = quant_sources[0]
+        if (not isinstance(quant_config, Mapping)
+                or quant_config.get('quant_method') != 'modelslim'):
+            return original_from_config(hf_config)
+
+        quant_dtype = quant_config.get('quant_dtype') or 'int8'
+        resolved_quant_dtype = getattr(torch, quant_dtype, None)
+        if not isinstance(resolved_quant_dtype, torch.dtype):
+            raise ValueError(
+                f'Invalid quant dtype "{quant_dtype}" resolved from model '
+                'config; expected a torch.dtype attribute on torch.')
+
+        ignored_layers = quant_config.get('ignored_layers', [])
+        if not ignored_layers:
+            ignored_layers = quant_config.get('modules_to_not_convert', [])
+        return cls(
+            quant_method='modelslim',
+            quant_dtype=resolved_quant_dtype,
+            scale_fmt=quant_config.get('scale_fmt'),
+            weight_block_size=quant_config.get('weight_block_size'),
+            activation_scheme=quant_config.get('activation_scheme'),
+            ignored_layers=ignored_layers,
+            fp8_quant_scope=quant_config.get('fp8_quant_scope'),
+            hf_quant_config=quant_config,
+        )
+
+    def get_modelslim_quant_method(self, prefix, module_kind):
+        if not prefix or module_kind == 'norm':
+            return None
+
+        description = self.hf_quant_config.get('quant_description', {})
+        if not description:
+            raise ValueError(
+                'ModelSlim quantization requires quant_description metadata.')
+
+        proj_name = prefix.rsplit('.', 1)[-1]
+        if module_kind == 'moe':
+            suffixes = ('0.gate_proj.weight', '0.up_proj.weight',
+                        '0.down_proj.weight')
+            keys = [f'{prefix}.{suffix}' for suffix in suffixes]
+        elif proj_name == 'gate_up_proj':
+            parent = prefix.rsplit('.', 1)[0]
+            keys = [f'{parent}.gate_proj.weight',
+                    f'{parent}.up_proj.weight']
+        else:
+            keys = [f'{prefix}.weight']
+
+        missing = [key for key in keys if key not in description]
+        if missing:
+            return None
+        quant_types = {description[key] for key in keys}
+        if len(quant_types) != 1:
+            raise ValueError(
+                f'ModelSlim fused module {prefix} mixes quant types: '
+                f'{sorted(quant_types)}')
+
+        quant_type = quant_types.pop()
+        if quant_type == 'FLOAT':
+            return None
+        if quant_type == 'W8A8_DYNAMIC':
+            return 'smooth_quant'
+        if quant_type == 'W8A8':
+            if module_kind == 'moe':
+                raise ValueError(
+                    f'Static W8A8 MoE is not supported for {prefix}.')
+            return 'modelslim_w8a8_static'
+        raise ValueError(
+            f'Unsupported ModelSlim quant type {quant_type!r} for {prefix}.')
+
+    def custom_get_quant_method(self,
+                                prefix='',
+                                module_kind='linear'):
+        if self.quant_method != 'modelslim':
+            return original_get_quant_method(self, prefix, module_kind)
+        if module_kind not in {'linear', 'moe', 'norm'}:
+            raise ValueError(
+                f'Unsupported quant module kind: {module_kind}')
+        return self._get_modelslim_quant_method(prefix, module_kind)
+
+    QuantizationConfig.from_config = custom_from_config
+    QuantizationConfig._get_modelslim_quant_method = (
+        get_modelslim_quant_method)
+    QuantizationConfig.get_quant_method = custom_get_quant_method
+    QuantizationConfig._dlinfer_modelslim_patched = True
+
+
 def patch_deepseek_v32_config():
     """Allow the DeepSeek-V3.2 config builder to run on Ascend.
 
@@ -321,6 +440,16 @@ def patch_deepseek_v32_qkv():
             dtype=deepseek_v32.torch.float32,
             device=device,
         )
+        self.kv_b_proj = deepseek_v32.build_colwise_linear(
+            config.kv_lora_rank,
+            self.num_heads * (config.qk_nope_head_dim + self.v_head_dim),
+            bias=False,
+            dtype=dtype,
+            device=device,
+            is_tp=True,
+            quant_config=quantization_config,
+            prefix=f'{prefix}.kv_b_proj' if prefix else '',
+        )
         self.kc = deepseek_v32.DeepseekV2BMM(
             self.num_heads,
             config.qk_nope_head_dim,
@@ -386,6 +515,228 @@ def patch_deepseek_v32_qkv():
     attention_cls.__init__ = custom_init
     attention_cls._qkv_proj = custom_qkv_proj
     attention_cls._dlinfer_ascend_qkv_patched = True
+
+
+def patch_glm_moe_dsa_norm_dtype():
+    """Cast GLM normalization layers to the model dtype on Ascend."""
+    from lmdeploy.pytorch.models.glm_moe_dsa import (
+        GlmMoeDsaDecoderLayer,
+        GlmMoeDsaModel,
+    )
+
+    if getattr(GlmMoeDsaModel, '_dlinfer_norm_dtype_patched', False):
+        return
+
+    original_decoder_init = GlmMoeDsaDecoderLayer.__init__
+    original_model_init = GlmMoeDsaModel.__init__
+
+    def custom_decoder_init(self,
+                            config,
+                            layer_idx,
+                            dtype=None,
+                            device=None,
+                            prefix=''):
+        original_decoder_init(self,
+                              config,
+                              layer_idx,
+                              dtype=dtype,
+                              device=device,
+                              prefix=prefix)
+        if dtype is not None:
+            self.input_layernorm.to(dtype=dtype)
+            self.post_attention_layernorm.to(dtype=dtype)
+
+    def custom_model_init(self, config, dtype=None, device=None):
+        original_model_init(self, config, dtype=dtype, device=device)
+        if dtype is not None:
+            self.norm.to(dtype=dtype)
+
+    GlmMoeDsaDecoderLayer.__init__ = custom_decoder_init
+    GlmMoeDsaModel.__init__ = custom_model_init
+    GlmMoeDsaModel._dlinfer_norm_dtype_patched = True
+
+
+def patch_deepseek_v2_moe():
+    """Use the Ascend EP reduction semantics for DeepSeek MoE."""
+    from lmdeploy.pytorch.models import deepseek_v2
+
+    moe_cls = deepseek_v2.DeepseekV2MoE
+    if getattr(moe_cls, '_dlinfer_ascend_moe_patched', False):
+        return
+
+    original_init = moe_cls.__init__
+
+    def custom_init(self,
+                    config,
+                    layer_idx,
+                    dtype=None,
+                    device=None,
+                    all_reduce=True,
+                    prefix=''):
+        original_init(self,
+                      config,
+                      layer_idx,
+                      dtype=dtype,
+                      device=device,
+                      all_reduce=all_reduce,
+                      prefix=prefix)
+
+        dist_ctx = deepseek_v2.get_dist_manager().current_context()
+        dist_config = dist_ctx.dist_config
+        self._all_reduce = (all_reduce and dist_config.dp == 1
+                            and dist_config.world_size > 1
+                            and dist_config.ep == 1)
+        self._all_reduce_shared_experts = (
+            all_reduce and dist_config.dp == 1 and dist_config.ep > 1
+            and dist_config.mlp_tp > 1)
+        self._shared_expert_tp_group = None
+        if self._all_reduce_shared_experts:
+            self._shared_expert_tp_group = dist_ctx.mlp_tp_group.gpu_group
+
+    def custom_forward(self, hidden_states, all_routed_experts=None):
+        batch_size, sequence_length, hidden_dim = hidden_states.shape
+        hidden_states = hidden_states.view(-1, hidden_dim)
+        routed_experts = None
+        if all_routed_experts is not None:
+            routed_experts = all_routed_experts[:, self.layer_idx, :]
+        topk_weights, topk_ids = self.gate(
+            hidden_states, routed_experts=routed_experts)
+
+        out_states = self.experts(hidden_states, topk_weights, topk_ids)
+        if self.shared_experts is not None:
+            shared_states = self.shared_experts(hidden_states)
+            # EP already combines routed expert outputs. Only the shared expert
+            # output remains sharded over the MLP TP group.
+            if self._all_reduce_shared_experts:
+                deepseek_v2.dist.all_reduce(
+                    shared_states, group=self._shared_expert_tp_group)
+            out_states += shared_states
+        out_states = out_states.reshape(batch_size, sequence_length, -1)
+
+        if self._all_reduce:
+            deepseek_v2.dist.all_reduce(out_states)
+        return out_states
+
+    moe_cls.__init__ = custom_init
+    moe_cls.forward = custom_forward
+    moe_cls._dlinfer_ascend_moe_patched = True
+
+
+def patch_deepseek_v2_modelslim_weight_loader():
+    """Adapt ModelSlim auxiliary checkpoint tensors on Ascend."""
+    from lmdeploy.pytorch.models import deepseek_v2
+
+    model_cls = deepseek_v2.DeepseekV2ForCausalLM
+    if getattr(model_cls, '_dlinfer_modelslim_weight_loader_patched', False):
+        return
+
+    original_load_weight_attention = model_cls._load_weight_attention
+    original_load_weights = model_cls.load_weights
+
+    def map_modelslim_param_name(self, name, params_dict):
+        quantization_config = getattr(self.config,
+                                      'quantization_config', None) or {}
+        if quantization_config.get('quant_method') != 'modelslim':
+            return name
+        if name.endswith('.weight_offset'):
+            return None
+        if name.endswith('.weight_scale'):
+            mapped_name = name.removesuffix('.weight_scale') + '.scale'
+            return mapped_name if mapped_name in params_dict else None
+        return name
+
+    def custom_load_weight_experts(self, name, loaded_weight, params_dict,
+                                   expert_params_mapping):
+        for param_name, weight_name, expert_id, shard_id in expert_params_mapping:
+            if weight_name not in name:
+                continue
+            name = name.replace(weight_name, param_name)
+            name = self._map_modelslim_param_name(name, params_dict)
+            if name is None:
+                return
+            param = params_dict[name]
+            deepseek_v2.load_weight(
+                param,
+                loaded_weight,
+                expert_id=expert_id,
+                shard_id=shard_id,
+            )
+            break
+        else:
+            name = self._map_modelslim_param_name(name, params_dict)
+            if name is None:
+                return
+            deepseek_v2.load_weight(params_dict[name], loaded_weight)
+
+    def custom_load_weight_attention(self, name, loaded_weight, params_dict,
+                                     update_pe_mapping):
+        mapped_name = self._map_modelslim_param_name(name, params_dict)
+        if mapped_name is None:
+            return
+        # Input quantization metadata is shared by the whole projection and
+        # has shape [1].  It must not enter DeepSeek's output-channel RoPE
+        # permutation, which expects dim 0 to be divisible by head_dim.
+        if mapped_name.endswith(('.input_scale', '.input_offset')):
+            deepseek_v2.load_weight(params_dict[mapped_name], loaded_weight)
+            return
+        # Delegate output-channel metadata (for example a mapped dynamic
+        # weight scale) using its actual parameter name so that it receives
+        # the same RoPE permutation as the corresponding projection weight.
+        return original_load_weight_attention(
+            self,
+            mapped_name,
+            loaded_weight,
+            params_dict,
+            update_pe_mapping,
+        )
+
+    def custom_load_weights(self, weights):
+        quantization_config = getattr(self.config,
+                                      'quantization_config', None) or {}
+        if quantization_config.get('quant_method') != 'modelslim':
+            return original_load_weights(self, weights)
+
+        params_dict = dict(self.named_parameters())
+        stacked_params_mapping = [
+            ('.gate_up_proj', '.gate_proj'),
+            ('.gate_up_proj', '.up_proj'),
+        ]
+        if not getattr(self.config, 'use_mla', True):
+            stacked_params_mapping.extend([
+                ('.qkv_proj', '.q_proj'),
+                ('.qkv_proj', '.k_proj'),
+                ('.qkv_proj', '.v_proj'),
+            ])
+
+        def convert_weights():
+            for name, loaded_weight in weights:
+                is_attention = ('.self_attn' in name
+                                and getattr(self.config, 'use_mla', True))
+                if '.experts' in name or is_attention:
+                    yield name, loaded_weight
+                    continue
+                if name.endswith('.weight_offset'):
+                    continue
+                if name.endswith('.weight_scale'):
+                    mapped_name = name.removesuffix('.weight_scale') + '.scale'
+                    param_name = mapped_name
+                    for fused_name, shard_name in stacked_params_mapping:
+                        if shard_name in param_name:
+                            param_name = param_name.replace(shard_name,
+                                                            fused_name)
+                            break
+                    if param_name not in params_dict:
+                        continue
+                    name = mapped_name
+                yield name, loaded_weight
+
+        return original_load_weights(self, convert_weights())
+
+    model_cls._map_modelslim_param_name = map_modelslim_param_name
+    model_cls._load_weight_experts = custom_load_weight_experts
+    model_cls._load_weight_attention = custom_load_weight_attention
+    model_cls.load_weights = custom_load_weights
+    model_cls._dlinfer_modelslim_weight_loader_patched = True
 
 
 def patch_glm_moe_dsa_weight_loader():
@@ -1168,9 +1519,13 @@ def vendor_device_init():
     patch_async_sampling_logits()
     if vendor_name == "ascend":
         patch_rejection_sampler()
+        patch_modelslim_quantization_config()
         patch_glm_moe_dsa_config()
         patch_deepseek_v32_config()
         patch_deepseek_v32_qkv()
+        patch_glm_moe_dsa_norm_dtype()
+        patch_deepseek_v2_moe()
+        patch_deepseek_v2_modelslim_weight_loader()
         patch_glm_moe_dsa_weight_loader()
         patch_glm_moe_dsa_indexer()
         patch_glm_moe_dsa_split_cache()
