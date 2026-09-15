@@ -13,8 +13,8 @@ def decode_attention(
     scale_value: float,
     block_table: Tensor,
     block_size: int,
-    q_seq_len: Tensor,
-    kv_seq_len: Tensor,
+    actual_q_seqlens_cpu: Tensor,
+    kv_seqlens_cpu: Tensor,
     softmax_scale: float,
     attn_output: Tensor,
 ):
@@ -34,8 +34,8 @@ def decode_attention(
         block_table=block_table,
         input_layout="TND",
         block_size=block_size,
-        actual_seq_lengths=q_seq_len,
-        actual_seq_lengths_kv=kv_seq_len,
+        actual_seq_lengths=actual_q_seqlens_cpu,
+        actual_seq_lengths_kv=kv_seqlens_cpu,
         num_key_value_heads=num_kv_heads,
         num_heads=num_q_heads,
         scale=scale_value,
@@ -51,7 +51,7 @@ def decode_attention_mla(
     num_q_heads: int,
     scale_value: float,
     block_table: Tensor,
-    kv_seq_len: Tensor,
+    kv_seqlens_cpu: Tensor,
     mla_vheadsize: int,
     attn_output: Tensor,
 ):
@@ -85,7 +85,7 @@ def decode_attention_mla(
         block_table=block_table,
         block_size=block_size,
         actual_seq_qlen=None,
-        actual_seq_kvlen=kv_seq_len,
+        actual_seq_kvlen=kv_seqlens_cpu,
     )
 
     attn_output.copy_(fai_output.squeeze(2).transpose(0, 1))

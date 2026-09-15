@@ -3,7 +3,6 @@ import importlib
 from functools import lru_cache
 from dlinfer.vendor import vendor_name
 
-
 awq_vendor = ["ascend"]
 
 

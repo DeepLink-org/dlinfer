@@ -19,6 +19,11 @@ logger = get_logger("dlinfer")
 BuffType = Dict[str, Tensor]
 
 
+def _is_sparse_attention(graph_meta: CudaGraphMeta) -> bool:
+    """Whether this graph runs the device-only NSA/DSA attention path."""
+    return getattr(graph_meta, "mla_index_topk", None) is not None
+
+
 # AscendCudaGraphMixin methods for cudagraph buffer management.
 def AscendCudaGraphMixin_support_cuda_graph(
     self,
@@ -64,7 +69,11 @@ def AscendCudaGraphMixin_make_buffers_cudagraph(
         (max_batches, num_blocks), dtype=torch.int32, device=device
     )
 
-    input_buffers["kv_seqlens"] = torch.ones(max_batches, dtype=torch.int32)
+    input_buffers["kv_seqlens"] = torch.ones(
+        max_batches, dtype=torch.int32, device=device
+    )
+    if not _is_sparse_attention(graph_meta):
+        input_buffers["kv_seqlens_cpu"] = torch.ones(max_batches, dtype=torch.int32)
 
     input_buffers["kv_start_indices"] = -torch.ones(
         (max_tokens), dtype=torch.int32, device=device
@@ -74,9 +83,11 @@ def AscendCudaGraphMixin_make_buffers_cudagraph(
         (max_tokens), dtype=torch.bool, device=device
     )
 
-    input_buffers["attention_mask"] = torch.triu(
-        torch.ones(2048, 2048, dtype=torch.bool, device=device), diagonal=1
-    )
+    if not _is_sparse_attention(graph_meta):
+        input_buffers["attention_mask"] = torch.triu(
+            torch.ones(2048, 2048, dtype=torch.bool, device=device),
+            diagonal=1,
+        )
 
     # ssm
     if graph_meta.is_ssm:
@@ -87,21 +98,20 @@ def AscendCudaGraphMixin_make_buffers_cudagraph(
             max_batches, dtype=torch.int32, device=device
         )
 
-    if max_batches != max_tokens:
-        max_q_seq_len = max_tokens // max_batches
-        input_buffers["q_seqlens"] = (
-            torch.arange(1, max_batches + 1, dtype=torch.int32) * max_q_seq_len
+    query_len = max_tokens // max_batches
+    input_buffers["q_seqlens"] = torch.full(
+        (max_batches,), query_len, dtype=torch.int32, device=device
+    )
+    input_buffers["cu_seqlens_q"] = (
+        torch.arange(max_batches + 1, dtype=torch.int32, device=device) * query_len
+    )
+    if not _is_sparse_attention(graph_meta):
+        input_buffers["cu_seqlens_q_cpu"] = (
+            torch.arange(max_batches + 1, dtype=torch.int32) * query_len
         )
-        input_buffers["q_start_loc"] = (
-            torch.arange(max_batches + 1, dtype=torch.int32, device=device)
-            * max_q_seq_len
-        )
-
-    else:
-        input_buffers["q_seqlens"] = torch.arange(1, max_batches + 1, dtype=torch.int32)
-        input_buffers["q_start_loc"] = torch.arange(
-            max_batches + 1, dtype=torch.int32, device=device
-        )
+    # Keep q_start_loc as a compatibility view with its actual [B] start-offset
+    # semantics.  Attention kernels consume cu_seqlens_q directly.
+    input_buffers["q_start_loc"] = input_buffers["cu_seqlens_q"][:-1]
 
     # mrope
     if graph_meta.use_mrope:
@@ -128,7 +138,6 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
     kv_start_indices: Tensor = attn_metadata.kv_start_indices
     moe_metadata = get_step_ctx_manager().current_context().moe_metadata
     x_active_mask: Tensor = moe_metadata.x_active_mask
-    q_start_loc: Tensor = attn_metadata.q_start_loc
     cache_seqlens: Tensor = attn_metadata.cache_seqlens
 
     is_multi_token_decoding = attn_metadata.is_multi_token_decoding
@@ -154,6 +163,12 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
 
     input_buffers["kv_seqlens"].fill_(0)
     input_buffers["kv_seqlens"][:batch_size] = kv_seqlens
+    if not _is_sparse_attention(graph_meta):
+        kv_seqlens_cpu: Tensor = attn_metadata.kv_seqlens_cpu
+        if kv_seqlens_cpu is None:
+            raise RuntimeError("Ascend paged-attention graph requires kv_seqlens_cpu")
+        input_buffers["kv_seqlens_cpu"].fill_(0)
+        input_buffers["kv_seqlens_cpu"][:batch_size] = kv_seqlens_cpu
     input_buffers["kv_start_indices"].fill_(-1)
     input_buffers["kv_start_indices"][: kv_start_indices.size(0)] = kv_start_indices
     if x_active_mask is not None:
@@ -171,7 +186,7 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
 
             attn_metadata.cache_seqlens = input_buffers["cache_seqlens"]
 
-    if is_multi_token_decoding:
+    if is_multi_token_decoding and not _is_sparse_attention(graph_meta):
         attn_metadata.attention_mask = [input_buffers["attention_mask"]]
 
     if inputs_embeds is not None:
@@ -185,10 +200,13 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
 
     attn_metadata.block_offsets = input_buffers["block_offsets"]
     attn_metadata.kv_seqlens = input_buffers["kv_seqlens"]
+    attn_metadata.kv_seqlens_cpu = input_buffers.get("kv_seqlens_cpu")
     attn_metadata.kv_start_indices = input_buffers["kv_start_indices"]
     moe_metadata.x_active_mask = input_buffers["x_active_mask"]
     attn_metadata.q_start_loc = input_buffers["q_start_loc"]
     attn_metadata.q_seqlens = input_buffers["q_seqlens"]
+    attn_metadata.cu_seqlens_q = input_buffers["cu_seqlens_q"]
+    attn_metadata.cu_seqlens_q_cpu = input_buffers.get("cu_seqlens_q_cpu")
 
     new_inputs = dict(
         past_key_values=past_key_values,
@@ -223,7 +241,10 @@ def AscendCudaGraphMixin_update_context_cudagraph(self, graph_meta, context):
     input_buffers = graph_meta.input_buffers
     context.block_offsets = input_buffers["block_offsets"]
     context.kv_seqlens = input_buffers["kv_seqlens"]
+    context.kv_seqlens_cpu = input_buffers.get("kv_seqlens_cpu")
     context.q_start_loc = input_buffers["q_start_loc"]
+    context.q_seqlens = input_buffers["q_seqlens"]
+    context.cu_seqlens_q_cpu = input_buffers.get("cu_seqlens_q_cpu")
     context.kv_start_indices = input_buffers["kv_start_indices"]
     context.moe_metadata.x_active_mask = input_buffers["x_active_mask"]
 
@@ -326,6 +347,7 @@ class AscendSingleGraphRunner:
             input_buffers=dict(),
             output_buffers=dict(),
             vocab_size=self.model_config.vocab_size,
+            mla_index_topk=getattr(model_config, "mla_index_topk", None),
             is_ssm=len(model_config.states_shapes) > 0,
             use_mrope=model_config.use_mrope,
         )
@@ -380,15 +402,17 @@ class AscendSingleGraphRunner:
         context = self.ctx_mgr.current_context()
         self.model.update_context_cudagraph(self.meta, context)
         self._graph.replay()
-        if self.is_mla:
-            cpu_update_input = [
-                {"actual_seq_kvlen": self.meta.input_buffers["kv_seqlens"].tolist()}
-            ]
-        else:
-            cpu_update_input = [
-                {"actual_seq_lengths_kv": self.meta.input_buffers["kv_seqlens"]}
-            ]
-        self._graph.update(cpu_update_input=cpu_update_input)
+        if not _is_sparse_attention(self.meta):
+            if self.is_mla:
+                cpu_update_input = [
+                    {"actual_seq_kvlen": self.meta.input_buffers["kv_seqlens_cpu"]}
+                ]
+            else:
+                cpu_update_input = [
+                    {"actual_seq_lengths_kv": self.meta.input_buffers["kv_seqlens_cpu"]}
+                ]
+            self._graph.update(cpu_update_input=cpu_update_input)
+        # torch.npu.synchronize()
         output_buffers = self.meta.output_buffers
         output = self.model.get_outputs_cudagraph(output_buffers, **kwargs)
         return output
@@ -471,7 +495,7 @@ class AscendGraphRunner(GraphRunner):
 
         if is_multi_token_decoding:
             q_seqlens = attn_metadata.q_seqlens
-            max_q_seq_len = attn_metadata.max_q_seq_len
+            max_q_seq_len = attn_metadata.max_q_seqlen
             batch_size = q_seqlens.size(0)
             if meta.padding_batch_size is None:
                 new_batch_size = self._get_capture_tokens(batch_size)

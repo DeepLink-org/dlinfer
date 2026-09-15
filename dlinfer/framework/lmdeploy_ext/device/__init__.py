@@ -154,196 +154,766 @@ def patch_rejection_sampler():
     _reject_sampler_mod.rejection_sample = _patched_rejection_sample
 
 
-##### patch cache engine #####
-def patch_contiguous_cache_engine():
-    from lmdeploy.pytorch.config import CacheConfig, ModelConfig
-    from functools import reduce
-    from math import gcd
-    from lmdeploy.pytorch.engine import cache_engine
+def patch_modelslim_quantization_config():
+    """Add Ascend ModelSlim dispatch to LMDeploy's quantization config."""
+    from collections.abc import Mapping
+
+    from lmdeploy.pytorch.config import QuantizationConfig
+
+    if getattr(QuantizationConfig, "_dlinfer_modelslim_patched", False):
+        return
+
+    original_from_config = QuantizationConfig.from_config
+    original_get_quant_method = QuantizationConfig.get_quant_method
 
     @classmethod
-    def _cache_engine_allocate_caches(
-        cls,
-        num_blocks: int,
-        model_config: ModelConfig,
-        cache_config: CacheConfig,
-        world_size: int,
-        device: str,
+    def custom_from_config(cls, hf_config):
+        quant_sources = []
+        quant_config = getattr(hf_config, "quantization_config", None)
+        if quant_config is not None:
+            quant_sources.append(quant_config)
+        for config_name in ("llm_config", "text_config"):
+            nested_config = getattr(hf_config, config_name, None)
+            nested_quant_config = getattr(nested_config, "quantization_config", None)
+            if nested_quant_config is not None:
+                quant_sources.append(nested_quant_config)
+
+        if not quant_sources:
+            return original_from_config(hf_config)
+        if any(
+            isinstance(config, Mapping)
+            and config.get("quant_method") == "compressed-tensors"
+            for config in quant_sources
+        ):
+            return original_from_config(hf_config)
+
+        quant_config = quant_sources[0]
+        if (
+            not isinstance(quant_config, Mapping)
+            or quant_config.get("quant_method") != "modelslim"
+        ):
+            return original_from_config(hf_config)
+
+        quant_dtype = quant_config.get("quant_dtype") or "int8"
+        resolved_quant_dtype = getattr(torch, quant_dtype, None)
+        if not isinstance(resolved_quant_dtype, torch.dtype):
+            raise ValueError(
+                f'Invalid quant dtype "{quant_dtype}" resolved from model '
+                "config; expected a torch.dtype attribute on torch."
+            )
+
+        ignored_layers = quant_config.get("ignored_layers", [])
+        if not ignored_layers:
+            ignored_layers = quant_config.get("modules_to_not_convert", [])
+        return cls(
+            quant_method="modelslim",
+            quant_dtype=resolved_quant_dtype,
+            scale_fmt=quant_config.get("scale_fmt"),
+            weight_block_size=quant_config.get("weight_block_size"),
+            activation_scheme=quant_config.get("activation_scheme"),
+            ignored_layers=ignored_layers,
+            fp8_quant_scope=quant_config.get("fp8_quant_scope"),
+            hf_quant_config=quant_config,
+        )
+
+    def get_modelslim_quant_method(self, prefix, module_kind):
+        if not prefix or module_kind == "norm":
+            return None
+
+        description = self.hf_quant_config.get("quant_description", {})
+        if not description:
+            raise ValueError(
+                "ModelSlim quantization requires quant_description metadata."
+            )
+
+        proj_name = prefix.rsplit(".", 1)[-1]
+        if module_kind == "moe":
+            suffixes = ("0.gate_proj.weight", "0.up_proj.weight", "0.down_proj.weight")
+            keys = [f"{prefix}.{suffix}" for suffix in suffixes]
+        elif proj_name == "gate_up_proj":
+            parent = prefix.rsplit(".", 1)[0]
+            keys = [f"{parent}.gate_proj.weight", f"{parent}.up_proj.weight"]
+        else:
+            keys = [f"{prefix}.weight"]
+
+        missing = [key for key in keys if key not in description]
+        if missing:
+            return None
+        quant_types = {description[key] for key in keys}
+        if len(quant_types) != 1:
+            raise ValueError(
+                f"ModelSlim fused module {prefix} mixes quant types: "
+                f"{sorted(quant_types)}"
+            )
+
+        quant_type = quant_types.pop()
+        if quant_type == "FLOAT":
+            return None
+        if quant_type == "W8A8_DYNAMIC":
+            return "smooth_quant"
+        if quant_type == "W8A8":
+            if module_kind == "moe":
+                raise ValueError(f"Static W8A8 MoE is not supported for {prefix}.")
+            return "modelslim_w8a8_static"
+        raise ValueError(
+            f"Unsupported ModelSlim quant type {quant_type!r} for {prefix}."
+        )
+
+    def custom_get_quant_method(self, prefix="", module_kind="linear"):
+        if self.quant_method != "modelslim":
+            return original_get_quant_method(self, prefix, module_kind)
+        if module_kind not in {"linear", "moe", "norm"}:
+            raise ValueError(f"Unsupported quant module kind: {module_kind}")
+        return self._get_modelslim_quant_method(prefix, module_kind)
+
+    QuantizationConfig.from_config = custom_from_config
+    QuantizationConfig._get_modelslim_quant_method = get_modelslim_quant_method
+    QuantizationConfig.get_quant_method = custom_get_quant_method
+    QuantizationConfig._dlinfer_modelslim_patched = True
+
+
+def patch_deepseek_v32_config():
+    """Allow the DeepSeek-V3.2 config builder to run on Ascend.
+
+    The upstream builder requires FlashMLA during config construction, while
+    Ascend uses dlinfer's Lightning Indexer instead.  Temporarily report
+    FlashMLA as available while the upstream builder runs, then restore the
+    non-FlashMLA model semantics for the Ascend runtime.
+    """
+    from lmdeploy.pytorch.configurations import deepseek_v2 as deepseek_v2_config
+    from lmdeploy.pytorch.configurations.deepseek_v32 import (
+        DeepseekV32ModelConfigBuilder,
+    )
+
+    if getattr(DeepseekV32ModelConfigBuilder, "_dlinfer_ascend_patched", False):
+        return
+
+    original_build = DeepseekV32ModelConfigBuilder.build
+    original_flash_mla_available = deepseek_v2_config.flash_mla_available
+
+    @classmethod
+    def custom_build(cls, hf_config, model_path: str | None = None, **kwargs):
+        device_type = kwargs.get("device_type", "auto")
+        if device_type not in ("ascend", "npu"):
+            return original_build(hf_config, model_path=model_path, **kwargs)
+
+        deepseek_v2_config.flash_mla_available = lambda: True
+        try:
+            config = original_build(hf_config, model_path=model_path, **kwargs)
+        finally:
+            deepseek_v2_config.flash_mla_available = original_flash_mla_available
+            hf_config.use_flash_mla = False
+
+        # Ascend uses dlinfer attention/indexer, not the CUDA FlashMLA path.
+        config.use_flash_mla = False
+        return config
+
+    DeepseekV32ModelConfigBuilder.build = custom_build
+    DeepseekV32ModelConfigBuilder._dlinfer_ascend_patched = True
+
+
+def patch_glm_moe_dsa_config():
+    """Load Ascend ModelSlim metadata in the dlinfer configuration patch."""
+    import json
+    import os
+
+    from lmdeploy.pytorch.configurations.glm_moe_dsa import GlmMoeDsaModelConfigBuilder
+    from lmdeploy.utils import get_logger
+
+    logger = get_logger("lmdeploy")
+
+    if getattr(GlmMoeDsaModelConfigBuilder, "_dlinfer_modelslim_patched", False):
+        return
+
+    original_build = GlmMoeDsaModelConfigBuilder.build
+
+    @classmethod
+    def custom_build(cls, hf_config, model_path: str | None = None, **kwargs):
+        device_type = kwargs.get("device_type", "auto")
+        modelslim_path = (
+            os.path.join(model_path, "quant_model_description.json")
+            if model_path
+            else None
+        )
+        if (
+            device_type in ("ascend", "npu")
+            and modelslim_path
+            and os.path.isfile(modelslim_path)
+        ):
+            with open(modelslim_path, encoding="utf-8") as f:
+                quant_description = json.load(f)
+            if not isinstance(quant_description, dict):
+                raise TypeError(f"Expected a JSON object in {modelslim_path}.")
+            hf_config.quantization_config = {
+                "quant_method": "modelslim",
+                "quant_dtype": "int8",
+                "quant_description": quant_description,
+            }
+            logger.info(
+                f"Using Ascend ModelSlim quantization metadata from {modelslim_path}."
+            )
+        return original_build(hf_config, model_path=model_path, **kwargs)
+
+    GlmMoeDsaModelConfigBuilder.build = custom_build
+    GlmMoeDsaModelConfigBuilder._dlinfer_modelslim_patched = True
+
+
+def patch_deepseek_v32_qkv():
+    """Use separate Q-A and KV-A projections on Ascend.
+
+    CUDA uses the merged ``fused_qkv_a_proj`` operator.  ModelSlim W8A8
+    checkpoints contain independent quantization metadata for ``q_a_proj``
+    and ``kv_a_proj_with_mqa``, while Ascend does not provide the merged
+    operator.  Keep this projection choice local to dlinfer.
+    """
+    from lmdeploy.pytorch.models import deepseek_v32
+
+    attention_cls = deepseek_v32.DeepseekV32Attention
+    if getattr(attention_cls, "_dlinfer_ascend_qkv_patched", False):
+        return
+
+    original_init = attention_cls.__init__
+
+    def custom_init(
+        self, config, layer_idx, dtype=None, device=None, all_reduce=True, prefix=""
     ):
-        """Allocate caches."""
-        num_layers = model_config.num_layers
+        if config.q_lora_rank is None:
+            return original_init(
+                self,
+                config,
+                layer_idx,
+                dtype=dtype,
+                device=device,
+                all_reduce=all_reduce,
+                prefix=prefix,
+            )
 
-        # get all descs
-        k_cache_desc = cls.get_k_cache_desc(model_config, cache_config, world_size)
-        v_cache_desc = cls.get_v_cache_desc(model_config, cache_config, world_size)
-        quant_cache_descs = cls.get_quant_cache_descs(
-            k_cache_desc, v_cache_desc, model_config, cache_config
+        deepseek_v32.nn.Module.__init__(self)
+        self.layer_idx = layer_idx
+        quantization_config = getattr(config, "quantization_config", None)
+        self.q_lora_rank = config.q_lora_rank
+        self.hidden_size = config.hidden_size
+        self.num_heads = config.num_attention_heads
+        self.qk_rope_head_dim = config.qk_rope_head_dim
+        self.kv_lora_rank = config.kv_lora_rank
+        self.v_head_dim = config.v_head_dim
+        self.qk_nope_head_dim = config.qk_nope_head_dim
+        self.q_head_dim = config.qk_nope_head_dim + config.qk_rope_head_dim
+        num_replicate_kv_heads = getattr(config, "num_replicate_key_value_heads", 1)
+        num_key_value_heads = getattr(config, "num_key_value_heads", 1)
+        use_flash_mla = getattr(config, "use_flash_mla", False)
+
+        self.q_a_proj = deepseek_v32.build_colwise_linear(
+            self.hidden_size,
+            config.q_lora_rank,
+            bias=config.attention_bias,
+            dtype=dtype,
+            device=device,
+            is_tp=False,
+            quant_config=quantization_config,
+            prefix=f"{prefix}.q_a_proj" if prefix else "",
         )
-        custom_cache_descs = cls.get_custom_cache_descs(model_config, cache_config)
-        cache_descs = (
-            [k_cache_desc, v_cache_desc] + quant_cache_descs + custom_cache_descs
-        )
-
-        # get mempool size
-        mem_pool_size = 0
-        alignments = []
-        for desc in cache_descs:
-            mem_pool_size += desc.aligned_size
-            alignments.append(desc.alignment)
-
-        # compute gcd of alignments
-        alignments_gcd = reduce(gcd, alignments) if alignments else 1
-        assert (
-            mem_pool_size % alignments_gcd == 0
-        ), "mem_pool_size must be divisible by alignments_gcd"
-
-        # create pool
-        mem_pool = torch.zeros(
-            (mem_pool_size // alignments_gcd, num_layers, num_blocks, alignments_gcd),
-            dtype=torch.uint8,
+        self.q_a_layernorm = deepseek_v32.RMSNorm(
+            config.q_lora_rank,
+            1e-6,
+            quant_config=quantization_config,
+            dtype=deepseek_v32.torch.float32,
             device=device,
         )
+        self.q_b_proj = deepseek_v32.build_colwise_linear(
+            config.q_lora_rank,
+            self.num_heads * self.q_head_dim,
+            bias=False,
+            dtype=dtype,
+            device=device,
+            is_tp=True,
+            quant_config=quantization_config,
+            prefix=f"{prefix}.q_b_proj" if prefix else "",
+        )
+        self.kv_a_proj_with_mqa = deepseek_v32.build_colwise_linear(
+            self.hidden_size,
+            config.kv_lora_rank + config.qk_rope_head_dim,
+            bias=config.attention_bias,
+            dtype=dtype,
+            device=device,
+            is_tp=False,
+            quant_config=quantization_config,
+            prefix=f"{prefix}.kv_a_proj_with_mqa" if prefix else "",
+        )
+        self.kv_a_layernorm = deepseek_v32.RMSNorm(
+            config.kv_lora_rank,
+            1e-6,
+            quant_config=quantization_config,
+            dtype=deepseek_v32.torch.float32,
+            device=device,
+        )
+        self.kv_b_proj = deepseek_v32.build_colwise_linear(
+            config.kv_lora_rank,
+            self.num_heads * (config.qk_nope_head_dim + self.v_head_dim),
+            bias=False,
+            dtype=dtype,
+            device=device,
+            is_tp=True,
+            quant_config=quantization_config,
+            prefix=f"{prefix}.kv_b_proj" if prefix else "",
+        )
+        self.kc = deepseek_v32.DeepseekV2BMM(
+            self.num_heads,
+            config.qk_nope_head_dim,
+            config.kv_lora_rank,
+            dtype=dtype,
+            device=device,
+        )
+        self.apply_rotary_pos_emb = deepseek_v32.ApplyRotaryEmb()
+        self.softmax_scale = self.q_head_dim**-0.5
 
-        # slice caches
-        caches = []
-        remain_pool = mem_pool
-        for desc in cache_descs:
-            cache = (
-                remain_pool[: desc.size // alignments_gcd, :, :, :]
-                .view(desc.dtype)
-                .view((num_layers, num_blocks, *desc.shape))
-            )
-            remain_pool = remain_pool[desc.aligned_size // alignments_gcd :, :, :, :]
-            caches.append(cache)
-        return mem_pool, caches
+        rope_scaling = deepseek_v32.get_rope_parameters(config)
+        if rope_scaling is not None:
+            mscale_all_dim = rope_scaling.get("mscale_all_dim", 0)
+            if mscale_all_dim:
+                scaling_factor = rope_scaling["factor"]
+                mscale = deepseek_v32.yarn_get_mscale(scaling_factor, mscale_all_dim)
+                self.softmax_scale = self.softmax_scale * mscale * mscale
 
-    cache_engine.CacheEngine.allocate_caches = _cache_engine_allocate_caches
+        self.attn_fwd = deepseek_v32.Attention(
+            self.num_heads,
+            config.kv_lora_rank + self.qk_rope_head_dim,
+            scale=self.softmax_scale,
+            num_kv_heads=num_key_value_heads,
+            v_head_size=config.kv_lora_rank,
+            num_replicate_kv_heads=num_replicate_kv_heads,
+            use_flash_mla=use_flash_mla,
+            mla_index_topk=config.index_topk,
+        )
+        self.vc = deepseek_v32.DeepseekV2BMM(
+            self.num_heads,
+            config.kv_lora_rank,
+            self.v_head_dim,
+            dtype=dtype,
+            device=device,
+        )
+        self.o_proj = deepseek_v32.build_o_proj(
+            self.num_heads * self.v_head_dim,
+            self.hidden_size,
+            bias=config.attention_bias,
+            dtype=dtype,
+            device=device,
+            is_tp=True,
+            quant_config=quantization_config,
+            all_reduce=all_reduce,
+            prefix=f"{prefix}.o_proj" if prefix else "",
+        )
+        self.indexer = self._build_indexer(config, layer_idx, dtype, device, prefix)
+
+    def custom_qkv_proj(self, hidden_states, num_heads):
+        nope_size = self.kv_lora_rank
+        pe_size = self.qk_rope_head_dim
+        if self.q_lora_rank is None:
+            q_a_states = hidden_states
+            key_states = self.kv_a_proj_with_mqa(hidden_states[0, :, None])
+        else:
+            q_a_states = self.q_a_proj(hidden_states)
+            key_states = self.kv_a_proj_with_mqa(hidden_states[0, :, None])
+
+        query_states, q_pe, qr = self._q_proj(q_a_states, num_heads, nope_size, pe_size)
+        key_states, value_states, k_pe = self._kv_proj(key_states, nope_size)
+        return query_states, key_states, value_states, q_pe, k_pe, qr
+
+    attention_cls.__init__ = custom_init
+    attention_cls._qkv_proj = custom_qkv_proj
+    attention_cls._dlinfer_ascend_qkv_patched = True
 
 
-##### patch state cache engine #####
-def patch_state_cache_engine():
-    from typing import List, Optional, Sequence, Tuple
+def patch_glm_moe_dsa_norm_dtype():
+    """Cast GLM normalization layers to the model dtype on Ascend."""
+    from lmdeploy.pytorch.models.glm_moe_dsa import (
+        GlmMoeDsaDecoderLayer,
+        GlmMoeDsaModel,
+    )
 
-    from lmdeploy.pytorch.config import StateCacheSpec
-    from lmdeploy.pytorch.engine import cache_engine
+    if getattr(GlmMoeDsaModel, "_dlinfer_norm_dtype_patched", False):
+        return
 
-    @staticmethod
-    def _state_cache_engine_allocate_caches(
-        num_caches: int,
-        state_shapes: List[Tuple[Tuple[int, ...], torch.dtype]],
-        device: torch.device,
-        state_specs: Optional[List[StateCacheSpec]] = None,
-        num_layers: Optional[int] = None,
+    original_decoder_init = GlmMoeDsaDecoderLayer.__init__
+    original_model_init = GlmMoeDsaModel.__init__
+
+    def custom_decoder_init(
+        self, config, layer_idx, dtype=None, device=None, prefix=""
     ):
-        """Allocate cache implement.
+        original_decoder_init(
+            self, config, layer_idx, dtype=dtype, device=device, prefix=prefix
+        )
+        if dtype is not None:
+            self.input_layernorm.to(dtype=dtype)
+            self.post_attention_layernorm.to(dtype=dtype)
 
-        Each state is allocated as an independent contiguous tensor. A single
-        shared pool would give state views whose strides include the full pool
-        row, breaking NPU ops that require contiguous input. Layer-scoped named
-        caches use (num_rows, num_caches, *shape), matching lmdeploy's logical
-        layout while keeping every per-layer cache contiguous.
-        """
+    def custom_model_init(self, config, dtype=None, device=None):
+        original_model_init(self, config, dtype=dtype, device=device)
+        if dtype is not None:
+            self.norm.to(dtype=dtype)
 
-        cache_dtype = torch.uint8
-        state_specs = state_specs or []
-        if (len(state_shapes) == 0 and len(state_specs) == 0) or num_caches == 0:
-            return torch.empty((0, 0), dtype=cache_dtype, device=device), []
+    GlmMoeDsaDecoderLayer.__init__ = custom_decoder_init
+    GlmMoeDsaModel.__init__ = custom_model_init
+    GlmMoeDsaModel._dlinfer_norm_dtype_patched = True
 
-        resources = cache_engine.StateCacheEngine._get_state_cache_resources(
-            state_shapes, state_specs=state_specs, num_layers=num_layers
+
+def patch_deepseek_v2_moe():
+    """Use the Ascend EP reduction semantics for DeepSeek MoE."""
+    from lmdeploy.pytorch.models import deepseek_v2
+
+    moe_cls = deepseek_v2.DeepseekV2MoE
+    if getattr(moe_cls, "_dlinfer_ascend_moe_patched", False):
+        return
+
+    original_init = moe_cls.__init__
+
+    def custom_init(
+        self, config, layer_idx, dtype=None, device=None, all_reduce=True, prefix=""
+    ):
+        original_init(
+            self,
+            config,
+            layer_idx,
+            dtype=dtype,
+            device=device,
+            all_reduce=all_reduce,
+            prefix=prefix,
         )
 
-        # Allocate each state as a separate contiguous tensor.
-        caches = []
-        for resource in resources:
-            desc = resource.desc
-            cache_shape = (num_caches, *desc.shape)
-            if resource.layout is not None:
-                cache_shape = (resource.num_rows, num_caches, *desc.shape[1:])
-            cache = torch.zeros(cache_shape, dtype=desc.dtype, device=device)
-            caches.append(cache)
+        dist_ctx = deepseek_v2.get_dist_manager().current_context()
+        dist_config = dist_ctx.dist_config
+        self._all_reduce = (
+            all_reduce
+            and dist_config.dp == 1
+            and dist_config.world_size > 1
+            and dist_config.ep == 1
+        )
+        self._all_reduce_shared_experts = (
+            all_reduce
+            and dist_config.dp == 1
+            and dist_config.ep > 1
+            and dist_config.mlp_tp > 1
+        )
+        self._shared_expert_tp_group = None
+        if self._all_reduce_shared_experts:
+            self._shared_expert_tp_group = dist_ctx.mlp_tp_group.gpu_group
 
-        # mem_pool is used by two callers:
-        #   1. get_cache_state_size(): always calls with device='meta' to compute byte
-        #      counts — the tensor is never materialised on a real device.
-        #   2. init_caches()/copy_caches(): patched below to operate on the independent
-        #      cache tensors directly, so they no longer touch mem_pool at all.
-        # Therefore we only need a correctly-sized pool on 'meta'; for real devices we
-        # return an empty placeholder to avoid doubling the state-cache memory footprint.
-        total_bytes = sum(resource.desc.aligned_size for resource in resources)
-        if str(device) == "meta":
-            mem_pool = torch.empty(
-                (num_caches, total_bytes), dtype=cache_dtype, device=device
+    def custom_forward(self, hidden_states, all_routed_experts=None):
+        batch_size, sequence_length, hidden_dim = hidden_states.shape
+        hidden_states = hidden_states.view(-1, hidden_dim)
+        routed_experts = None
+        if all_routed_experts is not None:
+            routed_experts = all_routed_experts[:, self.layer_idx, :]
+        topk_weights, topk_ids = self.gate(hidden_states, routed_experts=routed_experts)
+
+        out_states = self.experts(hidden_states, topk_weights, topk_ids)
+        if self.shared_experts is not None:
+            shared_states = self.shared_experts(hidden_states)
+            # EP already combines routed expert outputs. Only the shared expert
+            # output remains sharded over the MLP TP group.
+            if self._all_reduce_shared_experts:
+                deepseek_v2.dist.all_reduce(
+                    shared_states, group=self._shared_expert_tp_group
+                )
+            out_states += shared_states
+        out_states = out_states.reshape(batch_size, sequence_length, -1)
+
+        if self._all_reduce:
+            deepseek_v2.dist.all_reduce(out_states)
+        return out_states
+
+    moe_cls.__init__ = custom_init
+    moe_cls.forward = custom_forward
+    moe_cls._dlinfer_ascend_moe_patched = True
+
+
+def patch_deepseek_v2_modelslim_weight_loader():
+    """Adapt ModelSlim auxiliary checkpoint tensors on Ascend."""
+    from lmdeploy.pytorch.models import deepseek_v2
+
+    model_cls = deepseek_v2.DeepseekV2ForCausalLM
+    if getattr(model_cls, "_dlinfer_modelslim_weight_loader_patched", False):
+        return
+
+    original_load_weight_attention = model_cls._load_weight_attention
+    original_load_weights = model_cls.load_weights
+
+    def map_modelslim_param_name(self, name, params_dict):
+        quantization_config = getattr(self.config, "quantization_config", None) or {}
+        if quantization_config.get("quant_method") != "modelslim":
+            return name
+        if name.endswith(".weight_offset"):
+            return None
+        if name.endswith(".weight_scale"):
+            mapped_name = name.removesuffix(".weight_scale") + ".scale"
+            return mapped_name if mapped_name in params_dict else None
+        return name
+
+    def custom_load_weight_experts(
+        self, name, loaded_weight, params_dict, expert_params_mapping
+    ):
+        for param_name, weight_name, expert_id, shard_id in expert_params_mapping:
+            if weight_name not in name:
+                continue
+            name = name.replace(weight_name, param_name)
+            name = self._map_modelslim_param_name(name, params_dict)
+            if name is None:
+                return
+            param = params_dict[name]
+            deepseek_v2.load_weight(
+                param,
+                loaded_weight,
+                expert_id=expert_id,
+                shard_id=shard_id,
+            )
+            break
+        else:
+            name = self._map_modelslim_param_name(name, params_dict)
+            if name is None:
+                return
+            deepseek_v2.load_weight(params_dict[name], loaded_weight)
+
+    def custom_load_weight_attention(
+        self, name, loaded_weight, params_dict, update_pe_mapping
+    ):
+        mapped_name = self._map_modelslim_param_name(name, params_dict)
+        if mapped_name is None:
+            return
+        # Input quantization metadata is shared by the whole projection and
+        # has shape [1].  It must not enter DeepSeek's output-channel RoPE
+        # permutation, which expects dim 0 to be divisible by head_dim.
+        if mapped_name.endswith((".input_scale", ".input_offset")):
+            deepseek_v2.load_weight(params_dict[mapped_name], loaded_weight)
+            return
+        # Delegate output-channel metadata (for example a mapped dynamic
+        # weight scale) using its actual parameter name so that it receives
+        # the same RoPE permutation as the corresponding projection weight.
+        return original_load_weight_attention(
+            self,
+            mapped_name,
+            loaded_weight,
+            params_dict,
+            update_pe_mapping,
+        )
+
+    def custom_load_weights(self, weights):
+        quantization_config = getattr(self.config, "quantization_config", None) or {}
+        if quantization_config.get("quant_method") != "modelslim":
+            return original_load_weights(self, weights)
+
+        params_dict = dict(self.named_parameters())
+        stacked_params_mapping = [
+            (".gate_up_proj", ".gate_proj"),
+            (".gate_up_proj", ".up_proj"),
+        ]
+        if not getattr(self.config, "use_mla", True):
+            stacked_params_mapping.extend(
+                [
+                    (".qkv_proj", ".q_proj"),
+                    (".qkv_proj", ".k_proj"),
+                    (".qkv_proj", ".v_proj"),
+                ]
+            )
+
+        def convert_weights():
+            for name, loaded_weight in weights:
+                is_attention = ".self_attn" in name and getattr(
+                    self.config, "use_mla", True
+                )
+                if ".experts" in name or is_attention:
+                    yield name, loaded_weight
+                    continue
+                if name.endswith(".weight_offset"):
+                    continue
+                if name.endswith(".weight_scale"):
+                    mapped_name = name.removesuffix(".weight_scale") + ".scale"
+                    param_name = mapped_name
+                    for fused_name, shard_name in stacked_params_mapping:
+                        if shard_name in param_name:
+                            param_name = param_name.replace(shard_name, fused_name)
+                            break
+                    if param_name not in params_dict:
+                        continue
+                    name = mapped_name
+                yield name, loaded_weight
+
+        return original_load_weights(self, convert_weights())
+
+    model_cls._map_modelslim_param_name = map_modelslim_param_name
+    model_cls._load_weight_experts = custom_load_weight_experts
+    model_cls._load_weight_attention = custom_load_weight_attention
+    model_cls.load_weights = custom_load_weights
+    model_cls._dlinfer_modelslim_weight_loader_patched = True
+
+
+def patch_glm_moe_dsa_weight_loader():
+    """Ignore the ModelSlim QuaRot-only MTP weight on Ascend."""
+    from lmdeploy.pytorch.models.glm_moe_dsa import GlmMoeDsaForCausalLM
+
+    if getattr(GlmMoeDsaForCausalLM, "_dlinfer_ascend_weight_loader_patched", False):
+        return
+
+    original_load_weights = GlmMoeDsaForCausalLM.load_weights
+
+    def custom_load_weights(self, weights):
+        weights = ((name, weight) for name, weight in weights if name != "rot.weight")
+        return original_load_weights(self, weights)
+
+    GlmMoeDsaForCausalLM.load_weights = custom_load_weights
+    GlmMoeDsaForCausalLM._dlinfer_ascend_weight_loader_patched = True
+
+
+def patch_glm_moe_dsa_indexer():
+    """Use the Ascend unfused, non-Hadamard DSA indexer path.
+
+    The common GLM implementation keeps CUDA's fused projection and
+    Hadamard preprocessing semantics.  Ascend's Lightning Indexer consumes
+    the separate BF16 projection outputs directly, so this adaptation stays
+    local to the dlinfer device patch.
+    """
+    from lmdeploy.pytorch import envs as lmdeploy_envs
+    from lmdeploy.pytorch.models.glm_moe_dsa import GlmMoeDsaIndexer
+
+    if getattr(GlmMoeDsaIndexer, "_dlinfer_ascend_patched", False):
+        return
+
+    original_init = GlmMoeDsaIndexer.__init__
+
+    def custom_init(self, config, layer_idx, dtype=None, device=None, prefix=""):
+        # Force the common constructor to materialize wk and weights_proj.
+        original_disable = lmdeploy_envs.disable_dsa_indexer_fusion
+        lmdeploy_envs.disable_dsa_indexer_fusion = True
+        try:
+            original_init(
+                self, config, layer_idx, dtype=dtype, device=device, prefix=prefix
+            )
+        finally:
+            lmdeploy_envs.disable_dsa_indexer_fusion = original_disable
+        self.use_fusion = False
+
+    def custom_apply_rotary_pos_emb(
+        self,
+        q_pe: torch.Tensor,
+        k_pe: torch.Tensor,
+        freqs_cis: tuple[torch.Tensor, torch.Tensor],
+    ):
+        cos, sin = freqs_cis
+        return self.apply_rotary_pos_emb(
+            q_pe,
+            k_pe[..., None, :],
+            cos,
+            sin,
+            inplace=False,
+            complex_mode=self.rope_interleave,
+        )
+
+    def custom_forward(self, x, qr, freqs_cis, attn_metadata=None):
+        # This is the common unfused path without CUDA-only Hadamard rotation.
+        q = self.wq_b(qr).unflatten(-1, (-1, self.head_dim))
+        q_pe, q_nope = torch.split(
+            q, [self.rope_head_dim, self.head_dim - self.rope_head_dim], dim=-1
+        )
+        k = self.k_norm(self.wk(x))
+        k_pe, k_nope = torch.split(
+            k, [self.rope_head_dim, self.head_dim - self.rope_head_dim], dim=-1
+        )
+        q_pe, k_pe = self._apply_rotary_pos_emb(q_pe, k_pe, freqs_cis)
+        q = torch.cat([q_pe, q_nope], dim=-1)
+        k = torch.cat([k_pe[0], k_nope[0, :, None]], dim=-1)
+        weights = self.weights_proj(x) * self.n_heads**-0.5
+        return self.indexer_topk(q[0], k[:, 0], weights[0], attn_metadata=attn_metadata)
+
+    GlmMoeDsaIndexer.__init__ = custom_init
+    GlmMoeDsaIndexer.forward = custom_forward
+    GlmMoeDsaIndexer._apply_rotary_pos_emb = custom_apply_rotary_pos_emb
+    GlmMoeDsaIndexer._dlinfer_ascend_patched = True
+
+
+##### patch cache engine #####
+
+
+def patch_glm_moe_dsa_split_cache():
+    """Use independent contiguous noPE and RoPE caches for Ascend DSA."""
+    from lmdeploy.pytorch.configurations.glm_moe_dsa import (
+        GlmMoeDsaModelConfigBuilder,
+    )
+    from lmdeploy.pytorch.distributed import get_dist_manager
+    from lmdeploy.pytorch.models.glm_moe_dsa import GlmMoeDsaAttention
+
+    if getattr(GlmMoeDsaModelConfigBuilder, "_dlinfer_split_cache_patched", False):
+        return
+
+    original_build = GlmMoeDsaModelConfigBuilder.build
+
+    @classmethod
+    def custom_build(cls, hf_config, model_path: str | None = None, **kwargs):
+        config = original_build(hf_config, model_path=model_path, **kwargs)
+        # Cache only the RoPE key in K and the latent/noPE value in V.  Their
+        # combined width is unchanged, but each cache can now be contiguous.
+        config.k_head_dim = hf_config.qk_rope_head_dim
+        config.v_head_dim = hf_config.kv_lora_rank
+        config.split_mla_kv_cache = True
+        return config
+
+    def custom_forward(
+        self,
+        hidden_states,
+        rotary_pos_emb,
+        past_key_value=None,
+        attn_metadata=None,
+        topk_indices_buffer=None,
+        skip_topk: bool = False,
+    ):
+        dist_config = get_dist_manager().current_config()
+        num_heads = (
+            self.num_heads
+            if dist_config.dp > 1
+            else self.num_heads // dist_config.attn_tp
+        )
+        nope_size = self.kv_lora_rank
+        q_len = hidden_states.size(1)
+
+        query_states, key_states, value_states, q_pe, k_pe, qr = self._qkv_proj(
+            hidden_states, num_heads=num_heads
+        )
+        cos, sin = rotary_pos_emb
+        q_pe, k_pe = self.apply_rotary_pos_emb(q_pe, k_pe, cos, sin, inplace=False)
+        query_states[..., nope_size:] = q_pe
+        key_states[..., nope_size:] = k_pe
+
+        if topk_indices_buffer is None:
+            raise RuntimeError(
+                f"Layer {self.layer_idx} requires a DSA top-k indices buffer."
+            )
+        if self.indexer is not None and not skip_topk:
+            topk_indices = topk_indices_buffer.write(
+                self.indexer(
+                    hidden_states, qr, rotary_pos_emb, attn_metadata=attn_metadata
+                )
             )
         else:
-            mem_pool = torch.empty(0, dtype=cache_dtype, device=device)
-        return mem_pool, caches
+            topk_indices = topk_indices_buffer.read(q_len, hidden_states.device)
 
-    def _state_cache_slot_dim(self, cache_idx: int):
-        """Return the state-slot dimension for one cache tensor."""
-        cache_names = getattr(self, "_state_cache_names", [])
-        layer_maps = getattr(self, "_state_cache_layer_maps", {})
-        if cache_idx < len(cache_names) and cache_names[cache_idx] in layer_maps:
-            return 1
-        return 0
+        rope_cache, nope_cache = past_key_value[:2]
 
-    def _state_cache_engine_init_caches(self, idx: torch.Tensor, mask: torch.Tensor):
-        """Initialize state caches by zeroing each individual cache tensor."""
-        if idx is None:
-            return
-        if len(self._state_caches) <= 0:
-            return
-        num_caches = self.cache_config.num_state_caches
-        cache_masks = torch.zeros((num_caches,), dtype=torch.bool, device=idx.device)
-        cache_masks.index_copy_(0, idx, mask)
-        for cache_idx, cache in enumerate(self._state_caches):
-            slot_dim = _state_cache_slot_dim(self, cache_idx)
-            mask_shape = [1] * cache.dim()
-            mask_shape[slot_dim] = num_caches
-            reshaped_mask = cache_masks.view(mask_shape)
-            cache.masked_fill_(reshaped_mask, 0)
+        attn_output = self.attn_fwd(
+            query_states,
+            key_states,
+            value_states,
+            rope_cache,
+            nope_cache,
+            attn_metadata,
+            k_scales_zeros=(None if len(past_key_value) == 2 else past_key_value[2]),
+            v_scales_zeros=(None if len(past_key_value) == 2 else past_key_value[3]),
+            nsa_indices=topk_indices,
+        )
+        attn_bmm_out = attn_output.new_empty(q_len, num_heads, self.v_head_dim)
+        self.vc(attn_output, attn_bmm_out)
+        return self.o_proj(attn_bmm_out.flatten(-2, -1)[None])
 
-    def _state_cache_engine_copy_caches(
-        self, src_idx: int | Sequence[int], dst_idx: int | Sequence[int]
-    ):
-        """Copy slots between independently allocated state-cache tensors."""
-        if len(self._state_caches) <= 0:
-            return
-
-        src_list = self._index_list(src_idx)
-        dst_list = self._index_list(dst_idx)
-        if len(src_list) != len(dst_list):
-            raise ValueError(
-                "src_idx and dst_idx must have the same number of elements."
-            )
-        if len(src_list) == 0:
-            return
-
-        num_caches = self.cache_config.num_state_caches
-        self._validate_index_bounds(src_list, num_caches)
-        self._validate_index_bounds(dst_list, num_caches)
-        dst_set = set(dst_list)
-        if len(dst_set) != len(dst_list):
-            raise ValueError("dst_idx must not contain duplicate entries.")
-        if not set(src_list).isdisjoint(dst_set):
-            raise ValueError(
-                "src_idx and dst_idx must not overlap for stream-ordered state copies."
-            )
-
-        for cache_idx, cache in enumerate(self._state_caches):
-            slot_dim = _state_cache_slot_dim(self, cache_idx)
-            for src, dst, length in self._copy_ranges(src_list, dst_list):
-                src_slice = [slice(None)] * cache.dim()
-                dst_slice = [slice(None)] * cache.dim()
-                src_slice[slot_dim] = slice(src, src + length)
-                dst_slice[slot_dim] = slice(dst, dst + length)
-                cache[tuple(dst_slice)].copy_(
-                    cache[tuple(src_slice)], non_blocking=True
-                )
-
-    cache_engine.StateCacheEngine.allocate_caches = _state_cache_engine_allocate_caches
-    cache_engine.StateCacheEngine.init_caches = _state_cache_engine_init_caches
-    cache_engine.StateCacheEngine.copy_caches = _state_cache_engine_copy_caches
+    GlmMoeDsaModelConfigBuilder.build = custom_build
+    GlmMoeDsaModelConfigBuilder._dlinfer_split_cache_patched = True
+    GlmMoeDsaAttention.forward = custom_forward
 
 
 def patch_gated_delta_net():
@@ -366,9 +936,9 @@ def patch_gated_delta_net():
             attn_metadata: Any,
         ):
             self.is_decoding = attn_metadata.is_decoding
-            self.cu_seqlens = attn_metadata.q_start_loc
+            self.cu_seqlens = attn_metadata.cu_seqlens_q
             self.is_multi_token_decoding = attn_metadata.is_multi_token_decoding
-            self.max_q_seq_len = attn_metadata.max_q_seq_len
+            self.max_q_seq_len = attn_metadata.max_q_seqlen
 
             self.num_spec_tokens = get_step_ctx_manager().build_ctx.num_spec_tokens
             self.cache_seqlens = getattr(attn_metadata, "cache_seqlens", None)
@@ -951,11 +1521,18 @@ def vendor_device_init():
     import_vendor_module(vendor_name)
     patch_compiled_func()
     patch_async_sampling_logits()
-    if vendor_name in ["camb", "ascend"]:
-        patch_contiguous_cache_engine()
     if vendor_name == "ascend":
         patch_rejection_sampler()
-        patch_state_cache_engine()
+        patch_modelslim_quantization_config()
+        patch_glm_moe_dsa_config()
+        patch_deepseek_v32_config()
+        patch_deepseek_v32_qkv()
+        patch_glm_moe_dsa_norm_dtype()
+        patch_deepseek_v2_moe()
+        patch_deepseek_v2_modelslim_weight_loader()
+        patch_glm_moe_dsa_weight_loader()
+        patch_glm_moe_dsa_indexer()
+        patch_glm_moe_dsa_split_cache()
         patch_gated_delta_net()
         patch_qwen3_5()
 

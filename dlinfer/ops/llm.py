@@ -16,6 +16,9 @@ from dlinfer.graph.custom_op import register_custom_op
 __all__ = [
     "add_rms_norm",
     "apply_rotary_pos_emb",
+    "apply_rotary_pos_emb_interleaved",
+    "lightning_indexer",
+    "sparse_flash_attention",
     "prefill_attention",
     "incre_flash_attention",
     "fill_kv_cache",
@@ -29,13 +32,46 @@ __all__ = [
     "get_cache_len",
     "weight_quant_matmul",
     "fused_moe",
+    "fused_moe_w8a8",
     "linear",
     "dynamic_quant",
     "linear_w8a8",
+    "linear_w8a8_static",
     "rms_norm_w8a8",
     "add_rms_norm_w8a8",
     "transdata",
 ]
+
+
+def _lightning_indexer_abstract(
+    query,
+    key,
+    weights,
+    actual_seq_lengths_query,
+    actual_seq_lengths_key,
+    block_table,
+    sparse_count,
+):
+    del key, weights, actual_seq_lengths_query, actual_seq_lengths_key
+    del block_table
+    return query.new_empty((query.shape[0], 1, sparse_count), dtype=torch.int32)
+
+
+def _sparse_flash_attention_abstract(
+    query,
+    key,
+    value,
+    sparse_indices,
+    scale_value,
+    block_table,
+    actual_seq_lengths_query,
+    kv_seqlens,
+    query_rope,
+    key_rope,
+):
+    del key, sparse_indices, scale_value, block_table
+    del actual_seq_lengths_query, kv_seqlens, query_rope, key_rope
+    return query.new_empty((*query.shape[:-1], value.shape[-1]))
 
 
 @register_custom_op("dlinfer::add_rms_norm", ["hidden_states", "residual"])
@@ -95,12 +131,114 @@ def apply_rotary_pos_emb(
 
 
 @register_custom_op(
+    "dlinfer::apply_rotary_pos_emb_interleaved",
+    ["x"],
+    default_value={"return_native_layout": True},
+)
+def apply_rotary_pos_emb_interleaved(
+    x: Tensor,
+    cos: Tensor,
+    sin: Tensor,
+    return_native_layout: bool,
+) -> Tensor:
+    """Apply complex RoPE to adjacent element pairs.
+
+    By default, the output keeps the native vendor front/back-half layout.
+    Set return_native_layout=False to restore the adjacent-pair layout.
+    The cos and sin tables use the front/back-half layout required by the
+    vendor implementation.
+    """
+    impl = vendor_ops_registry.get("apply_rotary_pos_emb_interleaved")
+    if impl is not None:
+        return impl(x, cos, sin, return_native_layout)
+
+    half_size = x.shape[-1] // 2
+    x_even = x[..., 0::2]
+    x_odd = x[..., 1::2]
+    out_even = x_even * cos[..., :half_size] - x_odd * sin[..., :half_size]
+    out_odd = x_odd * cos[..., half_size:] + x_even * sin[..., half_size:]
+    if return_native_layout:
+        return torch.cat((out_even, out_odd), dim=-1)
+    return torch.stack((out_even, out_odd), dim=-1).flatten(-2)
+
+
+@register_custom_op(
+    "dlinfer::lightning_indexer",
+    default_value={
+        "actual_seq_lengths_query": None,
+        "actual_seq_lengths_key": None,
+        "block_table": None,
+        "sparse_count": 2048,
+    },
+    impl_abstract_func=_lightning_indexer_abstract,
+)
+def lightning_indexer(
+    query: Tensor,
+    key: Tensor,
+    weights: Tensor,
+    actual_seq_lengths_query: Optional[Tensor],
+    actual_seq_lengths_key: Optional[Tensor],
+    block_table: Optional[Tensor],
+    sparse_count: int,
+) -> Tensor:
+    """Select causal sparse-attention token indices from a paged key cache."""
+    return vendor_ops_registry["lightning_indexer"](
+        query,
+        key,
+        weights,
+        actual_seq_lengths_query,
+        actual_seq_lengths_key,
+        block_table,
+        sparse_count,
+    )
+
+
+@register_custom_op(
+    "dlinfer::sparse_flash_attention",
+    default_value={
+        "block_table": None,
+        "actual_seq_lengths_query": None,
+        "kv_seqlens": None,
+        "query_rope": None,
+        "key_rope": None,
+    },
+    impl_abstract_func=_sparse_flash_attention_abstract,
+)
+def sparse_flash_attention(
+    query: Tensor,
+    key: Tensor,
+    value: Tensor,
+    sparse_indices: Tensor,
+    scale_value: float,
+    block_table: Optional[Tensor],
+    actual_seq_lengths_query: Optional[Tensor],
+    kv_seqlens: Optional[Tensor],
+    query_rope: Optional[Tensor],
+    key_rope: Optional[Tensor],
+) -> Tensor:
+    """Run sparse flash attention using logical token indices."""
+    return vendor_ops_registry["sparse_flash_attention"](
+        query,
+        key,
+        value,
+        sparse_indices,
+        scale_value,
+        block_table,
+        actual_seq_lengths_query,
+        kv_seqlens,
+        query_rope,
+        key_rope,
+    )
+
+
+@register_custom_op(
     "dlinfer::prefill_attention",
     ["attn_output"],
     default_value={
         "softmax_scale": None,
         "alibi_slopes": None,
         "attn_output": None,
+        "actual_seq_lengths_cpu": None,
     },
 )
 def prefill_attention(
@@ -109,7 +247,6 @@ def prefill_attention(
     value: Tensor,
     key_cache: Tensor,
     value_cache: Tensor,
-    q_start_loc: Tensor,
     q_seq_len: Tensor,
     kv_seq_len: Tensor,
     max_q_seq_len: int,
@@ -119,6 +256,7 @@ def prefill_attention(
     softmax_scale: Optional[float],
     alibi_slopes: Optional[Sequence[float]],
     attn_output: Optional[Tensor],
+    actual_seq_lengths_cpu: Optional[Tensor],
 ) -> Tensor:
     """
     Computes the multi-head attention over the query, key, and value tensors.
@@ -130,7 +268,6 @@ def prefill_attention(
         value (Tensor): The value tensor.
         key_cache (Tensor): The existing key cache tensor.
         value_cache (Tensor): The existing value cache tensor.
-        q_start_loc (Tensor): The start location of each query sequence.
         q_seq_len (Tensor): The length of each query sequence.
         kv_seq_len (Tensor): The length of each key/value sequence.
         max_q_seq_len (int): The maximum length of any query sequence.
@@ -140,6 +277,9 @@ def prefill_attention(
         softmax_scale (Optional[float]): The scale factor to apply to the attention logits before the softmax.
         alibi_slopes (Optional[Sequence[float]]): The slopes for the ALiBi attention bias, one for each head.
         attn_output (Optional[Tensor]): The computed attention output tensor.
+        actual_seq_lengths_cpu (Optional[Tensor]): Precomputed cumulative end
+            position of each query sequence on CPU. It is required for TND
+            attention.
 
     Returns:
         Tensor: The computed attention output tensor, alias of attn_output.
@@ -148,7 +288,6 @@ def prefill_attention(
         query,
         key,
         value,
-        q_start_loc,
         q_seq_len,
         max_q_seq_len,
         num_q_heads,
@@ -157,6 +296,7 @@ def prefill_attention(
         softmax_scale,
         alibi_slopes,
         attn_output,
+        actual_seq_lengths_cpu,
     )
 
 
@@ -348,10 +488,8 @@ def paged_prefill_attention(
     value_cache: Tensor,
     block_table: Tensor,
     block_size: int,
-    q_start_loc: Tensor,
     q_seq_len: Tensor,
     kv_seq_len: Tensor,
-    cu_seq_lens_kv: Tensor,
     max_q_seq_len: int,
     max_kv_seq_len: int,
     num_q_heads: int,
@@ -376,10 +514,8 @@ def paged_prefill_attention(
         block_table (Tensor): A tensor that maps each position in the query sequence to the corresponding
                               block in the key/value cache.
         block_size (int): The size of each block in the input sequence.
-        q_start_loc (Tensor): The start location of each query sequence.
         q_seq_len (Tensor): The length of each query sequence.
         kv_seq_len (Tensor): The length of each key/value sequence.
-        cu_seq_lens_kv (Tensor): The cumulative sequence lengths of the key/value sequences.
         max_q_seq_len (int): The maximum length of any query sequence.
         max_kv_seq_len (int): The maximum length of any key/value sequence.
         num_q_heads (int): The number of query heads.
@@ -404,10 +540,8 @@ def paged_prefill_attention(
         value_cache,
         block_table,
         block_size,
-        q_start_loc,
         q_seq_len,
         kv_seq_len,
-        cu_seq_lens_kv,
         max_q_seq_len,
         max_kv_seq_len,
         num_q_heads,
@@ -660,6 +794,39 @@ def fused_moe(
     return fused_moe_impl(*args, chunked_moe_layout)
 
 
+def fused_moe_w8a8(
+    hidden_states: Tensor,
+    gate_up_weights: Tensor,
+    gate_up_scales: Tensor,
+    down_weights: Tensor,
+    down_scales: Tensor,
+    topk_weights: Tensor,
+    topk_ids: Tensor,
+    topk: int,
+    renormalize: bool,
+    moe_metadata: MoeMetadata,
+) -> Tensor:
+    """Run dynamic W8A8 MoE through the vendor's non-fused fallback.
+
+    Unlike :func:`fused_moe`, this entry point carries the per-channel weight
+    scales required by quantized grouped matmuls.  It deliberately has no
+    ``chunked_moe_layout`` argument: GLM-5.2 has fewer than the Ascend grouped
+    matmul limit of 1024 (local) experts.
+    """
+    return vendor_ops_registry["fused_moe_w8a8"](
+        hidden_states,
+        gate_up_weights,
+        gate_up_scales,
+        down_weights,
+        down_scales,
+        topk_weights,
+        topk_ids,
+        topk,
+        renormalize,
+        moe_metadata,
+    )
+
+
 def linear_impl_abstract_func(
     x: Tensor,
     weight: Tensor,
@@ -785,6 +952,47 @@ def linear_w8a8(
     """
     return vendor_ops_registry["linear_w8a8"](
         a, b, rms_scale, linear_scale, out_dtype, quant_dtype, bias
+    )
+
+
+def linear_w8a8_static_impl_abstract_func(
+    x: Tensor,
+    weight: Tensor,
+    input_scale: Tensor,
+    input_offset: Tensor,
+    deq_scale: Tensor,
+    out_dtype: torch.dtype,
+    quant_dtype: torch.dtype,
+    quant_bias: Optional[Tensor],
+) -> Tensor:
+    return x.new_empty((*x.shape[:-1], weight.shape[0]), dtype=out_dtype)
+
+
+@register_custom_op(
+    "dlinfer::linear_w8a8_static",
+    impl_abstract_func=linear_w8a8_static_impl_abstract_func,
+    default_value={"quant_bias": None},
+)
+def linear_w8a8_static(
+    x: Tensor,
+    weight: Tensor,
+    input_scale: Tensor,
+    input_offset: Tensor,
+    deq_scale: Tensor,
+    out_dtype: torch.dtype,
+    quant_dtype: torch.dtype,
+    quant_bias: Optional[Tensor],
+) -> Tensor:
+    """Run ModelSlim static W8A8 quantization followed by quant matmul."""
+    return vendor_ops_registry["linear_w8a8_static"](
+        x,
+        weight,
+        input_scale,
+        input_offset,
+        deq_scale,
+        out_dtype,
+        quant_dtype,
+        quant_bias,
     )
 
 
