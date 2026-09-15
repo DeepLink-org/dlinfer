@@ -233,6 +233,7 @@ def apply_rotary_pos_emb_interleaved(
     output_even, output_odd = output.chunk(2, dim=-1)
     return torch.stack((output_even, output_odd), dim=-1).flatten(-2)
 
+
 @register_ops(vendor_ops_registry)
 def lightning_indexer(
     query: Tensor,
@@ -488,13 +489,9 @@ def fill_kv_cache(
         key_rope = key[..., -rope_head_size:].contiguous()
         value_nope = value.contiguous()
         key_cache_reshaped = torch.flatten(key_cache, start_dim=0, end_dim=1)
-        value_cache_reshaped = torch.flatten(
-            value_cache, start_dim=0, end_dim=1
-        )
+        value_cache_reshaped = torch.flatten(value_cache, start_dim=0, end_dim=1)
         kv_indices = kv_indices.view(-1, 1)
-        torch.ops.npu.npu_scatter_nd_update_(
-            key_cache_reshaped, kv_indices, key_rope
-        )
+        torch.ops.npu.npu_scatter_nd_update_(key_cache_reshaped, kv_indices, key_rope)
         torch.ops.npu.npu_scatter_nd_update_(
             value_cache_reshaped, kv_indices, value_nope
         )

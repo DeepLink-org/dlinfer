@@ -3,7 +3,6 @@ import torch
 import torch.distributed as dist
 from dlinfer.utils.type_annotation import MoECommType
 
-
 # aclnnGroupedMatmulV5 requires the groupList tensor to have at most 1024
 # entries. Models with more experts than this (e.g. meta-MoE with 2560
 # experts) must split the grouped matmul into several sub-calls. The limit can

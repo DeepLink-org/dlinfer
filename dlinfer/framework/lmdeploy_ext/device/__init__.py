@@ -160,7 +160,7 @@ def patch_modelslim_quantization_config():
 
     from lmdeploy.pytorch.config import QuantizationConfig
 
-    if getattr(QuantizationConfig, '_dlinfer_modelslim_patched', False):
+    if getattr(QuantizationConfig, "_dlinfer_modelslim_patched", False):
         return
 
     original_from_config = QuantizationConfig.from_config
@@ -169,70 +169,72 @@ def patch_modelslim_quantization_config():
     @classmethod
     def custom_from_config(cls, hf_config):
         quant_sources = []
-        quant_config = getattr(hf_config, 'quantization_config', None)
+        quant_config = getattr(hf_config, "quantization_config", None)
         if quant_config is not None:
             quant_sources.append(quant_config)
-        for config_name in ('llm_config', 'text_config'):
+        for config_name in ("llm_config", "text_config"):
             nested_config = getattr(hf_config, config_name, None)
-            nested_quant_config = getattr(nested_config,
-                                          'quantization_config', None)
+            nested_quant_config = getattr(nested_config, "quantization_config", None)
             if nested_quant_config is not None:
                 quant_sources.append(nested_quant_config)
 
         if not quant_sources:
             return original_from_config(hf_config)
         if any(
-                isinstance(config, Mapping)
-                and config.get('quant_method') == 'compressed-tensors'
-                for config in quant_sources):
+            isinstance(config, Mapping)
+            and config.get("quant_method") == "compressed-tensors"
+            for config in quant_sources
+        ):
             return original_from_config(hf_config)
 
         quant_config = quant_sources[0]
-        if (not isinstance(quant_config, Mapping)
-                or quant_config.get('quant_method') != 'modelslim'):
+        if (
+            not isinstance(quant_config, Mapping)
+            or quant_config.get("quant_method") != "modelslim"
+        ):
             return original_from_config(hf_config)
 
-        quant_dtype = quant_config.get('quant_dtype') or 'int8'
+        quant_dtype = quant_config.get("quant_dtype") or "int8"
         resolved_quant_dtype = getattr(torch, quant_dtype, None)
         if not isinstance(resolved_quant_dtype, torch.dtype):
             raise ValueError(
                 f'Invalid quant dtype "{quant_dtype}" resolved from model '
-                'config; expected a torch.dtype attribute on torch.')
+                "config; expected a torch.dtype attribute on torch."
+            )
 
-        ignored_layers = quant_config.get('ignored_layers', [])
+        ignored_layers = quant_config.get("ignored_layers", [])
         if not ignored_layers:
-            ignored_layers = quant_config.get('modules_to_not_convert', [])
+            ignored_layers = quant_config.get("modules_to_not_convert", [])
         return cls(
-            quant_method='modelslim',
+            quant_method="modelslim",
             quant_dtype=resolved_quant_dtype,
-            scale_fmt=quant_config.get('scale_fmt'),
-            weight_block_size=quant_config.get('weight_block_size'),
-            activation_scheme=quant_config.get('activation_scheme'),
+            scale_fmt=quant_config.get("scale_fmt"),
+            weight_block_size=quant_config.get("weight_block_size"),
+            activation_scheme=quant_config.get("activation_scheme"),
             ignored_layers=ignored_layers,
-            fp8_quant_scope=quant_config.get('fp8_quant_scope'),
+            fp8_quant_scope=quant_config.get("fp8_quant_scope"),
             hf_quant_config=quant_config,
         )
 
     def get_modelslim_quant_method(self, prefix, module_kind):
-        if not prefix or module_kind == 'norm':
+        if not prefix or module_kind == "norm":
             return None
 
-        description = self.hf_quant_config.get('quant_description', {})
+        description = self.hf_quant_config.get("quant_description", {})
         if not description:
             raise ValueError(
-                'ModelSlim quantization requires quant_description metadata.')
+                "ModelSlim quantization requires quant_description metadata."
+            )
 
-        proj_name = prefix.rsplit('.', 1)[-1]
-        if module_kind == 'moe':
-            suffixes = ('0.gate_proj.weight', '0.up_proj.weight',
-                        '0.down_proj.weight')
-            keys = [f'{prefix}.{suffix}' for suffix in suffixes]
-        elif proj_name == 'gate_up_proj':
-            parent = prefix.rsplit('.', 1)[0]
-            keys = [f'{parent}.gate_proj.weight',
-                    f'{parent}.up_proj.weight']
+        proj_name = prefix.rsplit(".", 1)[-1]
+        if module_kind == "moe":
+            suffixes = ("0.gate_proj.weight", "0.up_proj.weight", "0.down_proj.weight")
+            keys = [f"{prefix}.{suffix}" for suffix in suffixes]
+        elif proj_name == "gate_up_proj":
+            parent = prefix.rsplit(".", 1)[0]
+            keys = [f"{parent}.gate_proj.weight", f"{parent}.up_proj.weight"]
         else:
-            keys = [f'{prefix}.weight']
+            keys = [f"{prefix}.weight"]
 
         missing = [key for key in keys if key not in description]
         if missing:
@@ -240,35 +242,32 @@ def patch_modelslim_quantization_config():
         quant_types = {description[key] for key in keys}
         if len(quant_types) != 1:
             raise ValueError(
-                f'ModelSlim fused module {prefix} mixes quant types: '
-                f'{sorted(quant_types)}')
+                f"ModelSlim fused module {prefix} mixes quant types: "
+                f"{sorted(quant_types)}"
+            )
 
         quant_type = quant_types.pop()
-        if quant_type == 'FLOAT':
+        if quant_type == "FLOAT":
             return None
-        if quant_type == 'W8A8_DYNAMIC':
-            return 'smooth_quant'
-        if quant_type == 'W8A8':
-            if module_kind == 'moe':
-                raise ValueError(
-                    f'Static W8A8 MoE is not supported for {prefix}.')
-            return 'modelslim_w8a8_static'
+        if quant_type == "W8A8_DYNAMIC":
+            return "smooth_quant"
+        if quant_type == "W8A8":
+            if module_kind == "moe":
+                raise ValueError(f"Static W8A8 MoE is not supported for {prefix}.")
+            return "modelslim_w8a8_static"
         raise ValueError(
-            f'Unsupported ModelSlim quant type {quant_type!r} for {prefix}.')
+            f"Unsupported ModelSlim quant type {quant_type!r} for {prefix}."
+        )
 
-    def custom_get_quant_method(self,
-                                prefix='',
-                                module_kind='linear'):
-        if self.quant_method != 'modelslim':
+    def custom_get_quant_method(self, prefix="", module_kind="linear"):
+        if self.quant_method != "modelslim":
             return original_get_quant_method(self, prefix, module_kind)
-        if module_kind not in {'linear', 'moe', 'norm'}:
-            raise ValueError(
-                f'Unsupported quant module kind: {module_kind}')
+        if module_kind not in {"linear", "moe", "norm"}:
+            raise ValueError(f"Unsupported quant module kind: {module_kind}")
         return self._get_modelslim_quant_method(prefix, module_kind)
 
     QuantizationConfig.from_config = custom_from_config
-    QuantizationConfig._get_modelslim_quant_method = (
-        get_modelslim_quant_method)
+    QuantizationConfig._get_modelslim_quant_method = get_modelslim_quant_method
     QuantizationConfig.get_quant_method = custom_get_quant_method
     QuantizationConfig._dlinfer_modelslim_patched = True
 
@@ -282,9 +281,11 @@ def patch_deepseek_v32_config():
     non-FlashMLA model semantics for the Ascend runtime.
     """
     from lmdeploy.pytorch.configurations import deepseek_v2 as deepseek_v2_config
-    from lmdeploy.pytorch.configurations.deepseek_v32 import DeepseekV32ModelConfigBuilder
+    from lmdeploy.pytorch.configurations.deepseek_v32 import (
+        DeepseekV32ModelConfigBuilder,
+    )
 
-    if getattr(DeepseekV32ModelConfigBuilder, '_dlinfer_ascend_patched', False):
+    if getattr(DeepseekV32ModelConfigBuilder, "_dlinfer_ascend_patched", False):
         return
 
     original_build = DeepseekV32ModelConfigBuilder.build
@@ -292,8 +293,8 @@ def patch_deepseek_v32_config():
 
     @classmethod
     def custom_build(cls, hf_config, model_path: str | None = None, **kwargs):
-        device_type = kwargs.get('device_type', 'auto')
-        if device_type not in ('ascend', 'npu'):
+        device_type = kwargs.get("device_type", "auto")
+        if device_type not in ("ascend", "npu"):
             return original_build(hf_config, model_path=model_path, **kwargs)
 
         deepseek_v2_config.flash_mla_available = lambda: True
@@ -319,30 +320,38 @@ def patch_glm_moe_dsa_config():
     from lmdeploy.pytorch.configurations.glm_moe_dsa import GlmMoeDsaModelConfigBuilder
     from lmdeploy.utils import get_logger
 
-    logger = get_logger('lmdeploy')
+    logger = get_logger("lmdeploy")
 
-    if getattr(GlmMoeDsaModelConfigBuilder, '_dlinfer_modelslim_patched', False):
+    if getattr(GlmMoeDsaModelConfigBuilder, "_dlinfer_modelslim_patched", False):
         return
 
     original_build = GlmMoeDsaModelConfigBuilder.build
 
     @classmethod
     def custom_build(cls, hf_config, model_path: str | None = None, **kwargs):
-        device_type = kwargs.get('device_type', 'auto')
-        modelslim_path = (os.path.join(model_path, 'quant_model_description.json')
-                          if model_path else None)
-        if (device_type in ('ascend', 'npu') and modelslim_path
-                and os.path.isfile(modelslim_path)):
-            with open(modelslim_path, encoding='utf-8') as f:
+        device_type = kwargs.get("device_type", "auto")
+        modelslim_path = (
+            os.path.join(model_path, "quant_model_description.json")
+            if model_path
+            else None
+        )
+        if (
+            device_type in ("ascend", "npu")
+            and modelslim_path
+            and os.path.isfile(modelslim_path)
+        ):
+            with open(modelslim_path, encoding="utf-8") as f:
                 quant_description = json.load(f)
             if not isinstance(quant_description, dict):
-                raise TypeError(f'Expected a JSON object in {modelslim_path}.')
+                raise TypeError(f"Expected a JSON object in {modelslim_path}.")
             hf_config.quantization_config = {
-                'quant_method': 'modelslim',
-                'quant_dtype': 'int8',
-                'quant_description': quant_description,
+                "quant_method": "modelslim",
+                "quant_dtype": "int8",
+                "quant_description": quant_description,
             }
-            logger.info(f'Using Ascend ModelSlim quantization metadata from {modelslim_path}.')
+            logger.info(
+                f"Using Ascend ModelSlim quantization metadata from {modelslim_path}."
+            )
         return original_build(hf_config, model_path=model_path, **kwargs)
 
     GlmMoeDsaModelConfigBuilder.build = custom_build
@@ -360,30 +369,28 @@ def patch_deepseek_v32_qkv():
     from lmdeploy.pytorch.models import deepseek_v32
 
     attention_cls = deepseek_v32.DeepseekV32Attention
-    if getattr(attention_cls, '_dlinfer_ascend_qkv_patched', False):
+    if getattr(attention_cls, "_dlinfer_ascend_qkv_patched", False):
         return
 
     original_init = attention_cls.__init__
 
-    def custom_init(self,
-                    config,
-                    layer_idx,
-                    dtype=None,
-                    device=None,
-                    all_reduce=True,
-                    prefix=''):
+    def custom_init(
+        self, config, layer_idx, dtype=None, device=None, all_reduce=True, prefix=""
+    ):
         if config.q_lora_rank is None:
-            return original_init(self,
-                                 config,
-                                 layer_idx,
-                                 dtype=dtype,
-                                 device=device,
-                                 all_reduce=all_reduce,
-                                 prefix=prefix)
+            return original_init(
+                self,
+                config,
+                layer_idx,
+                dtype=dtype,
+                device=device,
+                all_reduce=all_reduce,
+                prefix=prefix,
+            )
 
         deepseek_v32.nn.Module.__init__(self)
         self.layer_idx = layer_idx
-        quantization_config = getattr(config, 'quantization_config', None)
+        quantization_config = getattr(config, "quantization_config", None)
         self.q_lora_rank = config.q_lora_rank
         self.hidden_size = config.hidden_size
         self.num_heads = config.num_attention_heads
@@ -392,9 +399,9 @@ def patch_deepseek_v32_qkv():
         self.v_head_dim = config.v_head_dim
         self.qk_nope_head_dim = config.qk_nope_head_dim
         self.q_head_dim = config.qk_nope_head_dim + config.qk_rope_head_dim
-        num_replicate_kv_heads = getattr(config, 'num_replicate_key_value_heads', 1)
-        num_key_value_heads = getattr(config, 'num_key_value_heads', 1)
-        use_flash_mla = getattr(config, 'use_flash_mla', False)
+        num_replicate_kv_heads = getattr(config, "num_replicate_key_value_heads", 1)
+        num_key_value_heads = getattr(config, "num_key_value_heads", 1)
+        use_flash_mla = getattr(config, "use_flash_mla", False)
 
         self.q_a_proj = deepseek_v32.build_colwise_linear(
             self.hidden_size,
@@ -404,7 +411,7 @@ def patch_deepseek_v32_qkv():
             device=device,
             is_tp=False,
             quant_config=quantization_config,
-            prefix=f'{prefix}.q_a_proj' if prefix else '',
+            prefix=f"{prefix}.q_a_proj" if prefix else "",
         )
         self.q_a_layernorm = deepseek_v32.RMSNorm(
             config.q_lora_rank,
@@ -421,7 +428,7 @@ def patch_deepseek_v32_qkv():
             device=device,
             is_tp=True,
             quant_config=quantization_config,
-            prefix=f'{prefix}.q_b_proj' if prefix else '',
+            prefix=f"{prefix}.q_b_proj" if prefix else "",
         )
         self.kv_a_proj_with_mqa = deepseek_v32.build_colwise_linear(
             self.hidden_size,
@@ -431,7 +438,7 @@ def patch_deepseek_v32_qkv():
             device=device,
             is_tp=False,
             quant_config=quantization_config,
-            prefix=f'{prefix}.kv_a_proj_with_mqa' if prefix else '',
+            prefix=f"{prefix}.kv_a_proj_with_mqa" if prefix else "",
         )
         self.kv_a_layernorm = deepseek_v32.RMSNorm(
             config.kv_lora_rank,
@@ -448,7 +455,7 @@ def patch_deepseek_v32_qkv():
             device=device,
             is_tp=True,
             quant_config=quantization_config,
-            prefix=f'{prefix}.kv_b_proj' if prefix else '',
+            prefix=f"{prefix}.kv_b_proj" if prefix else "",
         )
         self.kc = deepseek_v32.DeepseekV2BMM(
             self.num_heads,
@@ -462,9 +469,9 @@ def patch_deepseek_v32_qkv():
 
         rope_scaling = deepseek_v32.get_rope_parameters(config)
         if rope_scaling is not None:
-            mscale_all_dim = rope_scaling.get('mscale_all_dim', 0)
+            mscale_all_dim = rope_scaling.get("mscale_all_dim", 0)
             if mscale_all_dim:
-                scaling_factor = rope_scaling['factor']
+                scaling_factor = rope_scaling["factor"]
                 mscale = deepseek_v32.yarn_get_mscale(scaling_factor, mscale_all_dim)
                 self.softmax_scale = self.softmax_scale * mscale * mscale
 
@@ -494,7 +501,7 @@ def patch_deepseek_v32_qkv():
             is_tp=True,
             quant_config=quantization_config,
             all_reduce=all_reduce,
-            prefix=f'{prefix}.o_proj' if prefix else '',
+            prefix=f"{prefix}.o_proj" if prefix else "",
         )
         self.indexer = self._build_indexer(config, layer_idx, dtype, device, prefix)
 
@@ -524,24 +531,18 @@ def patch_glm_moe_dsa_norm_dtype():
         GlmMoeDsaModel,
     )
 
-    if getattr(GlmMoeDsaModel, '_dlinfer_norm_dtype_patched', False):
+    if getattr(GlmMoeDsaModel, "_dlinfer_norm_dtype_patched", False):
         return
 
     original_decoder_init = GlmMoeDsaDecoderLayer.__init__
     original_model_init = GlmMoeDsaModel.__init__
 
-    def custom_decoder_init(self,
-                            config,
-                            layer_idx,
-                            dtype=None,
-                            device=None,
-                            prefix=''):
-        original_decoder_init(self,
-                              config,
-                              layer_idx,
-                              dtype=dtype,
-                              device=device,
-                              prefix=prefix)
+    def custom_decoder_init(
+        self, config, layer_idx, dtype=None, device=None, prefix=""
+    ):
+        original_decoder_init(
+            self, config, layer_idx, dtype=dtype, device=device, prefix=prefix
+        )
         if dtype is not None:
             self.input_layernorm.to(dtype=dtype)
             self.post_attention_layernorm.to(dtype=dtype)
@@ -561,34 +562,38 @@ def patch_deepseek_v2_moe():
     from lmdeploy.pytorch.models import deepseek_v2
 
     moe_cls = deepseek_v2.DeepseekV2MoE
-    if getattr(moe_cls, '_dlinfer_ascend_moe_patched', False):
+    if getattr(moe_cls, "_dlinfer_ascend_moe_patched", False):
         return
 
     original_init = moe_cls.__init__
 
-    def custom_init(self,
-                    config,
-                    layer_idx,
-                    dtype=None,
-                    device=None,
-                    all_reduce=True,
-                    prefix=''):
-        original_init(self,
-                      config,
-                      layer_idx,
-                      dtype=dtype,
-                      device=device,
-                      all_reduce=all_reduce,
-                      prefix=prefix)
+    def custom_init(
+        self, config, layer_idx, dtype=None, device=None, all_reduce=True, prefix=""
+    ):
+        original_init(
+            self,
+            config,
+            layer_idx,
+            dtype=dtype,
+            device=device,
+            all_reduce=all_reduce,
+            prefix=prefix,
+        )
 
         dist_ctx = deepseek_v2.get_dist_manager().current_context()
         dist_config = dist_ctx.dist_config
-        self._all_reduce = (all_reduce and dist_config.dp == 1
-                            and dist_config.world_size > 1
-                            and dist_config.ep == 1)
+        self._all_reduce = (
+            all_reduce
+            and dist_config.dp == 1
+            and dist_config.world_size > 1
+            and dist_config.ep == 1
+        )
         self._all_reduce_shared_experts = (
-            all_reduce and dist_config.dp == 1 and dist_config.ep > 1
-            and dist_config.mlp_tp > 1)
+            all_reduce
+            and dist_config.dp == 1
+            and dist_config.ep > 1
+            and dist_config.mlp_tp > 1
+        )
         self._shared_expert_tp_group = None
         if self._all_reduce_shared_experts:
             self._shared_expert_tp_group = dist_ctx.mlp_tp_group.gpu_group
@@ -599,8 +604,7 @@ def patch_deepseek_v2_moe():
         routed_experts = None
         if all_routed_experts is not None:
             routed_experts = all_routed_experts[:, self.layer_idx, :]
-        topk_weights, topk_ids = self.gate(
-            hidden_states, routed_experts=routed_experts)
+        topk_weights, topk_ids = self.gate(hidden_states, routed_experts=routed_experts)
 
         out_states = self.experts(hidden_states, topk_weights, topk_ids)
         if self.shared_experts is not None:
@@ -609,7 +613,8 @@ def patch_deepseek_v2_moe():
             # output remains sharded over the MLP TP group.
             if self._all_reduce_shared_experts:
                 deepseek_v2.dist.all_reduce(
-                    shared_states, group=self._shared_expert_tp_group)
+                    shared_states, group=self._shared_expert_tp_group
+                )
             out_states += shared_states
         out_states = out_states.reshape(batch_size, sequence_length, -1)
 
@@ -627,26 +632,26 @@ def patch_deepseek_v2_modelslim_weight_loader():
     from lmdeploy.pytorch.models import deepseek_v2
 
     model_cls = deepseek_v2.DeepseekV2ForCausalLM
-    if getattr(model_cls, '_dlinfer_modelslim_weight_loader_patched', False):
+    if getattr(model_cls, "_dlinfer_modelslim_weight_loader_patched", False):
         return
 
     original_load_weight_attention = model_cls._load_weight_attention
     original_load_weights = model_cls.load_weights
 
     def map_modelslim_param_name(self, name, params_dict):
-        quantization_config = getattr(self.config,
-                                      'quantization_config', None) or {}
-        if quantization_config.get('quant_method') != 'modelslim':
+        quantization_config = getattr(self.config, "quantization_config", None) or {}
+        if quantization_config.get("quant_method") != "modelslim":
             return name
-        if name.endswith('.weight_offset'):
+        if name.endswith(".weight_offset"):
             return None
-        if name.endswith('.weight_scale'):
-            mapped_name = name.removesuffix('.weight_scale') + '.scale'
+        if name.endswith(".weight_scale"):
+            mapped_name = name.removesuffix(".weight_scale") + ".scale"
             return mapped_name if mapped_name in params_dict else None
         return name
 
-    def custom_load_weight_experts(self, name, loaded_weight, params_dict,
-                                   expert_params_mapping):
+    def custom_load_weight_experts(
+        self, name, loaded_weight, params_dict, expert_params_mapping
+    ):
         for param_name, weight_name, expert_id, shard_id in expert_params_mapping:
             if weight_name not in name:
                 continue
@@ -668,15 +673,16 @@ def patch_deepseek_v2_modelslim_weight_loader():
                 return
             deepseek_v2.load_weight(params_dict[name], loaded_weight)
 
-    def custom_load_weight_attention(self, name, loaded_weight, params_dict,
-                                     update_pe_mapping):
+    def custom_load_weight_attention(
+        self, name, loaded_weight, params_dict, update_pe_mapping
+    ):
         mapped_name = self._map_modelslim_param_name(name, params_dict)
         if mapped_name is None:
             return
         # Input quantization metadata is shared by the whole projection and
         # has shape [1].  It must not enter DeepSeek's output-channel RoPE
         # permutation, which expects dim 0 to be divisible by head_dim.
-        if mapped_name.endswith(('.input_scale', '.input_offset')):
+        if mapped_name.endswith((".input_scale", ".input_offset")):
             deepseek_v2.load_weight(params_dict[mapped_name], loaded_weight)
             return
         # Delegate output-channel metadata (for example a mapped dynamic
@@ -691,39 +697,40 @@ def patch_deepseek_v2_modelslim_weight_loader():
         )
 
     def custom_load_weights(self, weights):
-        quantization_config = getattr(self.config,
-                                      'quantization_config', None) or {}
-        if quantization_config.get('quant_method') != 'modelslim':
+        quantization_config = getattr(self.config, "quantization_config", None) or {}
+        if quantization_config.get("quant_method") != "modelslim":
             return original_load_weights(self, weights)
 
         params_dict = dict(self.named_parameters())
         stacked_params_mapping = [
-            ('.gate_up_proj', '.gate_proj'),
-            ('.gate_up_proj', '.up_proj'),
+            (".gate_up_proj", ".gate_proj"),
+            (".gate_up_proj", ".up_proj"),
         ]
-        if not getattr(self.config, 'use_mla', True):
-            stacked_params_mapping.extend([
-                ('.qkv_proj', '.q_proj'),
-                ('.qkv_proj', '.k_proj'),
-                ('.qkv_proj', '.v_proj'),
-            ])
+        if not getattr(self.config, "use_mla", True):
+            stacked_params_mapping.extend(
+                [
+                    (".qkv_proj", ".q_proj"),
+                    (".qkv_proj", ".k_proj"),
+                    (".qkv_proj", ".v_proj"),
+                ]
+            )
 
         def convert_weights():
             for name, loaded_weight in weights:
-                is_attention = ('.self_attn' in name
-                                and getattr(self.config, 'use_mla', True))
-                if '.experts' in name or is_attention:
+                is_attention = ".self_attn" in name and getattr(
+                    self.config, "use_mla", True
+                )
+                if ".experts" in name or is_attention:
                     yield name, loaded_weight
                     continue
-                if name.endswith('.weight_offset'):
+                if name.endswith(".weight_offset"):
                     continue
-                if name.endswith('.weight_scale'):
-                    mapped_name = name.removesuffix('.weight_scale') + '.scale'
+                if name.endswith(".weight_scale"):
+                    mapped_name = name.removesuffix(".weight_scale") + ".scale"
                     param_name = mapped_name
                     for fused_name, shard_name in stacked_params_mapping:
                         if shard_name in param_name:
-                            param_name = param_name.replace(shard_name,
-                                                            fused_name)
+                            param_name = param_name.replace(shard_name, fused_name)
                             break
                     if param_name not in params_dict:
                         continue
@@ -743,15 +750,13 @@ def patch_glm_moe_dsa_weight_loader():
     """Ignore the ModelSlim QuaRot-only MTP weight on Ascend."""
     from lmdeploy.pytorch.models.glm_moe_dsa import GlmMoeDsaForCausalLM
 
-    if getattr(GlmMoeDsaForCausalLM,
-               '_dlinfer_ascend_weight_loader_patched', False):
+    if getattr(GlmMoeDsaForCausalLM, "_dlinfer_ascend_weight_loader_patched", False):
         return
 
     original_load_weights = GlmMoeDsaForCausalLM.load_weights
 
     def custom_load_weights(self, weights):
-        weights = ((name, weight) for name, weight in weights
-                   if name != 'rot.weight')
+        weights = ((name, weight) for name, weight in weights if name != "rot.weight")
         return original_load_weights(self, weights)
 
     GlmMoeDsaForCausalLM.load_weights = custom_load_weights
@@ -769,57 +774,54 @@ def patch_glm_moe_dsa_indexer():
     from lmdeploy.pytorch import envs as lmdeploy_envs
     from lmdeploy.pytorch.models.glm_moe_dsa import GlmMoeDsaIndexer
 
-    if getattr(GlmMoeDsaIndexer, '_dlinfer_ascend_patched', False):
+    if getattr(GlmMoeDsaIndexer, "_dlinfer_ascend_patched", False):
         return
 
     original_init = GlmMoeDsaIndexer.__init__
 
-    def custom_init(self,
-                    config,
-                    layer_idx,
-                    dtype=None,
-                    device=None,
-                    prefix=''):
+    def custom_init(self, config, layer_idx, dtype=None, device=None, prefix=""):
         # Force the common constructor to materialize wk and weights_proj.
         original_disable = lmdeploy_envs.disable_dsa_indexer_fusion
         lmdeploy_envs.disable_dsa_indexer_fusion = True
         try:
-            original_init(self,
-                          config,
-                          layer_idx,
-                          dtype=dtype,
-                          device=device,
-                          prefix=prefix)
+            original_init(
+                self, config, layer_idx, dtype=dtype, device=device, prefix=prefix
+            )
         finally:
             lmdeploy_envs.disable_dsa_indexer_fusion = original_disable
         self.use_fusion = False
 
-    def custom_apply_rotary_pos_emb(self, q_pe: torch.Tensor, k_pe: torch.Tensor,
-                              freqs_cis: tuple[torch.Tensor, torch.Tensor]):
+    def custom_apply_rotary_pos_emb(
+        self,
+        q_pe: torch.Tensor,
+        k_pe: torch.Tensor,
+        freqs_cis: tuple[torch.Tensor, torch.Tensor],
+    ):
         cos, sin = freqs_cis
-        return self.apply_rotary_pos_emb(q_pe,
-                                         k_pe[..., None, :],
-                                         cos,
-                                         sin,
-                                         inplace=False,
-                                         complex_mode=self.rope_interleave)
+        return self.apply_rotary_pos_emb(
+            q_pe,
+            k_pe[..., None, :],
+            cos,
+            sin,
+            inplace=False,
+            complex_mode=self.rope_interleave,
+        )
 
     def custom_forward(self, x, qr, freqs_cis, attn_metadata=None):
         # This is the common unfused path without CUDA-only Hadamard rotation.
         q = self.wq_b(qr).unflatten(-1, (-1, self.head_dim))
         q_pe, q_nope = torch.split(
-            q, [self.rope_head_dim, self.head_dim - self.rope_head_dim], dim=-1)
+            q, [self.rope_head_dim, self.head_dim - self.rope_head_dim], dim=-1
+        )
         k = self.k_norm(self.wk(x))
         k_pe, k_nope = torch.split(
-            k, [self.rope_head_dim, self.head_dim - self.rope_head_dim], dim=-1)
+            k, [self.rope_head_dim, self.head_dim - self.rope_head_dim], dim=-1
+        )
         q_pe, k_pe = self._apply_rotary_pos_emb(q_pe, k_pe, freqs_cis)
         q = torch.cat([q_pe, q_nope], dim=-1)
         k = torch.cat([k_pe[0], k_nope[0, :, None]], dim=-1)
         weights = self.weights_proj(x) * self.n_heads**-0.5
-        return self.indexer_topk(q[0],
-                                 k[:, 0],
-                                 weights[0],
-                                 attn_metadata=attn_metadata)
+        return self.indexer_topk(q[0], k[:, 0], weights[0], attn_metadata=attn_metadata)
 
     GlmMoeDsaIndexer.__init__ = custom_init
     GlmMoeDsaIndexer.forward = custom_forward
@@ -838,20 +840,14 @@ def patch_glm_moe_dsa_split_cache():
     from lmdeploy.pytorch.distributed import get_dist_manager
     from lmdeploy.pytorch.models.glm_moe_dsa import GlmMoeDsaAttention
 
-    if getattr(GlmMoeDsaModelConfigBuilder,
-               '_dlinfer_split_cache_patched', False):
+    if getattr(GlmMoeDsaModelConfigBuilder, "_dlinfer_split_cache_patched", False):
         return
 
     original_build = GlmMoeDsaModelConfigBuilder.build
 
     @classmethod
-    def custom_build(cls,
-                     hf_config,
-                     model_path: str | None = None,
-                     **kwargs):
-        config = original_build(hf_config,
-                                model_path=model_path,
-                                **kwargs)
+    def custom_build(cls, hf_config, model_path: str | None = None, **kwargs):
+        config = original_build(hf_config, model_path=model_path, **kwargs)
         # Cache only the RoPE key in K and the latent/noPE value in V.  Their
         # combined width is unchanged, but each cache can now be contiguous.
         config.k_head_dim = hf_config.qk_rope_head_dim
@@ -869,34 +865,34 @@ def patch_glm_moe_dsa_split_cache():
         skip_topk: bool = False,
     ):
         dist_config = get_dist_manager().current_config()
-        num_heads = (self.num_heads if dist_config.dp > 1 else
-                     self.num_heads // dist_config.attn_tp)
+        num_heads = (
+            self.num_heads
+            if dist_config.dp > 1
+            else self.num_heads // dist_config.attn_tp
+        )
         nope_size = self.kv_lora_rank
         q_len = hidden_states.size(1)
 
-        query_states, key_states, value_states, q_pe, k_pe, qr = (
-            self._qkv_proj(hidden_states, num_heads=num_heads))
+        query_states, key_states, value_states, q_pe, k_pe, qr = self._qkv_proj(
+            hidden_states, num_heads=num_heads
+        )
         cos, sin = rotary_pos_emb
-        q_pe, k_pe = self.apply_rotary_pos_emb(q_pe,
-                                               k_pe,
-                                               cos,
-                                               sin,
-                                               inplace=False)
+        q_pe, k_pe = self.apply_rotary_pos_emb(q_pe, k_pe, cos, sin, inplace=False)
         query_states[..., nope_size:] = q_pe
         key_states[..., nope_size:] = k_pe
 
         if topk_indices_buffer is None:
             raise RuntimeError(
-                f'Layer {self.layer_idx} requires a DSA top-k indices buffer.')
+                f"Layer {self.layer_idx} requires a DSA top-k indices buffer."
+            )
         if self.indexer is not None and not skip_topk:
             topk_indices = topk_indices_buffer.write(
-                self.indexer(hidden_states,
-                             qr,
-                             rotary_pos_emb,
-                             attn_metadata=attn_metadata))
+                self.indexer(
+                    hidden_states, qr, rotary_pos_emb, attn_metadata=attn_metadata
+                )
+            )
         else:
-            topk_indices = topk_indices_buffer.read(q_len,
-                                                    hidden_states.device)
+            topk_indices = topk_indices_buffer.read(q_len, hidden_states.device)
 
         rope_cache, nope_cache = past_key_value[:2]
 
@@ -907,14 +903,11 @@ def patch_glm_moe_dsa_split_cache():
             rope_cache,
             nope_cache,
             attn_metadata,
-            k_scales_zeros=(None if len(past_key_value) == 2 else
-                            past_key_value[2]),
-            v_scales_zeros=(None if len(past_key_value) == 2 else
-                            past_key_value[3]),
+            k_scales_zeros=(None if len(past_key_value) == 2 else past_key_value[2]),
+            v_scales_zeros=(None if len(past_key_value) == 2 else past_key_value[3]),
             nsa_indices=topk_indices,
         )
-        attn_bmm_out = attn_output.new_empty(q_len, num_heads,
-                                             self.v_head_dim)
+        attn_bmm_out = attn_output.new_empty(q_len, num_heads, self.v_head_dim)
         self.vc(attn_output, attn_bmm_out)
         return self.o_proj(attn_bmm_out.flatten(-2, -1)[None])
 

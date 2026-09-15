@@ -39,9 +39,7 @@ def test_interleaved_rope_matches_adjacent_pair_reference(num_heads):
     actual_adjacent = apply_rotary_pos_emb_interleaved(
         x, cos_native, sin_native, return_native_layout=False
     )
-    expected_native = torch.cat(
-        (expected[..., 0::2], expected[..., 1::2]), dim=-1
-    )
+    expected_native = torch.cat((expected[..., 0::2], expected[..., 1::2]), dim=-1)
 
     for actual in (actual_native, actual_adjacent):
         assert actual.shape == x.shape

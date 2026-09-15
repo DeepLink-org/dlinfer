@@ -73,9 +73,7 @@ def AscendCudaGraphMixin_make_buffers_cudagraph(
         max_batches, dtype=torch.int32, device=device
     )
     if not _is_sparse_attention(graph_meta):
-        input_buffers["kv_seqlens_cpu"] = torch.ones(
-            max_batches, dtype=torch.int32
-        )
+        input_buffers["kv_seqlens_cpu"] = torch.ones(max_batches, dtype=torch.int32)
 
     input_buffers["kv_start_indices"] = -torch.ones(
         (max_tokens), dtype=torch.int32, device=device
@@ -105,8 +103,7 @@ def AscendCudaGraphMixin_make_buffers_cudagraph(
         (max_batches,), query_len, dtype=torch.int32, device=device
     )
     input_buffers["cu_seqlens_q"] = (
-        torch.arange(max_batches + 1, dtype=torch.int32, device=device)
-        * query_len
+        torch.arange(max_batches + 1, dtype=torch.int32, device=device) * query_len
     )
     if not _is_sparse_attention(graph_meta):
         input_buffers["cu_seqlens_q_cpu"] = (
@@ -169,9 +166,7 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
     if not _is_sparse_attention(graph_meta):
         kv_seqlens_cpu: Tensor = attn_metadata.kv_seqlens_cpu
         if kv_seqlens_cpu is None:
-            raise RuntimeError(
-                "Ascend paged-attention graph requires kv_seqlens_cpu"
-            )
+            raise RuntimeError("Ascend paged-attention graph requires kv_seqlens_cpu")
         input_buffers["kv_seqlens_cpu"].fill_(0)
         input_buffers["kv_seqlens_cpu"][:batch_size] = kv_seqlens_cpu
     input_buffers["kv_start_indices"].fill_(-1)
@@ -211,9 +206,7 @@ def AscendCudaGraphMixin_fill_buffers_cudagraph(
     attn_metadata.q_start_loc = input_buffers["q_start_loc"]
     attn_metadata.q_seqlens = input_buffers["q_seqlens"]
     attn_metadata.cu_seqlens_q = input_buffers["cu_seqlens_q"]
-    attn_metadata.cu_seqlens_q_cpu = input_buffers.get(
-        "cu_seqlens_q_cpu"
-    )
+    attn_metadata.cu_seqlens_q_cpu = input_buffers.get("cu_seqlens_q_cpu")
 
     new_inputs = dict(
         past_key_values=past_key_values,

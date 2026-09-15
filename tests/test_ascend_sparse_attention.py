@@ -175,12 +175,8 @@ def test_fill_kv_cache_writes_split_mla_caches():
     torch.manual_seed(20260828)
     key = _randn((3, 1, 576))
     value = _randn((3, 1, 512))
-    rope_cache = torch.zeros(
-        (2, BLOCK_SIZE, 1, 64), dtype=DTYPE, device=DEVICE
-    )
-    nope_cache = torch.zeros(
-        (2, BLOCK_SIZE, 1, 512), dtype=DTYPE, device=DEVICE
-    )
+    rope_cache = torch.zeros((2, BLOCK_SIZE, 1, 64), dtype=DTYPE, device=DEVICE)
+    nope_cache = torch.zeros((2, BLOCK_SIZE, 1, 512), dtype=DTYPE, device=DEVICE)
     slot_indices = torch.tensor(
         [0, 7, BLOCK_SIZE + 3], dtype=torch.int32, device=DEVICE
     )

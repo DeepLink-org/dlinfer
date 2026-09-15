@@ -36,9 +36,7 @@ def test_graph_buffers_use_canonical_sequence_metadata(query_len):
     )
 
     assert buffers["q_seqlens"].tolist() == [query_len] * 4
-    assert buffers["cu_seqlens_q"].tolist() == [
-        step * query_len for step in range(5)
-    ]
+    assert buffers["cu_seqlens_q"].tolist() == [step * query_len for step in range(5)]
     assert buffers["kv_seqlens"].tolist() == [1, 1, 1, 1]
     assert "cu_seqlens_q_cpu" not in buffers
     assert "kv_seqlens_cpu" not in buffers
@@ -51,8 +49,18 @@ def test_non_dsa_graph_uses_same_metadata_contract():
     )
 
     assert not any(name.startswith("nsa_") for name in buffers)
-    assert set(("q_seqlens", "cu_seqlens_q", "cu_seqlens_q_cpu",
-                "kv_seqlens", "kv_seqlens_cpu")) <= buffers.keys()
+    assert (
+        set(
+            (
+                "q_seqlens",
+                "cu_seqlens_q",
+                "cu_seqlens_q_cpu",
+                "kv_seqlens",
+                "kv_seqlens_cpu",
+            )
+        )
+        <= buffers.keys()
+    )
     assert "attention_mask" in buffers
 
 
