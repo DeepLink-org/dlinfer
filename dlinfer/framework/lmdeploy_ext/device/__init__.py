@@ -794,6 +794,16 @@ def patch_glm_moe_dsa_indexer():
             lmdeploy_envs.disable_dsa_indexer_fusion = original_disable
         self.use_fusion = False
 
+    def custom_apply_rotary_pos_emb(self, q_pe: torch.Tensor, k_pe: torch.Tensor,
+                              freqs_cis: tuple[torch.Tensor, torch.Tensor]):
+        cos, sin = freqs_cis
+        return self.apply_rotary_pos_emb(q_pe,
+                                         k_pe[..., None, :],
+                                         cos,
+                                         sin,
+                                         inplace=False,
+                                         complex_mode=self.rope_interleave)
+
     def custom_forward(self, x, qr, freqs_cis, attn_metadata=None):
         # This is the common unfused path without CUDA-only Hadamard rotation.
         q = self.wq_b(qr).unflatten(-1, (-1, self.head_dim))
@@ -813,6 +823,7 @@ def patch_glm_moe_dsa_indexer():
 
     GlmMoeDsaIndexer.__init__ = custom_init
     GlmMoeDsaIndexer.forward = custom_forward
+    GlmMoeDsaIndexer._apply_rotary_pos_emb = custom_apply_rotary_pos_emb
     GlmMoeDsaIndexer._dlinfer_ascend_patched = True
 
 
