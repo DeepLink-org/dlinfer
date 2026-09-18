@@ -489,13 +489,24 @@ def fill_kv_cache(
         rope_head_size = key_cache.size(-1)
         key_rope = key[..., -rope_head_size:].contiguous()
         value_nope = value.contiguous()
-        key_cache_reshaped = torch.flatten(key_cache, start_dim=0, end_dim=1)
-        value_cache_reshaped = torch.flatten(value_cache, start_dim=0, end_dim=1)
-        kv_indices = kv_indices.view(-1, 1)
-        torch.ops.npu.npu_scatter_nd_update_(key_cache_reshaped, kv_indices, key_rope)
-        torch.ops.npu.npu_scatter_nd_update_(
-            value_cache_reshaped, kv_indices, value_nope
-        )
+        kv_indices = kv_indices.to(torch.int32).contiguous()
+        if kv_indices.numel() != 0:
+            # ATB writes both MLA payloads in one cache-update operator.
+            # Keep explicit scatter for empty mappings, which ATB rejects.
+            try:
+                torch.ops.atb._npu_reshape_and_cache(
+                    key=key_rope.contiguous(),
+                    value=value_nope.contiguous(),
+                    key_cache=key_cache,
+                    value_cache=value_cache,
+                    slot_indices=kv_indices,
+                )
+            except (AttributeError, RuntimeError):
+                key_cache_reshaped = torch.flatten(key_cache, start_dim=0, end_dim=1)
+                value_cache_reshaped = torch.flatten(value_cache, start_dim=0, end_dim=1)
+                indices = kv_indices.view(-1, 1)
+                torch.ops.npu.npu_scatter_nd_update_(key_cache_reshaped, indices, key_rope)
+                torch.ops.npu.npu_scatter_nd_update_(value_cache_reshaped, indices, value_nope)
         return key_cache, value_cache
 
     # only support contiguous k,v
