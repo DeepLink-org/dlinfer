@@ -373,6 +373,7 @@ def patch_deepseek_v32_qkv():
         return
 
     original_init = attention_cls.__init__
+    original_process = getattr(attention_cls, "process_weights_after_loading", None)
 
     def custom_init(
         self, config, layer_idx, dtype=None, device=None, all_reduce=True, prefix=""
@@ -504,11 +505,51 @@ def patch_deepseek_v32_qkv():
             prefix=f"{prefix}.o_proj" if prefix else "",
         )
         self.indexer = self._build_indexer(config, layer_idx, dtype, device, prefix)
+        self._dlinfer_merged_qkv = None
+
+    def custom_process_weights_after_loading(self):
+        if callable(original_process):
+            original_process(self)
+        q_proj = getattr(self, "q_a_proj", None)
+        kv_proj = getattr(self, "kv_a_proj_with_mqa", None)
+        if q_proj is None or kv_proj is None:
+            return
+        attrs = ("weight", "input_scale", "input_offset", "deq_scale", "quant_bias")
+        if not all(hasattr(q_proj, a) and hasattr(kv_proj, a) for a in attrs):
+            return
+        # Combining static W8A8 projections is exact only with identical
+        # activation quantization parameters.
+        if not torch.equal(q_proj.input_scale, kv_proj.input_scale):
+            return
+        if not torch.equal(q_proj.input_offset, kv_proj.input_offset):
+            return
+        from lmdeploy.pytorch.nn.linear import StaticW8A8Linear
+        merged = StaticW8A8Linear(
+            self.hidden_size,
+            q_proj.out_features + kv_proj.out_features,
+            bias=False,
+            dtype=q_proj.dtype,
+            device=q_proj.weight.device,
+            is_tp=False,
+            quant_dtype=q_proj.weight.dtype,
+        )
+        with torch.no_grad():
+            merged.weight.copy_(torch.cat((q_proj.weight, kv_proj.weight), dim=0))
+            merged.deq_scale.copy_(torch.cat((q_proj.deq_scale, kv_proj.deq_scale), dim=0))
+            merged.quant_bias.copy_(torch.cat((q_proj.quant_bias, kv_proj.quant_bias), dim=0))
+            merged.input_scale.copy_(q_proj.input_scale)
+            merged.input_offset.copy_(q_proj.input_offset)
+        self._dlinfer_merged_qkv = merged
 
     def custom_qkv_proj(self, hidden_states, num_heads):
         nope_size = self.kv_lora_rank
         pe_size = self.qk_rope_head_dim
-        if self.q_lora_rank is None:
+        if self._dlinfer_merged_qkv is not None:
+            qkv = self._dlinfer_merged_qkv(hidden_states)
+            q_a_states, key_states = qkv.split(
+                [self.q_lora_rank, nope_size + pe_size], dim=-1)
+            key_states = key_states[0, :, None]
+        elif self.q_lora_rank is None:
             q_a_states = hidden_states
             key_states = self.kv_a_proj_with_mqa(hidden_states[0, :, None])
         else:
@@ -520,6 +561,7 @@ def patch_deepseek_v32_qkv():
         return query_states, key_states, value_states, q_pe, k_pe, qr
 
     attention_cls.__init__ = custom_init
+    attention_cls.process_weights_after_loading = custom_process_weights_after_loading
     attention_cls._qkv_proj = custom_qkv_proj
     attention_cls._dlinfer_ascend_qkv_patched = True
 
