@@ -32,6 +32,7 @@ __all__ = [
     "paged_prefill_attention",
     "rms_norm",
     "moe_gating_topk_softmax",
+    "moe_gating_top_k",
     "get_cache_len",
     "weight_quant_matmul",
     "fused_moe",
@@ -763,6 +764,40 @@ def moe_gating_topk_softmax(
         routing_weights, selected_idx, _ = torch.ops.npu.npu_moe_gating_top_k_softmax(
             router_logits, None, topk
         )
+    return routing_weights, selected_idx
+
+
+@register_ops(vendor_ops_registry)
+def moe_gating_top_k(
+    router_logits: Tensor,
+    bias: Optional[Tensor],
+    top_k: int,
+    k_group: int,
+    group_count: int,
+    renorm: int,
+    norm_type: int,
+    routed_scaling_factor: float,
+    eps: float,
+) -> Tuple[Tensor, Tensor]:
+    """Run Ascend's fused grouped no-aux MoE router."""
+    if bias is not None and bias.dtype != router_logits.dtype:
+        bias = bias.to(router_logits.dtype)
+
+    routing_weights, selected_idx, _ = torch.ops.npu.npu_moe_gating_top_k(
+        router_logits,
+        k=top_k,
+        bias=bias,
+        k_group=k_group,
+        group_count=group_count,
+        group_select_mode=1,  # top-2 score sum per group
+        renorm=0,  # match vLLM-Ascend; softmax renorm is done below
+        norm_type=norm_type,
+        out_flag=False,
+        routed_scaling_factor=routed_scaling_factor,
+        eps=eps,
+    )
+    if norm_type == 0 and renorm == 1:
+        routing_weights = routing_weights / (routing_weights.sum(dim=-1, keepdim=True) + eps)
     return routing_weights, selected_idx
 
 
