@@ -920,8 +920,9 @@ def fused_moe_w8a8(
     topk: int,
     renormalize: bool,
     moe_metadata: MoeMetadata,
+    use_fused_op: bool = False,
 ) -> Tensor:
-    """Dynamic W8A8 MoE using only public torch_npu operators."""
+    """Dynamic W8A8 MoE with an optional fused MC2 path."""
     topk_ids = topk_ids.to(torch.int32)
     (
         hidden_states,
@@ -943,21 +944,37 @@ def fused_moe_w8a8(
     )
 
     if moe_metadata.moe_comm_type == MoECommType.MC2:
-        moe_output = moe.fused_moe_mc2(
-            hidden_states,
-            gate_up_weights,
-            down_weights,
-            topk_weights,
-            topk_ids,
-            renormalize,
-            moe_metadata.ep_size,
-            moe_metadata.ep_rank,
-            moe_metadata.moe_group_name,
-            x_active_mask,
-            None,
-            gate_up_scales,
-            down_scales,
-        )
+        if use_fused_op:
+            moe_output = moe.fused_moe_mc2_w8a8(
+                hidden_states,
+                gate_up_weights,
+                gate_up_scales,
+                down_weights,
+                down_scales,
+                topk_weights,
+                topk_ids,
+                moe_metadata.ep_size,
+                moe_metadata.ep_rank,
+                moe_metadata.moe_group_name,
+                x_active_mask,
+                max_output_size=max(512, hidden_states.shape[0] * topk_ids.shape[1]),
+            )
+        else:
+            moe_output = moe.fused_moe_mc2(
+                hidden_states,
+                gate_up_weights,
+                down_weights,
+                topk_weights,
+                topk_ids,
+                renormalize,
+                moe_metadata.ep_size,
+                moe_metadata.ep_rank,
+                moe_metadata.moe_group_name,
+                x_active_mask,
+                None,
+                gate_up_scales,
+                down_scales,
+            )
     elif moe_metadata.moe_comm_type == MoECommType.ALLTOALL:
         moe_output = moe.fused_moe_all2all(
             hidden_states,

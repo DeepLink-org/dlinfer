@@ -831,6 +831,7 @@ def fused_moe_w8a8(
     topk: int,
     renormalize: bool,
     moe_metadata: MoeMetadata,
+    use_fused_op: bool = False,
 ) -> Tensor:
     """Run dynamic W8A8 MoE through the vendor's non-fused fallback.
 
@@ -850,6 +851,7 @@ def fused_moe_w8a8(
         topk,
         renormalize,
         moe_metadata,
+        use_fused_op,
     )
 
 
