@@ -874,6 +874,23 @@ def patch_glm_moe_dsa_indexer():
 ##### patch cache engine #####
 
 
+def patch_glm_moe_dsa_mlapo():
+    """Prepare MLAPO weights for the Ascend GLM split-cache adapter."""
+    from lmdeploy.pytorch.models.glm_moe_dsa import GlmMoeDsaAttention
+    from dlinfer.vendor.ascend.mlapo import MlaPreprocessWeights
+
+    if getattr(GlmMoeDsaAttention, "_dlinfer_mlapo_patched", False):
+        return
+    original_process = GlmMoeDsaAttention.process_weights_after_loading
+
+    def process_weights(self):
+        original_process(self)
+        self._dlinfer_mlapo = MlaPreprocessWeights.from_attention(self)
+
+    GlmMoeDsaAttention.process_weights_after_loading = process_weights
+    GlmMoeDsaAttention._dlinfer_mlapo_patched = True
+
+
 def patch_glm_moe_dsa_split_cache():
     """Use independent contiguous noPE and RoPE caches for Ascend DSA."""
     from lmdeploy.pytorch.configurations.glm_moe_dsa import (
@@ -914,14 +931,33 @@ def patch_glm_moe_dsa_split_cache():
         )
         nope_size = self.kv_lora_rank
         q_len = hidden_states.size(1)
-
-        query_states, key_states, value_states, q_pe, k_pe, qr = self._qkv_proj(
-            hidden_states, num_heads=num_heads
-        )
         cos, sin = rotary_pos_emb
-        q_pe, k_pe = self.apply_rotary_pos_emb(q_pe, k_pe, cos, sin, inplace=False)
-        query_states[..., nope_size:] = q_pe
-        key_states[..., nope_size:] = k_pe
+        rope_cache, nope_cache = past_key_value[:2]
+
+        mlapo = getattr(self, "_dlinfer_mlapo", None)
+        use_mlapo = mlapo is not None and mlapo.supports(
+            hidden_states, cos, sin, rope_cache, nope_cache, attn_metadata
+        )
+        if use_mlapo:
+            q_nope, q_pe, qr = mlapo(
+                hidden_states,
+                cos,
+                sin,
+                rope_cache,
+                nope_cache,
+                attn_metadata.kv_start_indices,
+            )
+            query_states = torch.cat((q_nope, q_pe), dim=-1)
+            qr = qr.unsqueeze(0)
+        else:
+            query_states, key_states, value_states, q_pe, k_pe, qr = self._qkv_proj(
+                hidden_states, num_heads=num_heads
+            )
+            q_pe, k_pe = self.apply_rotary_pos_emb(
+                q_pe, k_pe, cos, sin, inplace=False
+            )
+            query_states[..., nope_size:] = q_pe
+            key_states[..., nope_size:] = k_pe
 
         if topk_indices_buffer is None:
             raise RuntimeError(
@@ -936,19 +972,34 @@ def patch_glm_moe_dsa_split_cache():
         else:
             topk_indices = topk_indices_buffer.read(q_len, hidden_states.device)
 
-        rope_cache, nope_cache = past_key_value[:2]
-
-        attn_output = self.attn_fwd(
-            query_states,
-            key_states,
-            value_states,
-            rope_cache,
-            nope_cache,
-            attn_metadata,
-            k_scales_zeros=(None if len(past_key_value) == 2 else past_key_value[2]),
-            v_scales_zeros=(None if len(past_key_value) == 2 else past_key_value[3]),
-            nsa_indices=topk_indices,
-        )
+        if use_mlapo:
+            attn_output = self.attn_fwd.impl.sparse_attention_fwd(
+                query_states,
+                rope_cache,
+                nope_cache,
+                topk_indices,
+                attn_metadata.block_offsets,
+                attn_metadata.cu_seqlens_q[1:],
+                attn_metadata.kv_seqlens,
+                value_head_size=nope_size,
+                softmax_scale=self.softmax_scale,
+            )
+        else:
+            attn_output = self.attn_fwd(
+                query_states,
+                key_states,
+                value_states,
+                rope_cache,
+                nope_cache,
+                attn_metadata,
+                k_scales_zeros=(
+                    None if len(past_key_value) == 2 else past_key_value[2]
+                ),
+                v_scales_zeros=(
+                    None if len(past_key_value) == 2 else past_key_value[3]
+                ),
+                nsa_indices=topk_indices,
+            )
         attn_bmm_out = attn_output.new_empty(q_len, num_heads, self.v_head_dim)
         self.vc(attn_output, attn_bmm_out)
         return self.o_proj(attn_bmm_out.flatten(-2, -1)[None])
@@ -1575,6 +1626,7 @@ def vendor_device_init():
         patch_glm_moe_dsa_weight_loader()
         patch_glm_moe_dsa_indexer()
         patch_glm_moe_dsa_split_cache()
+        patch_glm_moe_dsa_mlapo()
         patch_gated_delta_net()
         patch_qwen3_5()
 
