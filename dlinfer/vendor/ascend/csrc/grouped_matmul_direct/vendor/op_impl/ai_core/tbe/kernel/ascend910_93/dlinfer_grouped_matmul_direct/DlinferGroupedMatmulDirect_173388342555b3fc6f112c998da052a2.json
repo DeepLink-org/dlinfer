@@ -1,0 +1,421 @@
+{
+ "binFileName": "DlinferGroupedMatmulDirect_173388342555b3fc6f112c998da052a2",
+ "binFileSuffix": ".o",
+ "blockDim": -1,
+ "coreType": "MIX",
+ "intercoreSync": 1,
+ "kernelName": "DlinferGroupedMatmulDirect_173388342555b3fc6f112c998da052a2",
+ "magic": "RT_DEV_BINARY_MAGIC_ELF",
+ "memoryStamping": [],
+ "opParaSize": 2016,
+ "parameters": [
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null
+ ],
+ "sha256": "e757fe154eab23a2b0b8b0b9ef6de98e6f9ae6eb845bc4eb41009515240efad8",
+ "workspace": {
+  "num": 1,
+  "size": [
+   -1
+  ],
+  "type": [
+   0
+  ]
+ },
+ "kernelList": [
+  {
+   "tilingKey": 1776411,
+   "kernelType": "MIX_AIC",
+   "crossCoreSync": 1,
+   "taskRation": "1:0",
+   "kernelName": "DlinferGroupedMatmulDirect_173388342555b3fc6f112c998da052a2_1776411"
+  },
+  {
+   "tilingKey": 68885275,
+   "kernelType": "MIX_AIC",
+   "crossCoreSync": 1,
+   "taskRation": "1:0",
+   "kernelName": "DlinferGroupedMatmulDirect_173388342555b3fc6f112c998da052a2_68885275"
+  },
+  {
+   "tilingKey": 135994139,
+   "kernelType": "MIX_AIC",
+   "crossCoreSync": 1,
+   "taskRation": "1:0",
+   "kernelName": "DlinferGroupedMatmulDirect_173388342555b3fc6f112c998da052a2_135994139"
+  },
+  {
+   "tilingKey": 65793,
+   "kernelType": "MIX_AIC",
+   "crossCoreSync": 1,
+   "taskRation": "1:0",
+   "kernelName": "DlinferGroupedMatmulDirect_173388342555b3fc6f112c998da052a2_65793"
+  },
+  {
+   "tilingKey": 67174657,
+   "kernelType": "MIX_AIC",
+   "crossCoreSync": 1,
+   "taskRation": "1:0",
+   "kernelName": "DlinferGroupedMatmulDirect_173388342555b3fc6f112c998da052a2_67174657"
+  },
+  {
+   "tilingKey": 134283521,
+   "kernelType": "MIX_AIC",
+   "crossCoreSync": 1,
+   "taskRation": "1:0",
+   "kernelName": "DlinferGroupedMatmulDirect_173388342555b3fc6f112c998da052a2_134283521"
+  },
+  {
+   "tilingKey": 0,
+   "kernelType": "MIX_AIC",
+   "crossCoreSync": 1,
+   "taskRation": "1:0",
+   "kernelName": "DlinferGroupedMatmulDirect_173388342555b3fc6f112c998da052a2_0"
+  },
+  {
+   "tilingKey": 67108864,
+   "kernelType": "MIX_AIC",
+   "crossCoreSync": 1,
+   "taskRation": "1:0",
+   "kernelName": "DlinferGroupedMatmulDirect_173388342555b3fc6f112c998da052a2_67108864"
+  },
+  {
+   "tilingKey": 134217728,
+   "kernelType": "MIX_AIC",
+   "crossCoreSync": 1,
+   "taskRation": "1:0",
+   "kernelName": "DlinferGroupedMatmulDirect_173388342555b3fc6f112c998da052a2_134217728"
+  },
+  {
+   "tilingKey": 35330843,
+   "kernelType": "MIX_AIC",
+   "crossCoreSync": 1,
+   "taskRation": "1:0",
+   "kernelName": "DlinferGroupedMatmulDirect_173388342555b3fc6f112c998da052a2_35330843"
+  },
+  {
+   "tilingKey": 102439707,
+   "kernelType": "MIX_AIC",
+   "crossCoreSync": 1,
+   "taskRation": "1:0",
+   "kernelName": "DlinferGroupedMatmulDirect_173388342555b3fc6f112c998da052a2_102439707"
+  },
+  {
+   "tilingKey": 169548571,
+   "kernelType": "MIX_AIC",
+   "crossCoreSync": 1,
+   "taskRation": "1:0",
+   "kernelName": "DlinferGroupedMatmulDirect_173388342555b3fc6f112c998da052a2_169548571"
+  },
+  {
+   "tilingKey": 33620225,
+   "kernelType": "MIX_AIC",
+   "crossCoreSync": 1,
+   "taskRation": "1:0",
+   "kernelName": "DlinferGroupedMatmulDirect_173388342555b3fc6f112c998da052a2_33620225"
+  },
+  {
+   "tilingKey": 100729089,
+   "kernelType": "MIX_AIC",
+   "crossCoreSync": 1,
+   "taskRation": "1:0",
+   "kernelName": "DlinferGroupedMatmulDirect_173388342555b3fc6f112c998da052a2_100729089"
+  },
+  {
+   "tilingKey": 167837953,
+   "kernelType": "MIX_AIC",
+   "crossCoreSync": 1,
+   "taskRation": "1:0",
+   "kernelName": "DlinferGroupedMatmulDirect_173388342555b3fc6f112c998da052a2_167837953"
+  },
+  {
+   "tilingKey": 33554432,
+   "kernelType": "MIX_AIC",
+   "crossCoreSync": 1,
+   "taskRation": "1:0",
+   "kernelName": "DlinferGroupedMatmulDirect_173388342555b3fc6f112c998da052a2_33554432"
+  },
+  {
+   "tilingKey": 100663296,
+   "kernelType": "MIX_AIC",
+   "crossCoreSync": 1,
+   "taskRation": "1:0",
+   "kernelName": "DlinferGroupedMatmulDirect_173388342555b3fc6f112c998da052a2_100663296"
+  },
+  {
+   "tilingKey": 167772160,
+   "kernelType": "MIX_AIC",
+   "crossCoreSync": 1,
+   "taskRation": "1:0",
+   "kernelName": "DlinferGroupedMatmulDirect_173388342555b3fc6f112c998da052a2_167772160"
+  },
+  {
+   "tilingKey": 34378291995,
+   "kernelType": "MIX_AIC",
+   "crossCoreSync": 1,
+   "taskRation": "1:1",
+   "kernelName": "DlinferGroupedMatmulDirect_173388342555b3fc6f112c998da052a2_34378291995"
+  },
+  {
+   "tilingKey": 34445400859,
+   "kernelType": "MIX_AIC",
+   "crossCoreSync": 1,
+   "taskRation": "1:1",
+   "kernelName": "DlinferGroupedMatmulDirect_173388342555b3fc6f112c998da052a2_34445400859"
+  },
+  {
+   "tilingKey": 34512509723,
+   "kernelType": "MIX_AIC",
+   "crossCoreSync": 1,
+   "taskRation": "1:1",
+   "kernelName": "DlinferGroupedMatmulDirect_173388342555b3fc6f112c998da052a2_34512509723"
+  },
+  {
+   "tilingKey": 34376581377,
+   "kernelType": "MIX_AIC",
+   "crossCoreSync": 1,
+   "taskRation": "1:1",
+   "kernelName": "DlinferGroupedMatmulDirect_173388342555b3fc6f112c998da052a2_34376581377"
+  },
+  {
+   "tilingKey": 34443690241,
+   "kernelType": "MIX_AIC",
+   "crossCoreSync": 1,
+   "taskRation": "1:1",
+   "kernelName": "DlinferGroupedMatmulDirect_173388342555b3fc6f112c998da052a2_34443690241"
+  },
+  {
+   "tilingKey": 34510799105,
+   "kernelType": "MIX_AIC",
+   "crossCoreSync": 1,
+   "taskRation": "1:1",
+   "kernelName": "DlinferGroupedMatmulDirect_173388342555b3fc6f112c998da052a2_34510799105"
+  },
+  {
+   "tilingKey": 34376515584,
+   "kernelType": "MIX_AIC",
+   "crossCoreSync": 1,
+   "taskRation": "1:1",
+   "kernelName": "DlinferGroupedMatmulDirect_173388342555b3fc6f112c998da052a2_34376515584"
+  },
+  {
+   "tilingKey": 34443624448,
+   "kernelType": "MIX_AIC",
+   "crossCoreSync": 1,
+   "taskRation": "1:1",
+   "kernelName": "DlinferGroupedMatmulDirect_173388342555b3fc6f112c998da052a2_34443624448"
+  },
+  {
+   "tilingKey": 34510733312,
+   "kernelType": "MIX_AIC",
+   "crossCoreSync": 1,
+   "taskRation": "1:1",
+   "kernelName": "DlinferGroupedMatmulDirect_173388342555b3fc6f112c998da052a2_34510733312"
+  }
+ ],
+ "taskRation": "tilingKey",
+ "optionalInputMode": "gen_placeholder",
+ "optionalOutputMode": "gen_placeholder",
+ "supportSuperKernel": 1,
+ "compileInfo": {},
+ "dynamicParamMode": "folded_with_desc",
+ "supportInfo": {
+  "implMode": "high_performance",
+  "int64Mode": false,
+  "simplifiedKeyMode": 0,
+  "simplifiedKey": [
+   "DlinferGroupedMatmulDirect/d=0,p=1/27,2/27,29/0,2/10,2/0,2/1,2/1,2/27,2",
+   "DlinferGroupedMatmulDirect/d=0,p=0/27,2/27,29/0,2/10,2/0,2/1,2/1,2/27,2",
+   "DlinferGroupedMatmulDirect/d=1,p=1/27,2/27,29/0,2/10,2/0,2/1,2/1,2/27,2",
+   "DlinferGroupedMatmulDirect/d=1,p=0/27,2/27,29/0,2/10,2/0,2/1,2/1,2/27,2"
+  ],
+  "dynamicParamMode": "folded_with_desc",
+  "optionalInputMode": "gen_placeholder",
+  "optionalOutputMode": "gen_placeholder",
+  "staticKey": "d4e39095f87cf6a91932800684b59e22dbac70172f185f4b43e4ee2a4d4a5da5,0ddc3ebcab5f87244f7fb305c17262fdc6568a5358d99481c865f521f6e6e220",
+  "inputs": [
+   [
+    {
+     "name": "x",
+     "index": 0,
+     "dtype": "bfloat16",
+     "format": "ND",
+     "paramType": "dynamic",
+     "shape": [
+      -2
+     ],
+     "format_match_mode": "FormatAgnostic"
+    }
+   ],
+   [
+    {
+     "name": "weight",
+     "index": 1,
+     "dtype": "bfloat16",
+     "format": "FRACTAL_NZ",
+     "paramType": "dynamic",
+     "shape": [
+      -2
+     ],
+     "format_match_mode": "FormatAgnostic"
+    }
+   ],
+   [
+    {
+     "name": "bias",
+     "index": 2,
+     "dtype": "float32",
+     "format": "ND",
+     "paramType": "dynamic",
+     "shape": [
+      -2
+     ],
+     "format_match_mode": "FormatAgnostic"
+    }
+   ],
+   [
+    {
+     "name": "scale",
+     "index": 3,
+     "dtype": "uint64",
+     "format": "ND",
+     "paramType": "dynamic",
+     "shape": [
+      -2
+     ],
+     "format_match_mode": "FormatAgnostic"
+    }
+   ],
+   [
+    {
+     "name": "offset",
+     "index": 4,
+     "dtype": "float32",
+     "format": "ND",
+     "paramType": "dynamic",
+     "shape": [
+      -2
+     ],
+     "format_match_mode": "FormatAgnostic"
+    }
+   ],
+   [
+    {
+     "name": "antiquant_scale",
+     "index": 5,
+     "dtype": "float16",
+     "format": "ND",
+     "paramType": "dynamic",
+     "shape": [
+      -2
+     ],
+     "format_match_mode": "FormatAgnostic"
+    }
+   ],
+   [
+    {
+     "name": "antiquant_offset",
+     "index": 6,
+     "dtype": "float16",
+     "format": "ND",
+     "paramType": "dynamic",
+     "shape": [
+      -2
+     ],
+     "format_match_mode": "FormatAgnostic"
+    }
+   ],
+   {
+    "name": "group_list",
+    "index": 7,
+    "dtype": "int64",
+    "format": "ND",
+    "paramType": "optional",
+    "shape": [
+     -2
+    ],
+    "format_match_mode": "FormatAgnostic"
+   },
+   {
+    "name": "per_token_scale",
+    "index": 8,
+    "dtype": "float32",
+    "format": "ND",
+    "paramType": "optional",
+    "shape": [
+     -2
+    ],
+    "format_match_mode": "FormatAgnostic"
+   }
+  ],
+  "outputs": [
+   [
+    {
+     "name": "y",
+     "index": 0,
+     "dtype": "bfloat16",
+     "format": "ND",
+     "paramType": "dynamic",
+     "shape": [
+      -2
+     ],
+     "format_match_mode": "FormatAgnostic"
+    }
+   ]
+  ],
+  "attrs": [
+   {
+    "name": "split_item",
+    "dtype": "int",
+    "value": 0
+   },
+   {
+    "name": "dtype",
+    "dtype": "int",
+    "value": 0
+   },
+   {
+    "name": "transpose_weight",
+    "dtype": "bool",
+    "value": false
+   },
+   {
+    "name": "transpose_x",
+    "dtype": "bool",
+    "value": false
+   },
+   {
+    "name": "group_type",
+    "dtype": "int",
+    "value": 0
+   },
+   {
+    "name": "group_list_type",
+    "dtype": "int",
+    "value": 0
+   },
+   {
+    "name": "act_type",
+    "dtype": "int",
+    "value": 0
+   },
+   {
+    "name": "tuning_config",
+    "dtype": "list_int",
+    "value": []
+   }
+  ],
+  "opMode": "dynamic",
+  "deterministic": "ignore"
+ },
+ "filePath": "ascend910_93/bin/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_173388342555b3fc6f112c998da052a2.json"
+}

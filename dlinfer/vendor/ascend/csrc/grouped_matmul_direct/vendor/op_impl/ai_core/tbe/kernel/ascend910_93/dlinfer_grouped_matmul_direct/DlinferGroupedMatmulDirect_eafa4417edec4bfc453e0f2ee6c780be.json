@@ -1,0 +1,260 @@
+{
+ "binFileName": "DlinferGroupedMatmulDirect_eafa4417edec4bfc453e0f2ee6c780be",
+ "binFileSuffix": ".o",
+ "blockDim": -1,
+ "coreType": "MIX",
+ "intercoreSync": 1,
+ "kernelName": "DlinferGroupedMatmulDirect_eafa4417edec4bfc453e0f2ee6c780be",
+ "magic": "RT_DEV_BINARY_MAGIC_ELF",
+ "memoryStamping": [],
+ "opParaSize": 2016,
+ "parameters": [
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null
+ ],
+ "sha256": "2eef7878ffa1409cd27b5e3c4663b1b70f03e9cd450f52a12a13ca6015fb72a9",
+ "workspace": {
+  "num": 1,
+  "size": [
+   -1
+  ],
+  "type": [
+   0
+  ]
+ },
+ "kernelList": [
+  {
+   "tilingKey": 68721253661,
+   "kernelType": "MIX_AIC",
+   "crossCoreSync": 1,
+   "taskRation": "1:2",
+   "kernelName": "DlinferGroupedMatmulDirect_eafa4417edec4bfc453e0f2ee6c780be_68721253661"
+  },
+  {
+   "tilingKey": 68788362525,
+   "kernelType": "MIX_AIC",
+   "crossCoreSync": 1,
+   "taskRation": "1:2",
+   "kernelName": "DlinferGroupedMatmulDirect_eafa4417edec4bfc453e0f2ee6c780be_68788362525"
+  },
+  {
+   "tilingKey": 68719549725,
+   "kernelType": "MIX_AIC",
+   "crossCoreSync": 1,
+   "taskRation": "1:2",
+   "kernelName": "DlinferGroupedMatmulDirect_eafa4417edec4bfc453e0f2ee6c780be_68719549725"
+  },
+  {
+   "tilingKey": 68786658589,
+   "kernelType": "MIX_AIC",
+   "crossCoreSync": 1,
+   "taskRation": "1:2",
+   "kernelName": "DlinferGroupedMatmulDirect_eafa4417edec4bfc453e0f2ee6c780be_68786658589"
+  }
+ ],
+ "taskRation": "tilingKey",
+ "optionalInputMode": "gen_placeholder",
+ "optionalOutputMode": "gen_placeholder",
+ "supportSuperKernel": 1,
+ "compileInfo": {},
+ "dynamicParamMode": "folded_with_desc",
+ "supportInfo": {
+  "implMode": "high_performance",
+  "int64Mode": false,
+  "simplifiedKeyMode": 0,
+  "simplifiedKey": [
+   "DlinferGroupedMatmulDirect/d=0,p=1/29,2/29,2/1,2/10,2/0,2/1,2/1,2/1,2",
+   "DlinferGroupedMatmulDirect/d=0,p=0/29,2/29,2/1,2/10,2/0,2/1,2/1,2/1,2",
+   "DlinferGroupedMatmulDirect/d=1,p=1/29,2/29,2/1,2/10,2/0,2/1,2/1,2/1,2",
+   "DlinferGroupedMatmulDirect/d=1,p=0/29,2/29,2/1,2/10,2/0,2/1,2/1,2/1,2"
+  ],
+  "dynamicParamMode": "folded_with_desc",
+  "optionalInputMode": "gen_placeholder",
+  "optionalOutputMode": "gen_placeholder",
+  "staticKey": "0cf3662aaeedb453dbfc3340f161bc738cae2620c79f0ea70b461f664866bdbb,32abe20720d62a54c8667afc7c6aba0ce2920d2c52d09302dfaef4f326c92a1f",
+  "inputs": [
+   [
+    {
+     "name": "x",
+     "index": 0,
+     "dtype": "int4",
+     "format": "ND",
+     "paramType": "dynamic",
+     "shape": [
+      -2
+     ],
+     "format_match_mode": "FormatAgnostic"
+    }
+   ],
+   [
+    {
+     "name": "weight",
+     "index": 1,
+     "dtype": "int4",
+     "format": "ND",
+     "paramType": "dynamic",
+     "shape": [
+      -2
+     ],
+     "format_match_mode": "FormatAgnostic"
+    }
+   ],
+   [
+    {
+     "name": "bias",
+     "index": 2,
+     "dtype": "float16",
+     "format": "ND",
+     "paramType": "dynamic",
+     "shape": [
+      -2
+     ],
+     "format_match_mode": "FormatAgnostic"
+    }
+   ],
+   [
+    {
+     "name": "scale",
+     "index": 3,
+     "dtype": "uint64",
+     "format": "ND",
+     "paramType": "dynamic",
+     "shape": [
+      -2
+     ],
+     "format_match_mode": "FormatAgnostic"
+    }
+   ],
+   [
+    {
+     "name": "offset",
+     "index": 4,
+     "dtype": "float32",
+     "format": "ND",
+     "paramType": "dynamic",
+     "shape": [
+      -2
+     ],
+     "format_match_mode": "FormatAgnostic"
+    }
+   ],
+   [
+    {
+     "name": "antiquant_scale",
+     "index": 5,
+     "dtype": "float16",
+     "format": "ND",
+     "paramType": "dynamic",
+     "shape": [
+      -2
+     ],
+     "format_match_mode": "FormatAgnostic"
+    }
+   ],
+   [
+    {
+     "name": "antiquant_offset",
+     "index": 6,
+     "dtype": "float16",
+     "format": "ND",
+     "paramType": "dynamic",
+     "shape": [
+      -2
+     ],
+     "format_match_mode": "FormatAgnostic"
+    }
+   ],
+   {
+    "name": "group_list",
+    "index": 7,
+    "dtype": "int64",
+    "format": "ND",
+    "paramType": "optional",
+    "shape": [
+     -2
+    ],
+    "format_match_mode": "FormatAgnostic"
+   },
+   {
+    "name": "per_token_scale",
+    "index": 8,
+    "dtype": "float32",
+    "format": "ND",
+    "paramType": "optional",
+    "shape": [
+     -2
+    ],
+    "format_match_mode": "FormatAgnostic"
+   }
+  ],
+  "outputs": [
+   [
+    {
+     "name": "y",
+     "index": 0,
+     "dtype": "float16",
+     "format": "ND",
+     "paramType": "dynamic",
+     "shape": [
+      -2
+     ],
+     "format_match_mode": "FormatAgnostic"
+    }
+   ]
+  ],
+  "attrs": [
+   {
+    "name": "split_item",
+    "dtype": "int",
+    "value": 0
+   },
+   {
+    "name": "dtype",
+    "dtype": "int",
+    "value": 0
+   },
+   {
+    "name": "transpose_weight",
+    "dtype": "bool",
+    "value": false
+   },
+   {
+    "name": "transpose_x",
+    "dtype": "bool",
+    "value": false
+   },
+   {
+    "name": "group_type",
+    "dtype": "int",
+    "value": 0
+   },
+   {
+    "name": "group_list_type",
+    "dtype": "int",
+    "value": 0
+   },
+   {
+    "name": "act_type",
+    "dtype": "int",
+    "value": 0
+   },
+   {
+    "name": "tuning_config",
+    "dtype": "list_int",
+    "value": []
+   }
+  ],
+  "opMode": "dynamic",
+  "deterministic": "ignore"
+ },
+ "filePath": "ascend910_93/bin/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_eafa4417edec4bfc453e0f2ee6c780be.json"
+}
