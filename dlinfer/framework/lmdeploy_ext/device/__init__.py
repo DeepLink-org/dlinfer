@@ -141,15 +141,17 @@ def patch_contiguous_cache_engine():
         num_layers = model_config.num_layers
 
         # get all descs
-        k_cache_desc = cls.get_k_cache_desc(model_config, cache_config, world_size)
-        v_cache_desc = cls.get_v_cache_desc(model_config, cache_config, world_size)
-        quant_cache_descs = cls.get_quant_cache_descs(
-            k_cache_desc, v_cache_desc, model_config, cache_config
-        )
+        use_std = getattr(model_config, 'use_standard_kv_cache', True)
+        cache_descs = []
+        if use_std:
+            k_cache_desc = cls.get_k_cache_desc(model_config, cache_config, world_size)
+            v_cache_desc = cls.get_v_cache_desc(model_config, cache_config, world_size)
+            quant_cache_descs = cls.get_quant_cache_descs(
+                k_cache_desc, v_cache_desc, model_config, cache_config
+            )
+            cache_descs += [k_cache_desc, v_cache_desc] + quant_cache_descs
         custom_cache_descs = cls.get_custom_cache_descs(model_config, cache_config)
-        cache_descs = (
-            [k_cache_desc, v_cache_desc] + quant_cache_descs + custom_cache_descs
-        )
+        cache_descs += custom_cache_descs
 
         # get mempool size
         mem_pool_size = 0
@@ -198,6 +200,8 @@ def patch_state_cache_engine():
         num_caches: int,
         state_shapes: List[Tuple[Tuple[int], torch.dtype]],
         device: torch.device,
+        state_specs=None,
+        num_layers: int | None = None,
     ):
         """Allocate cache implement.
 
@@ -209,17 +213,32 @@ def patch_state_cache_engine():
         """
 
         cache_dtype = torch.int8
-        if len(state_shapes) == 0 or num_caches == 0:
+        if (len(state_shapes) == 0 and (not state_specs)) or num_caches == 0:
             return torch.empty((0, 0), dtype=cache_dtype, device=device), []
 
-        cache_descs = [CacheDesc(shape, dtype) for shape, dtype in state_shapes]
+        # Prefer formal state_specs (named, optionally layer-scoped) over plain
+        # state_shapes so V4's trimmed post-finalize specs win over the legacy
+        # states_shapes bridge (which still lists specs moved to block caches).
+        from lmdeploy.pytorch.engine.cache_engine import StateCacheEngine
+        resources = StateCacheEngine._get_state_cache_resources(
+            state_shapes, state_specs=state_specs, num_layers=num_layers)
 
-        # Allocate each state as a separate contiguous tensor.
+        # Allocate each state as a separate contiguous tensor. A layer-scoped
+        # state cache (resource.layout is not None) is allocated as
+        # (num_caches, num_rows, *shape) then permuted to (num_rows, num_caches,
+        # *shape) so that NamedCacheView.layer()[layer_id] -- which indexes
+        # dim 0 -- hits the per-layer rows (matching upstream
+        # CacheEngine.allocate_caches). contiguous() is taken because permute
+        # alone yields a non-contiguous view, which NPU ops reject.
         caches = []
-        for desc in cache_descs:
+        for resource in resources:
+            desc = resource.desc
             cache = torch.zeros(
                 (num_caches, *desc.shape), dtype=desc.dtype, device=device
             )
+            if resource.layout is not None:
+                dims = list(range(cache.dim()))
+                cache = cache.permute(1, 0, *dims[2:]).contiguous()
             caches.append(cache)
 
         # mem_pool is used by two callers:
@@ -248,7 +267,13 @@ def patch_state_cache_engine():
         cache_masks = torch.zeros((num_caches,), dtype=torch.bool, device=idx.device)
         cache_masks.index_copy_(0, idx, mask)
         for cache in self._state_caches:
-            reshaped_mask = cache_masks.view((-1,) + (1,) * (cache.dim() - 1))
+            # num_caches is dim 0 for plain (non-layered) caches and dim 1 for
+            # layer-scoped ones (permuted in allocate_caches so dim 0 = num_rows).
+            # Align the per-slot mask to whichever axis holds num_caches.
+            if cache.shape[0] == num_caches:
+                reshaped_mask = cache_masks.view((-1,) + (1,) * (cache.dim() - 1))
+            else:
+                reshaped_mask = cache_masks.view((1, -1) + (1,) * (cache.dim() - 2))
             cache.masked_fill_(reshaped_mask, 0)
 
     cache_engine.StateCacheEngine.allocate_caches = _state_cache_engine_allocate_caches
@@ -733,6 +758,22 @@ def patch_qwen3_5():
     )
 
 
+def patch_triton_tma():
+    """Disable triton TMA path on ascend.
+
+    torch.cuda.get_device_capability() returns None under transfer_to_npu, so
+    dynamo's variable builder crashes at `None >= (9, 0)` inside
+    torch/utils/_triton._device_supports_tma during tracing. Triton (and TMA)
+    are not used on ascend anyway.
+    """
+    try:
+        import torch.utils._triton as _t
+        _t._device_supports_tma = lambda: False
+        _t.has_triton_experimental_host_tma = lambda: False
+    except Exception:
+        pass
+
+
 def vendor_device_init():
     import_vendor_module(vendor_name)
     patch_compiled_func()
@@ -743,6 +784,7 @@ def vendor_device_init():
         patch_state_cache_engine()
         patch_gated_delta_net()
         patch_qwen3_5()
+        patch_triton_tma()
 
 
 vendor_device_init()

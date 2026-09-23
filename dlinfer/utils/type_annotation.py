@@ -31,6 +31,7 @@ class MoeMetadata:
     moe_group_name: str = None
     expert_ids_per_ep_rank: torch.Tensor = None
     router_n_groups: int = -1
+    swiglu_limit: float = 0.0
 
 
 linear_w8a8_scale_type = torch.Tensor

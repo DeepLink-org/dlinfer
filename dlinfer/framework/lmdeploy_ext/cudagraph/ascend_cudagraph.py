@@ -1,6 +1,7 @@
 # Copyright (c) 2024, OpenMMLab and DeepLink. All rights reserved.
 # this file implements the cudagraph for ascend backend.
 import functools
+import os
 from typing import Any, Dict, List, Optional
 from dataclasses import dataclass
 from contextlib import ExitStack
@@ -26,6 +27,17 @@ BuffType = Dict[str, Tensor]
 
 @functools.lru_cache()
 def aclgraph_use_torch_npu_update():
+    # V4_FORCE_ACL_UPDATE_PATH: override which per-step graph-update path is
+    # used. The torch_npu>=2.8 path (replay -> _graph.update) orders the
+    # actual_seq_lengths_kv CPU-param write AFTER replay with no sync, which
+    # races the next replay's read (507018, see vllm-ascend acl_graph.py:243).
+    # The legacy path (update_attn_params on a separate update_stream -> replay)
+    # mirrors vllm-ascend's stable update-before-replay ordering. =0 forces the
+    # legacy path to test whether the torch_npu_update ordering is the racer.
+    if os.environ.get('V4_FORCE_ACL_UPDATE_PATH', '') == '0':
+        return False
+    if os.environ.get('V4_FORCE_ACL_UPDATE_PATH', '') == '1':
+        return True
     min_valid_version = Version("2.8.0.post1")
 
     try:
@@ -62,7 +74,18 @@ def AscendCudaGraphMixin_make_buffers_cudagraph(
         max_batches, dtype=torch.int32, device=device
     )
 
-    input_buffers["kv_seqlens"] = torch.ones(max_batches, dtype=torch.int32)
+    # V4_FULL_GRAPH_DECODE: V4 computes its decode metadata (slot_mapping /
+    # cos-gather / start_pos) IN-GRAPH from the kv_seqlens graph input. That
+    # requires kv_seqlens to be a DEVICE buffer (in-graph ops can't read CPU).
+    # The default CPU buffer backs the standard op's actual_seq_lengths_kv CPU
+    # param + the vestigial _graph.update() -- both UNUSED by V4 (V4 uses
+    # sparse_attn_sharedkv with a device seqused_kv, and FULL-graph implies
+    # V4_SKIP_ACL_UPDATE since a device tensor is incompatible with the CPU
+    # actual_seq_lengths_kv update param). Non-V4 / non-FULL-graph keeps CPU.
+    _kv_dev = (device if os.environ.get('V4_FULL_GRAPH_DECODE', '0') == '1'
+               else None)
+    input_buffers["kv_seqlens"] = torch.ones(
+        max_batches, dtype=torch.int32, device=_kv_dev)
 
     input_buffers["q_start_loc"] = torch.arange(
         max_batches + 1, dtype=torch.int32, device=device
@@ -314,7 +337,8 @@ class AscendSingleGraphRunner:
     @record_function("capture_cudagraph")
     def capture(self, **kwargs):
         """Capture graph."""
-        logger.debug(f"Capturing graph with meta: {self.meta}")
+        logger.debug(f"Capturing decode graph: is_decoding={self.is_decoding} "
+                     f"max_batches={self.max_batches} max_tokens={self.max_tokens}")
         self.meta.input_buffers = self.model.make_buffers_cudagraph(self.meta, **kwargs)
         padded_kwargs = self.model.fill_buffers_cudagraph(self.meta, **kwargs)
         context = self.ctx_mgr.current_context()
@@ -340,6 +364,10 @@ class AscendSingleGraphRunner:
         output_buffers = self.model.make_output_buffers(graph_output)
         self.meta.output_buffers = output_buffers
         self._graph = aclgraph
+        # Latch: a graph is now captured -> subsequent build_context calls run
+        # on the replay path (device kv_seqlens), so v4_dsa elides the eager
+        # metadata (None sentinels) and the model forward computes it in-graph.
+        AscendGraphRunner.has_captured = True
         final_output = self.model.get_outputs_cudagraph(warmup_buffers, **kwargs)
         return final_output
 
@@ -351,12 +379,51 @@ class AscendSingleGraphRunner:
         context = self.ctx_mgr.current_context()
         self.model.update_context_cudagraph(self.meta, context)
         if aclgraph_use_torch_npu_update():
+            # Drain the current stream before replay (mirrors vllm-ascend
+            # acl_graph.py:199) so the previous step's replay + any per-step
+            # eager aclnn op queued on the default stream has fully retired
+            # before this replay launches -> correct replay ordering.
+            # NOTE: torch.npu.synchronize() (device-wide) was tried and is
+            # WORSE -- it drains the HCCL internal stream too and so surfaces
+            # the residual in-graph vector/HCCL racer (507035, "cross-device
+            # memory access timeout" on the EP rank) EARLIER (req9 vs req53).
+            # A sync is a DETECTOR of that racer, not a fixer; the real fix is
+            # the FULL-graph plan (move lm_head/sampling/build_step_context
+            # in-graph -> 0 eager ops between replays, mirrors vllm stability).
+            # V4_DEVICE_SYNC=1: switch to torch.npu.synchronize() (device-wide,
+            # drains the HCCL internal stream too). This does NOT fix the racer
+            # -- it is a DETECTOR that surfaces the in-graph vector/HCCL racer
+            # (507035, "cross-device memory access timeout" on the EP rank)
+            # EARLIER (req9 vs q56), turning the 4h non-deterministic GPQA
+            # crash into a ~30min deterministic repro for fix iteration. The
+            # real fix remains the FULL-graph plan (0 eager ops between replays
+            # / proper HCCL cross-stream sync). Default 0 = current-stream sync.
+            if os.environ.get('V4_DEVICE_SYNC', '0') == '1':
+                torch.npu.synchronize()
+            else:
+                torch.npu.current_stream().synchronize()
             self._graph.replay()
-            self._graph.update(
-                cpu_update_input=[
-                    {"actual_seq_lengths_kv": self.meta.input_buffers["kv_seqlens"]}
-                ]
-            )
+            # V4_SKIP_ACL_UPDATE: V4's attention op is _C_ascend.
+            # sparse_attn_sharedkv, which reads kv length from the
+            # seqused_kv DEVICE tensor (refreshed per-step via
+            # fill_buffers_cudagraph into the pinned buffer, read at stable
+            # address at replay) -- NOT from the standard op's
+            # actual_seq_lengths_kv CPU param. V4's captured graph therefore
+            # contains NO actual_seq_lengths_kv CPU param, so this
+            # _graph.update() is VESTIGIAL for V4 (mirrors vllm-ascend
+            # dsa_v1.py update_graph_params = pass no-op). It is a per-step
+            # mutation of graph internal state for a param the graph does not
+            # have, which (while a previous replay may still be in flight) is
+            # a candidate racer for the 507018 timing race. =1 skips it for V4
+            # (decode only); non-V4 models keep the update (they DO use the
+            # standard op with the CPU param).
+            if os.environ.get('V4_SKIP_ACL_UPDATE', '0') != '1' and \
+                    os.environ.get('V4_FULL_GRAPH_DECODE', '0') != '1':
+                self._graph.update(
+                    cpu_update_input=[
+                        {"actual_seq_lengths_kv": self.meta.input_buffers["kv_seqlens"]}
+                    ]
+                )
         else:
             update_attn_params(self.update_stream, self.meta, self.max_tokens)
             self._graph.replay()
@@ -390,6 +457,28 @@ class AscendGraphRunner(GraphRunner):
     """Cuda graph runner."""
 
     capturing = False
+    # Class-level "a graph has been captured" latch. Set True at the end of
+    # AscendSingleGraphRunner.capture() (after self._graph is assigned), so it
+    # is False during the capture build_context / warmup and True from the
+    # first replay onward. Read by v4_dsa.build_v4_dsa_inputs to gate the
+    # FULL-graph (V4_FULL_GRAPH_DECODE) eager-metadata elision: the SHARED
+    # decode metadata (cos gather / slot_mapping / start_pos / _pin_meta
+    # copies) is computed eagerly only when NO graph is captured yet (capture
+    # build_context + pre-capture warmup, where attn_metadata.kv_seqlens is
+    # CPU) and elided (None sentinels, computed IN-GRAPH by the model forward)
+    # once a graph is captured (replay path, where kv_seqlens is a device
+    # graph-input buffer). This yields 0 eager aclnn metadata racers between
+    # replays (mirrors vllm-ascend FULL graph) -> stable (fixes 507018).
+    has_captured = False
+
+    # Option A: per-step "route this decode step eager" flag, set by
+    # v4_dsa.build_v4_dsa_inputs (True on a batch-change / callonce-miss
+    # decode step where a kv_seqlens.tolist() sync would race the replay).
+    # Read in __call__'s replay branch. Default False (steady / capture /
+    # prefill). Class attr: one AscendGraphRunner per worker process, and
+    # build_v4_dsa_inputs runs in build_context (eager, pre-__call__) on
+    # the same worker, so the attr is fresh when __call__ reads it.
+    _v4_step_route_eager = False
 
     def __init__(
         self,
@@ -470,6 +559,34 @@ class AscendGraphRunner(GraphRunner):
             self._runner_map[graph_key] = runner
         else:
             runner = self._runner_map[graph_key]
+        # Option A (batch-change -> eager): a decode REPLAY step whose batch
+        # composition changed (num_reqs up/down, a slot freed+reused) misses
+        # the _slot_kv tracker -> build_v4_dsa_inputs falls back to the
+        # kv_seqlens.tolist() D2H host sync, which races the in-flight
+        # captured-graph HCCL collective (507035 "vector core abnormal").
+        # (callonce cache misses, _meta_all_hit False, race the same way.)
+        # Route such steps EAGER: the syncs run where no captured replay can
+        # race them (documented design intent, v4_dsa.py:867-881), and the
+        # caches re-seed so the next steady step replays cleanly. The
+        # _v4_step_route_eager flag is computed in build_v4_dsa_inputs
+        # (build_context), which runs eager PRE-__call__ on this worker, so
+        # it is fresh here. Identical inputs across ranks -> identical flag
+        # -> rank-uniform decision (no EP-collective graph-entry mismatch,
+        # vllm-ascend "min-mode"). Decode-only + replay-branch only; capture
+        # (graph_key absent) is unaffected. Toggled by V4_BATCH_CHANGE_EAGER.
+        if (is_decoding
+                and os.environ.get('V4_BATCH_CHANGE_EAGER', '1') == '1'
+                and getattr(self, '_v4_step_route_eager', False)):
+            with record_function("forward_eager_batch_change"):
+                if os.environ.get('V4_BC_EAGER_DEBUG', '0') == '1':
+                    import torch.distributed as _d
+                    _rk = (_d.get_rank() if (_d.is_available()
+                                             and _d.is_initialized()) else 0)
+                    print(f'[V4-BCE] rank={_rk} graph_key={graph_key} '
+                          f'batch-change -> eager (no replay race)',
+                          flush=True)
+                ret = self.model(**kwargs)
+                return self.model.make_output_buffers(ret)
         output = runner.forward(**kwargs)
         return output
 
@@ -510,9 +627,18 @@ class AscendGraphRunner(GraphRunner):
         """Update inputs."""
         if self.backend_config.eager_mode:
             return inputs
-        is_decoding = inputs.is_decoding
         dp_meta = inputs.dp_meta
-        if is_decoding and dp_meta is not None:
+        # Key the decode-graph tp_sizes update off the GLOBAL decode flag
+        # (dp_meta.dp_is_decoding, set from the gathered global_is_decoding
+        # in agent._prepare_dp_v1), not the per-rank inputs.is_decoding.
+        # Under DP a step can be mixed -- e.g. one DP group prefilling while
+        # another carries a dummy decode -- and the local flag on the
+        # dummy-decode group is True even though the whole step is a prefill
+        # (global_is_decoding=False). The local flag would then drive the
+        # decode-graph branch and read an unset padding_batch_size (None).
+        # The global flag is consistent with whether padding_batch_size was
+        # set (both derive from global_is_decoding), so use it.
+        if dp_meta is not None and getattr(dp_meta, 'dp_is_decoding', False):
             meta = self.get_meta()
             padding_batch_size = meta.padding_batch_size
             tp_size = self._get_capture_tokens(padding_batch_size)
@@ -521,7 +647,24 @@ class AscendGraphRunner(GraphRunner):
 
     def get_capture_batch_sizes(self) -> List[int]:
         """Capture batch sizes."""
-        return _get_capture_batch_size_impl(self.cache_config.max_batches)
+        # Capture graphs for the FULL engine max_batches (not a DP-halved
+        # per-rank ceiling). An earlier optimization assumed internal DP always
+        # splits the running batch evenly (ceil(max_batches/dp) per rank) and
+        # capped the capture set there. That assumption is FALSE: the DP
+        # scheduler can route more than ceil(max_batches/dp) requests to one
+        # group (e.g. max_batches=2/dp=2 -> 2 concurrent decodes on the same
+        # group while the other runs a dummy). The DP-halved capture set
+        # (=[1]) then has no graph for a batch=2 decode -> AssertionError
+        # "Unsupported batch_size=2" (and the V4 state pool, likewise
+        # DP-halved, IndexErrors first) -> whole-serve ENGINE_STOP crash.
+        # Capturing the full max_batches (=[1,2] for mb=2) makes the graph
+        # robust to any DP routing, and matches the (likewise full-sized)
+        # V4 state pool so capture-warmup state_bt ranges stay <= pool. The
+        # single-request path is unchanged (padding_batch_size=1 -> graph[1]);
+        # only the 2-on-one-rank case now finds a graph. HBM cost is the extra
+        # batch-2 graph workspace + state pool, acceptable on the A3 box.
+        mb = self.cache_config.max_batches
+        return _get_capture_batch_size_impl(mb)
 
 
 @dataclass

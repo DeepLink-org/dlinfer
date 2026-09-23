@@ -81,6 +81,7 @@ def _grouped_mlp(
     down_weights: torch.Tensor,
     group_list: torch.Tensor,
     group_list_type: int,
+    swiglu_limit: float = 0.0,
 ):
     # up sample
     up_proj = torch.ops.npu.npu_grouped_matmul(
@@ -93,7 +94,13 @@ def _grouped_mlp(
     )[0]
 
     # activation
-    gate_cache = torch.ops.npu.npu_swiglu(up_proj, -1)
+    if swiglu_limit and swiglu_limit > 0:
+        gate, up = up_proj.chunk(2, dim=-1)
+        gate = gate.float().clamp(max=swiglu_limit)
+        up = up.float().clamp(min=-swiglu_limit, max=swiglu_limit)
+        gate_cache = (torch.nn.functional.silu(gate) * up).to(up_proj.dtype)
+    else:
+        gate_cache = torch.ops.npu.npu_swiglu(up_proj, -1)
 
     # down sample
     down_proj = torch.ops.npu.npu_grouped_matmul(
@@ -113,6 +120,7 @@ def _apply_mlp_chunked_eager(
     down_weights: torch.Tensor,
     token_counts: torch.Tensor,
     chunked_moe_layout: ChunkedMoeWeightLayout = None,
+    swiglu_limit: float = 0.0,
 ):
     """Eager / prefill path for >1024 experts.
 
@@ -155,6 +163,7 @@ def _apply_mlp_chunked_eager(
                 down,
                 token_counts[start_expert:end_expert],
                 1,
+                swiglu_limit,
             )
         )
         start_expert = end_expert
@@ -169,6 +178,7 @@ def _apply_mlp_chunked_capturable(
     down_weights: torch.Tensor,
     token_counts: torch.Tensor,
     chunked_moe_layout: ChunkedMoeWeightLayout = None,
+    swiglu_limit: float = 0.0,
 ):
     """NPU-graph-capturable path for >1024 experts.
 
@@ -222,7 +232,7 @@ def _apply_mlp_chunked_capturable(
             down = torch.cat(
                 [zeros_down, down_weights[start_expert:end_expert], zeros_down], dim=0
             )
-        chunk_out = _grouped_mlp(hidden_states, gate_up, down, group_list, 1)
+        chunk_out = _grouped_mlp(hidden_states, gate_up, down, group_list, 1, swiglu_limit)
         output = chunk_out if output is None else output + chunk_out
         start_expert = end_expert
         chunk_idx += 1
@@ -236,6 +246,7 @@ def apply_mlp(
     group_list: torch.Tensor,
     group_list_type: int = 1,
     chunked_moe_layout: ChunkedMoeWeightLayout = None,
+    swiglu_limit: float = 0.0,
 ):
     num_experts = (
         chunked_moe_layout.num_experts
@@ -244,7 +255,8 @@ def apply_mlp(
     )
     if num_experts <= MAX_GROUP_LIST_SIZE:
         return _grouped_mlp(
-            hidden_states, gate_up_weights, down_weights, group_list, group_list_type
+            hidden_states, gate_up_weights, down_weights, group_list, group_list_type,
+            swiglu_limit,
         )
 
     # More experts than aclnnGroupedMatmulV5 supports: split into chunks of at
@@ -271,9 +283,11 @@ def apply_mlp(
             down_weights,
             token_counts,
             chunked_moe_layout,
+            swiglu_limit,
         )
     return _apply_mlp_chunked_eager(
-        hidden_states, gate_up_weights, down_weights, token_counts, chunked_moe_layout
+        hidden_states, gate_up_weights, down_weights, token_counts, chunked_moe_layout,
+        swiglu_limit,
     )
 
 
@@ -360,6 +374,7 @@ def fused_moe_naive(
     topk: int,
     renormalize: bool,
     chunked_moe_layout: ChunkedMoeWeightLayout = None,
+    swiglu_limit: float = 0.0,
 ):
     num_experts = (
         chunked_moe_layout.num_experts
@@ -397,6 +412,7 @@ def fused_moe_naive(
         expert_tokens,
         group_list_type,
         chunked_moe_layout,
+        swiglu_limit,
     )
 
     # distribute combine
@@ -420,6 +436,7 @@ def fused_moe_mc2(
     moe_group_name: str,
     x_active_mask: torch.Tensor,
     chunked_moe_layout: ChunkedMoeWeightLayout = None,
+    swiglu_limit: float = 0.0,
 ):
     # do renormalize
     if renormalize:
@@ -486,6 +503,7 @@ def fused_moe_mc2(
         expert_tokens,
         group_list_type,
         chunked_moe_layout,
+        swiglu_limit,
     )
 
     # distribute combine
@@ -536,6 +554,7 @@ def fused_moe_all2all(
     ep_group: dist.ProcessGroup,
     expert_ids_per_ep_rank: torch.Tensor,
     chunked_moe_layout: ChunkedMoeWeightLayout = None,
+    swiglu_limit: float = 0.0,
 ):
     num_local_experts = (
         chunked_moe_layout.num_experts
@@ -700,6 +719,7 @@ def fused_moe_all2all(
             dispatched_outputs["group_list"].to(torch.int64),
             dispatched_outputs["group_list_type"],
             chunked_moe_layout,
+            swiglu_limit,
         )
 
         # distribute combine
