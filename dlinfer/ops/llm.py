@@ -914,3 +914,59 @@ def transdata(
        Tensor : A tensor in target format.
     """
     return vendor_ops_registry["transdata"](hidden_states, transdata_type)
+
+
+# ---------------------------------------------------------------------------
+# DeepSeek-V4 ops (forward to vllm-ascend _C_ascend kernels via vendor layer)
+# ---------------------------------------------------------------------------
+# These wrap the V4 custom kernels (compressor / lightning_indexer /
+# sparse_attn_sharedkv / hc_pre / hc_post / grouped_matmul_swiglu_quant /
+# inplace_partial_rotary_mul / ...).  Signatures are intentionally
+# (*args, **kwargs) pass-throughs: the V4 model code (ported from vllm-ascend)
+# supplies the exact op arguments, and forwarding avoids signature drift.
+
+_V4_OP_INTERFACES = [
+    "hc_pre",
+    "hc_post",
+    "add_rms_norm_bias",
+    "compressor",
+    "compressor_metadata",
+    "lightning_indexer",
+    "lightning_indexer_metadata",
+    "sparse_attn_sharedkv",
+    "sparse_attn_sharedkv_metadata",
+    "sparse_flash_attention",
+    "kv_quant_sparse_flash_attention",
+    "store_kv_block",
+    "store_kv_block_metadata",
+    "reshape_and_cache_bnsd",
+    "load_index_kv_cache",
+    "inplace_partial_rotary_mul",
+    "rms_norm_dynamic_quant",
+    "moe_gating_top_k",
+    "moe_gating_top_k_hash",
+    "grouped_matmul_swiglu_quant",
+    "grouped_matmul_swiglu_quant_v2",
+    "grouped_matmul_swiglu_quant_weight_nz",
+    "swiglu_group_quant",
+    "dequant_swiglu_quant",
+    "batch_matmul_transpose",
+    "mla_preprocess",
+]
+
+__all__ += _V4_OP_INTERFACES
+
+
+def _make_v4_interface(op_name: str):
+    def _fn(*args, **kwargs):
+        return vendor_ops_registry[op_name](*args, **kwargs)
+
+    _fn.__name__ = op_name
+    _fn.__doc__ = f"DeepSeek-V4 op; forwarded to dlinfer vendor '{op_name}'."
+    return _fn
+
+
+for _op in _V4_OP_INTERFACES:
+    globals()[_op] = _make_v4_interface(_op)
+
+del _op
