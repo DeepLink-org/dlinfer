@@ -1,0 +1,67 @@
+approvers:
+- andylhy
+- xiaolong_han
+- huxiaobang
+- fanqirui
+- luanma_bl
+- chenbinbin199309
+- chen-kang30
+- chq317
+- chaotang233
+- fang-guocan
+- xu-binglin
+- yangyang016
+- wuyi_huawei
+- zhao-yingchao
+- shi-ray
+- crystalhu
+- yu-xinjie62
+- zcc9707
+- liuzhuheng
+- juyangokok
+
+reviewers:
+- li-xulong
+- Allan_Yu
+- mabing726
+- miao-fangzheng
+- chengsheng304064
+- miao-fangzheng
+- wang-fei6
+- shawn-hu
+- li-shengxian
+- xig514
+- chen-vvjob
+- renkyk
+- yang-binrong
+- song-jionghui
+- wang-zhe123456789
+- huangli70
+- huangwei791
+- shunqi
+- wangjun-qt
+- jiang-lirui
+- realmadrid1016
+- monologue815
+- zhangtj0209
+- GodantShen
+- Liexss
+- fzzach
+- zhanglei_hw
+- songkai-huawei
+- yangxu19921206
+- crystalhu
+- yu-xinjie62
+- zhu-yijun-Julius
+
+files:
+  "aclnn_grouped_matmul.h":
+    approvers:
+      - Allan_Yu
+      - wang-yongguang
+      - juyangokok
+  "grouped_matmul_def.cpp":
+    approvers:
+      - Allan_Yu
+      - wang-yongguang
+      - juyangokok
