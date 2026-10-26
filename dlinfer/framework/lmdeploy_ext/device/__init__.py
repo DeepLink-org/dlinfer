@@ -1011,12 +1011,14 @@ def patch_glm_moe_dsa_split_cache():
 def patch_linear_w8a8_nz_convert():
     """Convert W8A8 expert weights to the NZ layout with a device d2d copy.
 
-    The stock convert_weight_to_nz round-trips every expert tensor through
-    the host (D2H + cpu transpose + H2D); with all TP workers converting
-    concurrently that phase takes minutes after weight loading. Copying with
-    nz.copy_(param.transpose(1, 2)) performs the ND->NZ format cast in a d2d
-    copy instead, so the ND tensor and its NZ replacement coexist for a
-    single expert tensor only.
+    The layout decision lives here, at weight-load time: weights are
+    converted to NZ (the dispatch_ffn_combine contract) only when the fused
+    operator is actually available, and stay ND otherwise. Downstream code
+    reads the decision off the weight format and never re-probes.
+
+    The conversion itself is a d2d copy (nz.copy_(param.transpose(1, 2))
+    performs the ND->NZ cast on device); a host round-trip here stalls for
+    minutes when all TP workers convert concurrently.
 
     lmdeploy main's w8a8.py has no NZ support at all (no _weight_nz flag, no
     convert_weight_to_nz method, and FusedMoEW8A8.update_weights never calls
@@ -1033,6 +1035,11 @@ def patch_linear_w8a8_nz_convert():
     def convert_weight_to_nz(self):
         """Convert the loaded expert matrices to the NZ layout in-place."""
         if getattr(self, '_weight_nz', False) or self.weight.device.type != 'npu':
+            return
+        from dlinfer.vendor.ascend.moe import ensure_fused_moe_op
+
+        if not ensure_fused_moe_op():
+            # No fused operator -> keep ND weights and the fallback path.
             return
         import torch_npu
 

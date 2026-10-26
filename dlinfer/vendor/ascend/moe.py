@@ -83,38 +83,18 @@ def ensure_fused_moe_op() -> bool:
     return _FUSED_MOE_OP_AVAILABLE
 
 
-def prepare_fused_w8a8_weights(
-    gate_up_weights: torch.Tensor,
-    down_weights: torch.Tensor,
-    gate_up_scales: torch.Tensor,
-    down_scales: torch.Tensor,
-):
-    """Convert LMDeploy W8A8 weights to dispatch_ffn_combine's NZ contract."""
-    if not ensure_fused_moe_op():
-        return gate_up_weights, down_weights, gate_up_scales, down_scales
+def pack_w8a8_scales(gate_up_scales: torch.Tensor, down_scales: torch.Tensor):
+    """Pack W8A8 activation scales for dispatch_ffn_combine.
 
-    def ensure_nz(weight: torch.Tensor):
-        try:
-            if torch_npu.get_npu_format(weight) == 29:
-                return weight
-        except (RuntimeError, AttributeError):
-            pass
-        return torch_npu.npu_format_cast(weight.transpose(1, 2).contiguous(), 29)
-
-    gate_up_weights = ensure_nz(gate_up_weights)
-    down_weights = ensure_nz(down_weights)
-
+    The expert weight layout decision (ND vs NZ) is made once at weight-load
+    time by the lmdeploy integration; this helper only repacks the scales.
+    """
     def pack_scale(scale: torch.Tensor):
         scale = scale.reshape(scale.shape[0], -1).to(torch.float32).contiguous()
         # The fused operator consumes the IEEE-754 bit pattern in int64 form.
         return scale.view(torch.int32).to(torch.int64)
 
-    return (
-        gate_up_weights,
-        down_weights,
-        pack_scale(gate_up_scales),
-        pack_scale(down_scales),
-    )
+    return pack_scale(gate_up_scales), pack_scale(down_scales)
 
 # aclnnGroupedMatmulV5 requires the groupList tensor to have at most 1024
 # entries. Models with more experts than this (e.g. meta-MoE with 2560
