@@ -1008,6 +1008,63 @@ def patch_glm_moe_dsa_split_cache():
     GlmMoeDsaAttention.forward = custom_forward
 
 
+def patch_linear_w8a8_nz_convert():
+    """Convert W8A8 expert weights to the NZ layout with a device d2d copy.
+
+    The stock convert_weight_to_nz round-trips every expert tensor through
+    the host (D2H + cpu transpose + H2D); with all TP workers converting
+    concurrently that phase takes minutes after weight loading. Copying with
+    nz.copy_(param.transpose(1, 2)) performs the ND->NZ format cast in a d2d
+    copy instead, so the ND tensor and its NZ replacement coexist for a
+    single expert tensor only.
+
+    lmdeploy main's w8a8.py has no NZ support at all (no _weight_nz flag, no
+    convert_weight_to_nz method, and FusedMoEW8A8.update_weights never calls
+    it), so the patch also injects the call site; the conversion itself is
+    idempotent via the flag, which makes the patch safe on branch checkouts
+    that still call convert_weight_to_nz from update_weights.
+    """
+    import torch.nn as nn
+    from lmdeploy.pytorch.nn.moe.w8a8 import FusedMoEW8A8, LinearWeightsW8A8
+
+    if getattr(LinearWeightsW8A8, "_dlinfer_nz_patched", False):
+        return
+
+    def convert_weight_to_nz(self):
+        """Convert the loaded expert matrices to the NZ layout in-place."""
+        if getattr(self, '_weight_nz', False) or self.weight.device.type != 'npu':
+            return
+        import torch_npu
+
+        old_param = self.weight
+        nz_weight = torch_npu.empty_with_format(
+            (old_param.shape[0], old_param.shape[2], old_param.shape[1]),
+            dtype=old_param.dtype,
+            device='npu',
+            acl_format=29,
+        )
+        nz_weight.copy_(old_param.detach().transpose(1, 2))
+        param = nn.Parameter(nz_weight, requires_grad=False)
+        param.weight_loader = old_param.weight_loader
+        del self._parameters['weight']
+        self.register_parameter('weight', param)
+        self._weight_nz = True
+        del old_param
+        torch.npu.empty_cache()
+
+    stock_update_weights = FusedMoEW8A8.update_weights
+
+    def update_weights(self):
+        """Convert expert weights to NZ, then run the stock update."""
+        self.gate_up.convert_weight_to_nz()
+        self.down.convert_weight_to_nz()
+        stock_update_weights(self)
+
+    LinearWeightsW8A8.convert_weight_to_nz = convert_weight_to_nz
+    FusedMoEW8A8.update_weights = update_weights
+    LinearWeightsW8A8._dlinfer_nz_patched = True
+
+
 def patch_gated_delta_net():
     import torch
     import torch.nn.functional as F
@@ -1628,6 +1685,7 @@ def vendor_device_init():
         patch_glm_moe_dsa_mlapo()
         patch_gated_delta_net()
         patch_qwen3_5()
+        patch_linear_w8a8_nz_convert()
 
 
 vendor_device_init()
