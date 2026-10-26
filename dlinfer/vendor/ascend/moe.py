@@ -1,7 +1,87 @@
 import os
+import sys
+from pathlib import Path
+
 import torch
 import torch.distributed as dist
+import torch_npu
 from dlinfer.utils.type_annotation import MoECommType
+
+
+_FUSED_MOE_OP_AVAILABLE = None
+_FUSED_MOE_EXPERT_TOKEN_NUMS = {}
+
+
+def _prepend_env_path(name: str, value: Path):
+    """Make a vendor library/search path visible before loading the extension."""
+    old_value = os.environ.get(name, "")
+    value = str(value)
+    if old_value:
+        if value not in old_value.split(":"):
+            os.environ[name] = f"{value}:{old_value}"
+    else:
+        os.environ[name] = value
+
+
+def _find_vllm_ascend_extension():
+    """Find the prebuilt vLLM-Ascend extension without importing vLLM."""
+    candidates = []
+    for env_name in (
+        "DLINFER_ASCEND_CUSTOM_OP_LIBRARY",
+        "VLLM_ASCEND_CUSTOM_OP_LIBRARY",
+    ):
+        value = os.environ.get(env_name)
+        if value:
+            candidates.append(Path(value))
+
+    # Source-tree location used by the Ascend development environment.
+    candidates.extend(Path("/vllm-workspace/vllm-ascend/vllm_ascend").glob("vllm_ascend_C*.so"))
+    for entry in sys.path:
+        if not entry:
+            continue
+        base = Path(entry)
+        candidates.extend((base / "vllm_ascend").glob("vllm_ascend_C*.so"))
+
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def ensure_fused_moe_op() -> bool:
+    """Load the prebuilt dispatch_ffn_combine operator, if available."""
+    global _FUSED_MOE_OP_AVAILABLE
+    if _FUSED_MOE_OP_AVAILABLE is not None:
+        return _FUSED_MOE_OP_AVAILABLE
+
+    try:
+        getattr(torch.ops._C_ascend, "dispatch_ffn_combine")
+        _FUSED_MOE_OP_AVAILABLE = True
+        return True
+    except AttributeError:
+        pass
+
+    extension = _find_vllm_ascend_extension()
+    if extension is None:
+        _FUSED_MOE_OP_AVAILABLE = False
+        return False
+
+    vendor_path = extension.parent / "_cann_ops_custom/vendors/custom_transformer"
+    if vendor_path.is_dir():
+        _prepend_env_path("ASCEND_CUSTOM_OPP_PATH", vendor_path)
+        vendor_lib_path = vendor_path / "op_api/lib"
+        if vendor_lib_path.is_dir():
+            _prepend_env_path("LD_LIBRARY_PATH", vendor_lib_path)
+
+    try:
+        torch.ops.load_library(str(extension))
+        getattr(torch.ops._C_ascend, "dispatch_ffn_combine")
+    except (ImportError, OSError, RuntimeError, AttributeError):
+        _FUSED_MOE_OP_AVAILABLE = False
+    else:
+        _FUSED_MOE_OP_AVAILABLE = True
+    return _FUSED_MOE_OP_AVAILABLE
+
 
 # aclnnGroupedMatmulV5 requires the groupList tensor to have at most 1024
 # entries. Models with more experts than this (e.g. meta-MoE with 2560
@@ -124,9 +204,10 @@ def _grouped_mlp_w8a8(
     quantized, input_scale = torch.ops.npu.npu_dynamic_quant(
         hidden_states, dst_type=torch.int8
     )
+    gate_up_weight = gate_up_weights if gate_up_weights.shape[1] == hidden_states.shape[-1] else gate_up_weights.transpose(1, 2)
     gate_up = torch.ops.npu.npu_grouped_matmul(
         [quantized],
-        [gate_up_weights.transpose(1, 2)],
+        [gate_up_weight],
         scale=[gate_up_scales.squeeze(-1)],
         per_token_scale=[input_scale],
         group_list=group_list,
@@ -140,9 +221,10 @@ def _grouped_mlp_w8a8(
     activated_quant, activated_scale = torch.ops.npu.npu_dynamic_quant(
         activated, dst_type=torch.int8
     )
+    down_weight = down_weights if down_weights.shape[1] == activated.shape[-1] else down_weights.transpose(1, 2)
     return torch.ops.npu.npu_grouped_matmul(
         [activated_quant],
-        [down_weights.transpose(1, 2)],
+        [down_weight],
         scale=[down_scales.squeeze(-1)],
         per_token_scale=[activated_scale],
         group_list=group_list,
@@ -491,6 +573,58 @@ def fused_moe_naive(
     )
     return moe_output
 
+
+
+def fused_moe_mc2_w8a8(
+    hidden_states: torch.Tensor,
+    gate_up_weights: torch.Tensor,
+    gate_up_scales: torch.Tensor,
+    down_weights: torch.Tensor,
+    down_scales: torch.Tensor,
+    topk_weights: torch.Tensor,
+    topk_ids: torch.Tensor,
+    ep_size: int,
+    ep_rank: int,
+    moe_group_name: str,
+    x_active_mask: torch.Tensor,
+    max_output_size: int = 512,
+    swiglu_limit: float = 0.0,
+):
+    """Run the prebuilt Ascend W8A8 dispatch/MLP/combine operator."""
+    if not ensure_fused_moe_op():
+        raise RuntimeError("dispatch_ffn_combine is unavailable")
+
+    num_local_experts = gate_up_weights.shape[0]
+    cache_key = (hidden_states.device.type, hidden_states.device.index, num_local_experts)
+    expert_token_nums = _FUSED_MOE_EXPERT_TOKEN_NUMS.get(cache_key)
+    if expert_token_nums is None:
+        expert_token_nums = torch.zeros(
+            (num_local_experts,), dtype=torch.int32, device=hidden_states.device
+        )
+        _FUSED_MOE_EXPERT_TOKEN_NUMS[cache_key] = expert_token_nums
+
+    # The operator accepts a list so that dynamic-EPLB can provide one tensor
+    # per weight shard. GLM-5.2 uses one local shard per rank.
+    empty_bias = torch.empty((0,), dtype=torch.float32)
+    out = torch.empty_like(hidden_states)
+    result, _ = torch.ops._C_ascend.dispatch_ffn_combine(
+        x=hidden_states,
+        weight1=[gate_up_weights],
+        weight2=[down_weights],
+        expert_idx=topk_ids.to(torch.int32),
+        scale1=[gate_up_scales],
+        scale2=[down_scales],
+        bias1=[empty_bias],
+        bias2=[empty_bias],
+        probs=topk_weights.to(torch.float32),
+        group=moe_group_name,
+        max_output_size=int(max_output_size),
+        swiglu_limit=float(swiglu_limit),
+        x_active_mask=x_active_mask,
+        out=out,
+        expert_token_nums=expert_token_nums,
+    )
+    return result
 
 def fused_moe_mc2(
     hidden_states: torch.Tensor,

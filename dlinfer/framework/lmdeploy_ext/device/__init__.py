@@ -373,6 +373,7 @@ def patch_deepseek_v32_qkv():
         return
 
     original_init = attention_cls.__init__
+    original_process = getattr(attention_cls, "process_weights_after_loading", None)
 
     def custom_init(
         self, config, layer_idx, dtype=None, device=None, all_reduce=True, prefix=""
@@ -504,11 +505,51 @@ def patch_deepseek_v32_qkv():
             prefix=f"{prefix}.o_proj" if prefix else "",
         )
         self.indexer = self._build_indexer(config, layer_idx, dtype, device, prefix)
+        self._dlinfer_merged_qkv = None
+
+    def custom_process_weights_after_loading(self):
+        if callable(original_process):
+            original_process(self)
+        q_proj = getattr(self, "q_a_proj", None)
+        kv_proj = getattr(self, "kv_a_proj_with_mqa", None)
+        if q_proj is None or kv_proj is None:
+            return
+        attrs = ("weight", "input_scale", "input_offset", "deq_scale", "quant_bias")
+        if not all(hasattr(q_proj, a) and hasattr(kv_proj, a) for a in attrs):
+            return
+        # Combining static W8A8 projections is exact only with identical
+        # activation quantization parameters.
+        if not torch.equal(q_proj.input_scale, kv_proj.input_scale):
+            return
+        if not torch.equal(q_proj.input_offset, kv_proj.input_offset):
+            return
+        from lmdeploy.pytorch.nn.linear import StaticW8A8Linear
+        merged = StaticW8A8Linear(
+            self.hidden_size,
+            q_proj.out_features + kv_proj.out_features,
+            bias=False,
+            dtype=q_proj.dtype,
+            device=q_proj.weight.device,
+            is_tp=False,
+            quant_dtype=q_proj.weight.dtype,
+        )
+        with torch.no_grad():
+            merged.weight.copy_(torch.cat((q_proj.weight, kv_proj.weight), dim=0))
+            merged.deq_scale.copy_(torch.cat((q_proj.deq_scale, kv_proj.deq_scale), dim=0))
+            merged.quant_bias.copy_(torch.cat((q_proj.quant_bias, kv_proj.quant_bias), dim=0))
+            merged.input_scale.copy_(q_proj.input_scale)
+            merged.input_offset.copy_(q_proj.input_offset)
+        self._dlinfer_merged_qkv = merged
 
     def custom_qkv_proj(self, hidden_states, num_heads):
         nope_size = self.kv_lora_rank
         pe_size = self.qk_rope_head_dim
-        if self.q_lora_rank is None:
+        if self._dlinfer_merged_qkv is not None:
+            qkv = self._dlinfer_merged_qkv(hidden_states)
+            q_a_states, key_states = qkv.split(
+                [self.q_lora_rank, nope_size + pe_size], dim=-1)
+            key_states = key_states[0, :, None]
+        elif self.q_lora_rank is None:
             q_a_states = hidden_states
             key_states = self.kv_a_proj_with_mqa(hidden_states[0, :, None])
         else:
@@ -520,6 +561,7 @@ def patch_deepseek_v32_qkv():
         return query_states, key_states, value_states, q_pe, k_pe, qr
 
     attention_cls.__init__ = custom_init
+    attention_cls.process_weights_after_loading = custom_process_weights_after_loading
     attention_cls._qkv_proj = custom_qkv_proj
     attention_cls._dlinfer_ascend_qkv_patched = True
 
@@ -832,6 +874,23 @@ def patch_glm_moe_dsa_indexer():
 ##### patch cache engine #####
 
 
+def patch_glm_moe_dsa_mlapo():
+    """Prepare MLAPO weights for the Ascend GLM split-cache adapter."""
+    from lmdeploy.pytorch.models.glm_moe_dsa import GlmMoeDsaAttention
+    from dlinfer.vendor.ascend.mlapo import MlaPreprocessWeights
+
+    if getattr(GlmMoeDsaAttention, "_dlinfer_mlapo_patched", False):
+        return
+    original_process = GlmMoeDsaAttention.process_weights_after_loading
+
+    def process_weights(self):
+        original_process(self)
+        self._dlinfer_mlapo = MlaPreprocessWeights.from_attention(self)
+
+    GlmMoeDsaAttention.process_weights_after_loading = process_weights
+    GlmMoeDsaAttention._dlinfer_mlapo_patched = True
+
+
 def patch_glm_moe_dsa_split_cache():
     """Use independent contiguous noPE and RoPE caches for Ascend DSA."""
     from lmdeploy.pytorch.configurations.glm_moe_dsa import (
@@ -872,14 +931,32 @@ def patch_glm_moe_dsa_split_cache():
         )
         nope_size = self.kv_lora_rank
         q_len = hidden_states.size(1)
-
-        query_states, key_states, value_states, q_pe, k_pe, qr = self._qkv_proj(
-            hidden_states, num_heads=num_heads
-        )
         cos, sin = rotary_pos_emb
-        q_pe, k_pe = self.apply_rotary_pos_emb(q_pe, k_pe, cos, sin, inplace=False)
-        query_states[..., nope_size:] = q_pe
-        key_states[..., nope_size:] = k_pe
+        rope_cache, nope_cache = past_key_value[:2]
+
+        mlapo = getattr(self, "_dlinfer_mlapo", None)
+        use_mlapo = mlapo is not None and mlapo.supports(
+            hidden_states, cos, sin, rope_cache, nope_cache, attn_metadata
+        )
+        if use_mlapo:
+            q_nope, q_pe, qr = mlapo(
+                hidden_states,
+                cos,
+                sin,
+                rope_cache,
+                nope_cache,
+                attn_metadata.kv_start_indices,
+            )
+            qr = qr.unsqueeze(0)
+        else:
+            query_states, key_states, value_states, q_pe, k_pe, qr = self._qkv_proj(
+                hidden_states, num_heads=num_heads
+            )
+            q_pe, k_pe = self.apply_rotary_pos_emb(
+                q_pe, k_pe, cos, sin, inplace=False
+            )
+            query_states[..., nope_size:] = q_pe
+            key_states[..., nope_size:] = k_pe
 
         if topk_indices_buffer is None:
             raise RuntimeError(
@@ -894,19 +971,34 @@ def patch_glm_moe_dsa_split_cache():
         else:
             topk_indices = topk_indices_buffer.read(q_len, hidden_states.device)
 
-        rope_cache, nope_cache = past_key_value[:2]
-
-        attn_output = self.attn_fwd(
-            query_states,
-            key_states,
-            value_states,
-            rope_cache,
-            nope_cache,
-            attn_metadata,
-            k_scales_zeros=(None if len(past_key_value) == 2 else past_key_value[2]),
-            v_scales_zeros=(None if len(past_key_value) == 2 else past_key_value[3]),
-            nsa_indices=topk_indices,
-        )
+        if use_mlapo:
+            attn_output = self.attn_fwd.impl.sparse_attention_fwd_split(
+                q_nope,
+                q_pe,
+                rope_cache,
+                nope_cache,
+                topk_indices,
+                attn_metadata.block_offsets,
+                attn_metadata.cu_seqlens_q[1:],
+                attn_metadata.kv_seqlens,
+                self.softmax_scale,
+            )
+        else:
+            attn_output = self.attn_fwd(
+                query_states,
+                key_states,
+                value_states,
+                rope_cache,
+                nope_cache,
+                attn_metadata,
+                k_scales_zeros=(
+                    None if len(past_key_value) == 2 else past_key_value[2]
+                ),
+                v_scales_zeros=(
+                    None if len(past_key_value) == 2 else past_key_value[3]
+                ),
+                nsa_indices=topk_indices,
+            )
         attn_bmm_out = attn_output.new_empty(q_len, num_heads, self.v_head_dim)
         self.vc(attn_output, attn_bmm_out)
         return self.o_proj(attn_bmm_out.flatten(-2, -1)[None])
@@ -914,6 +1006,70 @@ def patch_glm_moe_dsa_split_cache():
     GlmMoeDsaModelConfigBuilder.build = custom_build
     GlmMoeDsaModelConfigBuilder._dlinfer_split_cache_patched = True
     GlmMoeDsaAttention.forward = custom_forward
+
+
+def patch_linear_w8a8_nz_convert():
+    """Convert W8A8 expert weights to the NZ layout with a device d2d copy.
+
+    The layout decision lives here, at weight-load time: weights are
+    converted to NZ (the dispatch_ffn_combine contract) only when the fused
+    operator is actually available, and stay ND otherwise. Downstream code
+    reads the decision off the weight format and never re-probes.
+
+    The conversion itself is a d2d copy (nz.copy_(param.transpose(1, 2))
+    performs the ND->NZ cast on device); a host round-trip here stalls for
+    minutes when all TP workers convert concurrently.
+
+    lmdeploy main's w8a8.py has no NZ support at all (no _weight_nz flag, no
+    convert_weight_to_nz method, and FusedMoEW8A8.update_weights never calls
+    it), so the patch also injects the call site; the conversion itself is
+    idempotent via the flag, which makes the patch safe on branch checkouts
+    that still call convert_weight_to_nz from update_weights.
+    """
+    import torch.nn as nn
+    from lmdeploy.pytorch.nn.moe.w8a8 import FusedMoEW8A8, LinearWeightsW8A8
+
+    if getattr(LinearWeightsW8A8, "_dlinfer_nz_patched", False):
+        return
+
+    def convert_weight_to_nz(self):
+        """Convert the loaded expert matrices to the NZ layout in-place."""
+        if getattr(self, '_weight_nz', False) or self.weight.device.type != 'npu':
+            return
+        from dlinfer.vendor.ascend.moe import ensure_fused_moe_op
+
+        if not ensure_fused_moe_op():
+            # No fused operator -> keep ND weights and the fallback path.
+            return
+        import torch_npu
+
+        old_param = self.weight
+        nz_weight = torch_npu.empty_with_format(
+            (old_param.shape[0], old_param.shape[2], old_param.shape[1]),
+            dtype=old_param.dtype,
+            device='npu',
+            acl_format=29,
+        )
+        nz_weight.copy_(old_param.detach().transpose(1, 2))
+        param = nn.Parameter(nz_weight, requires_grad=False)
+        param.weight_loader = old_param.weight_loader
+        del self._parameters['weight']
+        self.register_parameter('weight', param)
+        self._weight_nz = True
+        del old_param
+        torch.npu.empty_cache()
+
+    stock_update_weights = FusedMoEW8A8.update_weights
+
+    def update_weights(self):
+        """Convert expert weights to NZ, then run the stock update."""
+        self.gate_up.convert_weight_to_nz()
+        self.down.convert_weight_to_nz()
+        stock_update_weights(self)
+
+    LinearWeightsW8A8.convert_weight_to_nz = convert_weight_to_nz
+    FusedMoEW8A8.update_weights = update_weights
+    LinearWeightsW8A8._dlinfer_nz_patched = True
 
 
 def patch_gated_delta_net():
@@ -1533,8 +1689,10 @@ def vendor_device_init():
         patch_glm_moe_dsa_weight_loader()
         patch_glm_moe_dsa_indexer()
         patch_glm_moe_dsa_split_cache()
+        patch_glm_moe_dsa_mlapo()
         patch_gated_delta_net()
         patch_qwen3_5()
+        patch_linear_w8a8_nz_convert()
 
 
 vendor_device_init()

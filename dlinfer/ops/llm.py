@@ -27,6 +27,7 @@ __all__ = [
     "rms_norm",
     "silu_and_mul",
     "moe_gating_topk_softmax",
+    "moe_gating_top_k",
     "fused_attention",
     "fill_contiguous_kvcache",
     "get_cache_len",
@@ -653,6 +654,31 @@ def moe_gating_topk_softmax(
     )
 
 
+def moe_gating_top_k(
+    router_logits: Tensor,
+    bias: Optional[Tensor],
+    top_k: int,
+    k_group: int,
+    group_count: int,
+    renorm: int,
+    norm_type: int,
+    routed_scaling_factor: float,
+    eps: float,
+) -> Tuple[Tensor, Tensor]:
+    """Run the vendor fused grouped no-aux MoE router."""
+    return vendor_ops_registry["moe_gating_top_k"](
+        router_logits,
+        bias,
+        top_k,
+        k_group,
+        group_count,
+        renorm,
+        norm_type,
+        routed_scaling_factor,
+        eps,
+    )
+
+
 # TODO only for internlm on transformers lib.
 # see issue #9 for details
 def fused_attention(
@@ -805,6 +831,7 @@ def fused_moe_w8a8(
     topk: int,
     renormalize: bool,
     moe_metadata: MoeMetadata,
+    use_fused_op: bool = False,
 ) -> Tensor:
     """Run dynamic W8A8 MoE through the vendor's non-fused fallback.
 
@@ -824,6 +851,7 @@ def fused_moe_w8a8(
         topk,
         renormalize,
         moe_metadata,
+        use_fused_op,
     )
 
 
