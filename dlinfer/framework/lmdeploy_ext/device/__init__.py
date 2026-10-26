@@ -947,7 +947,6 @@ def patch_glm_moe_dsa_split_cache():
                 nope_cache,
                 attn_metadata.kv_start_indices,
             )
-            query_states = torch.cat((q_nope, q_pe), dim=-1)
             qr = qr.unsqueeze(0)
         else:
             query_states, key_states, value_states, q_pe, k_pe, qr = self._qkv_proj(
@@ -973,16 +972,16 @@ def patch_glm_moe_dsa_split_cache():
             topk_indices = topk_indices_buffer.read(q_len, hidden_states.device)
 
         if use_mlapo:
-            attn_output = self.attn_fwd.impl.sparse_attention_fwd(
-                query_states,
+            attn_output = self.attn_fwd.impl.sparse_attention_fwd_split(
+                q_nope,
+                q_pe,
                 rope_cache,
                 nope_cache,
                 topk_indices,
                 attn_metadata.block_offsets,
                 attn_metadata.cu_seqlens_q[1:],
                 attn_metadata.kv_seqlens,
-                value_head_size=nope_size,
-                softmax_scale=self.softmax_scale,
+                self.softmax_scale,
             )
         else:
             attn_output = self.attn_fwd(
