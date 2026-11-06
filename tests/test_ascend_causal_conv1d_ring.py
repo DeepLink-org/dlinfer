@@ -6,6 +6,7 @@ requests, continuations with ring wraparound, mixed-length batches
 (cross-request isolation) and chunked-vs-one-shot prefill equivalence.
 The prefill helper is pure PyTorch, so these tests run on CPU.
 """
+
 import torch
 import torch.nn.functional as F
 import pytest
@@ -58,16 +59,14 @@ def _assert_window(cache, slot, stream, total):
         idx = total - WIDTH + j
         want = float(stream[idx]) if idx >= 0 else 0.0
         got = cache[slot, 0, idx % STATE_LEN].item()
-        assert got == pytest.approx(want), (
-            f"slot {slot} pos {idx % STATE_LEN}: got {got}, want {want}"
-        )
+        assert got == pytest.approx(
+            want
+        ), f"slot {slot} pos {idx % STATE_LEN}: got {got}, want {want}"
 
 
 def _assert_next_token(cache, slot, stream, total):
     """Next decode step must see the true trailing (width-1) history."""
-    read = torch.tensor(
-        [(total - WIDTH + 1 + k) % STATE_LEN for k in range(WIDTH - 1)]
-    )
+    read = torch.tensor([(total - WIDTH + 1 + k) % STATE_LEN for k in range(WIDTH - 1)])
     hist_ring = cache[slot].index_select(-1, read)
     hist_true = torch.tensor(
         [
