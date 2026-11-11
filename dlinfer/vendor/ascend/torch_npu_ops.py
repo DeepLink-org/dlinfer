@@ -32,6 +32,7 @@ __all__ = [
     "paged_prefill_attention",
     "rms_norm",
     "moe_gating_topk_softmax",
+    "moe_gating_top_k",
     "get_cache_len",
     "weight_quant_matmul",
     "fused_moe",
@@ -488,13 +489,24 @@ def fill_kv_cache(
         rope_head_size = key_cache.size(-1)
         key_rope = key[..., -rope_head_size:].contiguous()
         value_nope = value.contiguous()
-        key_cache_reshaped = torch.flatten(key_cache, start_dim=0, end_dim=1)
-        value_cache_reshaped = torch.flatten(value_cache, start_dim=0, end_dim=1)
-        kv_indices = kv_indices.view(-1, 1)
-        torch.ops.npu.npu_scatter_nd_update_(key_cache_reshaped, kv_indices, key_rope)
-        torch.ops.npu.npu_scatter_nd_update_(
-            value_cache_reshaped, kv_indices, value_nope
-        )
+        kv_indices = kv_indices.to(torch.int32).contiguous()
+        if kv_indices.numel() != 0:
+            # ATB writes both MLA payloads in one cache-update operator.
+            # Keep explicit scatter for empty mappings, which ATB rejects.
+            try:
+                torch.ops.atb._npu_reshape_and_cache(
+                    key=key_rope.contiguous(),
+                    value=value_nope.contiguous(),
+                    key_cache=key_cache,
+                    value_cache=value_cache,
+                    slot_indices=kv_indices,
+                )
+            except (AttributeError, RuntimeError):
+                key_cache_reshaped = torch.flatten(key_cache, start_dim=0, end_dim=1)
+                value_cache_reshaped = torch.flatten(value_cache, start_dim=0, end_dim=1)
+                indices = kv_indices.view(-1, 1)
+                torch.ops.npu.npu_scatter_nd_update_(key_cache_reshaped, indices, key_rope)
+                torch.ops.npu.npu_scatter_nd_update_(value_cache_reshaped, indices, value_nope)
         return key_cache, value_cache
 
     # only support contiguous k,v
@@ -766,6 +778,40 @@ def moe_gating_topk_softmax(
     return routing_weights, selected_idx
 
 
+@register_ops(vendor_ops_registry)
+def moe_gating_top_k(
+    router_logits: Tensor,
+    bias: Optional[Tensor],
+    top_k: int,
+    k_group: int,
+    group_count: int,
+    renorm: int,
+    norm_type: int,
+    routed_scaling_factor: float,
+    eps: float,
+) -> Tuple[Tensor, Tensor]:
+    """Run Ascend's fused grouped no-aux MoE router."""
+    if bias is not None and bias.dtype != router_logits.dtype:
+        bias = bias.to(router_logits.dtype)
+
+    routing_weights, selected_idx, _ = torch.ops.npu.npu_moe_gating_top_k(
+        router_logits,
+        k=top_k,
+        bias=bias,
+        k_group=k_group,
+        group_count=group_count,
+        group_select_mode=1,  # top-2 score sum per group
+        renorm=0,  # match vLLM-Ascend; softmax renorm is done below
+        norm_type=norm_type,
+        out_flag=False,
+        routed_scaling_factor=routed_scaling_factor,
+        eps=eps,
+    )
+    if norm_type == 0 and renorm == 1:
+        routing_weights = routing_weights / (routing_weights.sum(dim=-1, keepdim=True) + eps)
+    return routing_weights, selected_idx
+
+
 # Quantification of W4A16 is currently supported and tested.
 @register_ops(vendor_ops_registry)
 def weight_quant_matmul(
@@ -885,8 +931,9 @@ def fused_moe_w8a8(
     topk: int,
     renormalize: bool,
     moe_metadata: MoeMetadata,
+    use_fused_op: bool = False,
 ) -> Tensor:
-    """Dynamic W8A8 MoE using only public torch_npu operators."""
+    """Dynamic W8A8 MoE with an optional fused MC2 path."""
     topk_ids = topk_ids.to(torch.int32)
     (
         hidden_states,
@@ -908,21 +955,37 @@ def fused_moe_w8a8(
     )
 
     if moe_metadata.moe_comm_type == MoECommType.MC2:
-        moe_output = moe.fused_moe_mc2(
-            hidden_states,
-            gate_up_weights,
-            down_weights,
-            topk_weights,
-            topk_ids,
-            renormalize,
-            moe_metadata.ep_size,
-            moe_metadata.ep_rank,
-            moe_metadata.moe_group_name,
-            x_active_mask,
-            None,
-            gate_up_scales,
-            down_scales,
-        )
+        if use_fused_op:
+            moe_output = moe.fused_moe_mc2_w8a8(
+                hidden_states,
+                gate_up_weights,
+                gate_up_scales,
+                down_weights,
+                down_scales,
+                topk_weights,
+                topk_ids,
+                moe_metadata.ep_size,
+                moe_metadata.ep_rank,
+                moe_metadata.moe_group_name,
+                x_active_mask,
+                max_output_size=max(512, hidden_states.shape[0] * topk_ids.shape[1]),
+            )
+        else:
+            moe_output = moe.fused_moe_mc2(
+                hidden_states,
+                gate_up_weights,
+                down_weights,
+                topk_weights,
+                topk_ids,
+                renormalize,
+                moe_metadata.ep_size,
+                moe_metadata.ep_rank,
+                moe_metadata.moe_group_name,
+                x_active_mask,
+                None,
+                gate_up_scales,
+                down_scales,
+            )
     elif moe_metadata.moe_comm_type == MoECommType.ALLTOALL:
         moe_output = moe.fused_moe_all2all(
             hidden_states,
