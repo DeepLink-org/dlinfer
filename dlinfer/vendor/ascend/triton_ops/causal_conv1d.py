@@ -90,8 +90,9 @@ def causal_conv1d_fn(
     of size `state_len = conv_states.shape[-1]`:
       * initial state (when has_initial_state[i]) is gathered from
         read_conv_offsets[i] (shape (width-1,));
-      * the last `width` tokens of each sequence are scattered to
-        write_conv_offsets[i] (shape (width,)).
+      * the trailing `width` tokens of (cached history ++ the sequence's
+        own new tokens) are scattered to write_conv_offsets[i] (shape
+        (width,)); zero padding replaces history for fresh requests.
     When `write_conv_offsets` is None the legacy semantics apply unchanged.
     """
     if activation not in [None, "silu", "swish"]:
@@ -137,29 +138,28 @@ def causal_conv1d_fn(
             initial_states=init_state,
         )
         out_chunks.append(out_ref_b[0])
-    out = torch.cat(out_chunks, dim=-1)
 
-    if is_ring:
-        # Vectorised ring write: place each sequence's trailing `width` tokens
-        # at their circular slots in conv_states. Replaces the post-hoc overwrite
-        # the caller used to do, and removes the redundant linear-slot copy_().
-        K = write_conv_offsets.size(1)
-        tok_offsets = torch.arange(
-            -K, 0, device=query_start_loc.device, dtype=query_start_loc.dtype
-        )
-        token_idx = (
-            (query_start_loc[1:, None] + tok_offsets[None]).clamp_min(0).to(torch.int64)
-        )
-        x_gather = x.index_select(1, token_idx.reshape(-1)).reshape(
-            x.size(0), token_idx.size(0), token_idx.size(1)
-        )
-        cache_idx = cache_indices.to(torch.int64)
-        dim_idx = torch.arange(conv_states.size(1), device=conv_states.device)
-        conv_states[
-            cache_idx[:, None, None],
-            dim_idx[None, :, None],
-            write_conv_offsets[:, None, :],
-        ] = x_gather.permute(1, 0, 2).to(conv_states.dtype)
+        if is_ring and seqlens[i] > 0:
+            # Seat the trailing `width` tokens of (history ++ new tokens) at
+            # their circular slots. History must be gathered before this
+            # scatter: for chunks shorter than `width` the missing tokens
+            # live only in the ring (or are zero padding for fresh requests),
+            # never in the flattened batch `x`.
+            hist = (
+                init_state
+                if init_state is not None
+                else x_s.new_zeros(x_s.size(0), width - 1)
+            )
+            tail = torch.cat([hist.to(x_s.dtype), x_s], dim=-1)[..., -width:]
+            conv_states[cache_indices[i]].scatter_(
+                -1,
+                write_conv_offsets[i]
+                .to(torch.int64)
+                .unsqueeze(0)
+                .expand(conv_states.size(1), -1),
+                tail.to(conv_states.dtype),
+            )
+    out = torch.cat(out_chunks, dim=-1)
 
     return out
 

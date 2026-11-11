@@ -9,6 +9,20 @@ from dlinfer.vendor import vendor_name
 vendor = ["camb", "ascend"]
 
 
+def build_rmsnorm_gated(hidden_size: int, eps=1e-6, **kwargs):
+    """Build the Ascend Triton gated RMSNorm used by Qwen3.5 GDN."""
+    try:
+        from dlinfer.vendor.ascend.triton_ops import RMSNormGated
+    except Exception as exc:
+        raise RuntimeError(
+            "Triton is not installed or Ascend triton_ops failed to load. "
+            "Please install triton-ascend to use this feature."
+        ) from exc
+
+    device = kwargs["device"]
+    return RMSNormGated(hidden_size, eps=eps, norm_before_gate=True, device=device)
+
+
 def fake_torch_compile(dynamic=False):
     def decorator(func):
         def wrapper(*args, **kwargs):
@@ -917,298 +931,15 @@ def patch_glm_moe_dsa_split_cache():
 
 
 def patch_gated_delta_net():
-    import torch
-    import torch.nn.functional as F
-    from typing import Any, Sequence, Tuple
-    from torch.profiler import record_function
+    """Install only the Ascend gated RMSNorm implementation.
 
+    GDN metadata, convolution, and recurrent rule operators are provided by
+    LMDeploy's Ascend/Dlinfer BuildSpec backend. This small patch remains
+    because the shared model module imports build_rmsnorm_gated directly
+    and the Ascend Triton RMSNormGated implementation is vendor-specific.
+    """
     from lmdeploy.pytorch.nn import gated_delta
-    from lmdeploy.pytorch.nn.gated_delta import GatedDeltaMeta
-    from lmdeploy.pytorch.model_inputs import get_step_ctx_manager
 
-    class AscendGatedDeltaMeta:
-
-        def __init__(
-            self,
-            num_tokens: int,
-            conv_kernel_size: int,
-            state_ids: torch.Tensor,
-            attn_metadata: Any,
-        ):
-            self.is_decoding = attn_metadata.is_decoding
-            self.cu_seqlens = attn_metadata.cu_seqlens_q
-            self.is_multi_token_decoding = attn_metadata.is_multi_token_decoding
-            self.max_q_seq_len = attn_metadata.max_q_seqlen
-
-            self.num_spec_tokens = get_step_ctx_manager().build_ctx.num_spec_tokens
-            self.cache_seqlens = getattr(attn_metadata, "cache_seqlens", None)
-            self.spec_state_offsets = getattr(attn_metadata, "spec_state_offsets", None)
-            self.spec_conv_offsets = getattr(attn_metadata, "spec_conv_offsets", None)
-
-            self.state_ids = state_ids.clamp(0)
-            self.has_initial_state = attn_metadata.has_initial_state
-            self.conv_state_indices = self.state_ids.to(torch.int32)
-
-    def build_rmsnorm_gated(hidden_size: int, eps=1e-6, **kwargs):
-        try:
-            from dlinfer.vendor.ascend.triton_ops import RMSNormGated
-        except Exception:
-            raise RuntimeError(
-                "Triton is not installed or Ascend triton_ops failed to load. "
-                "Please install triton-ascend to use this feature."
-            )
-
-        device = kwargs["device"]
-        return RMSNormGated(hidden_size, eps=eps, norm_before_gate=True, device=device)
-
-    class AscendCausalConv1dFunc:
-
-        def __init__(self, activation: str = "silu"):
-            try:
-                from dlinfer.vendor.ascend.triton_ops import (
-                    causal_conv1d_fn,
-                    causal_conv1d_update_npu,
-                )
-
-                self.causal_conv1d_fn = causal_conv1d_fn
-                self.causal_conv1d_update = causal_conv1d_update_npu
-            except Exception:
-                raise RuntimeError(
-                    "Triton is not installed or Ascend triton_ops failed to load. "
-                    "Please install triton-ascend to use this feature."
-                )
-
-            self.activation = activation
-
-        def conv1d_func(
-            self,
-            x: torch.Tensor,
-            weight: torch.Tensor,
-            bias: torch.Tensor,
-            conv_state: torch.Tensor,
-            gated_delta_meta: GatedDeltaMeta,
-        ):
-            """
-            x: (b, seqlen, dim)
-            seqlen: (b)
-            out: (b, seqlen, dim)
-            conv_state: (b, dim, kernel_size)
-            """
-            spec_conv_offsets = getattr(gated_delta_meta, "spec_conv_offsets", None)
-            if spec_conv_offsets is not None:
-                read_conv_offsets, write_conv_offsets = spec_conv_offsets
-            else:
-                read_conv_offsets, write_conv_offsets = None, None
-
-            out = self.causal_conv1d_fn(
-                x.t(),
-                weight,
-                bias,
-                activation=self.activation,
-                conv_states=conv_state.transpose(1, 2),
-                has_initial_state=gated_delta_meta.has_initial_state,
-                cache_indices=gated_delta_meta.conv_state_indices,
-                query_start_loc=gated_delta_meta.cu_seqlens,
-                read_conv_offsets=read_conv_offsets,
-                write_conv_offsets=write_conv_offsets,
-            )
-
-            out = out.t().unsqueeze(0)
-
-            return out, conv_state
-
-        # 替换
-        def conv1d_update(
-            self,
-            x: torch.Tensor,
-            weight: torch.Tensor,
-            bias: torch.Tensor,
-            conv_state: torch.Tensor,
-            conv_state_indices: torch.Tensor,
-            gated_delta_meta: GatedDeltaMeta,
-        ):
-            update_kwargs = {}
-            validate_data = True
-
-            cache_seqlens = gated_delta_meta.cache_seqlens
-            is_multi_token_decoding = gated_delta_meta.is_multi_token_decoding
-
-            if is_multi_token_decoding:
-                # Ring-buffer decode path: positions are derived from cache_seqlens.
-                update_kwargs["cache_seqlens"] = gated_delta_meta.cache_seqlens
-                # Multi-token decode uses varlen format (2-D x tensor); must keep
-                # IS_VARLEN=True by passing query_start_loc, otherwise x gets incorrectly
-                # unsqueezed and cache_seqlens is accessed out-of-bounds.
-                update_kwargs["query_start_loc"] = gated_delta_meta.cu_seqlens
-                update_kwargs["max_query_len"] = gated_delta_meta.max_q_seq_len
-                validate_data = False
-
-            out = self.causal_conv1d_update(
-                x,
-                conv_state,
-                weight.t().contiguous(),
-                bias,
-                self.activation,
-                conv_state_indices=conv_state_indices,
-                validate_data=validate_data,
-                **update_kwargs,
-            )
-            return out.unsqueeze(0), conv_state
-
-        @record_function("causal_conv1d")
-        def __call__(
-            self,
-            x: torch.Tensor,
-            weight: torch.Tensor,
-            bias: torch.Tensor,
-            conv_state: torch.Tensor,
-            gated_delta_meta: GatedDeltaMeta,
-        ):
-            weight_reshaped = weight.squeeze(1)
-            x = x.squeeze(0)
-
-            if gated_delta_meta.is_decoding or gated_delta_meta.is_multi_token_decoding:
-                conv_state_indices = gated_delta_meta.conv_state_indices
-                return self.conv1d_update(
-                    x,
-                    weight_reshaped,
-                    bias,
-                    conv_state,
-                    conv_state_indices,
-                    gated_delta_meta,
-                )
-            return self.conv1d_func(
-                x, weight_reshaped, bias, conv_state, gated_delta_meta=gated_delta_meta
-            )
-
-    class AscendGatedDelta:
-
-        def __init__(self, use_qk_l2norm_in_kernel: bool = True):
-            try:
-                from dlinfer.vendor.ascend.triton_ops import (
-                    chunk_gated_delta_rule,
-                    fused_sigmoid_gating_delta_rule_update,
-                    fused_recurrent_gated_delta_rule,
-                )
-
-                self.chunk_gated_delta_rule = chunk_gated_delta_rule
-                self.fused_sigmoid_gating_delta_rule_update = (
-                    fused_sigmoid_gating_delta_rule_update
-                )
-                self.fused_recurrent_gated_delta_rule = fused_recurrent_gated_delta_rule
-            except Exception:
-                raise RuntimeError(
-                    "Triton is not installed or Ascend triton_ops failed to load. "
-                    "Please install triton-ascend and triton-ascend-kernels to use this feature."
-                )
-
-            self.use_qk_l2norm_in_kernel = use_qk_l2norm_in_kernel
-
-        def __call__(
-            self,
-            query: torch.Tensor,
-            key: torch.Tensor,
-            value: torch.Tensor,
-            A_log: torch.Tensor,
-            dt_bias: torch.Tensor,
-            a: torch.Tensor,
-            b: torch.Tensor,
-            recurrent_state: torch.Tensor,
-            gated_delta_meta: GatedDeltaMeta,
-        ):
-            """call."""
-
-            is_decoding = gated_delta_meta.is_decoding
-            is_multi_token_decoding = gated_delta_meta.is_multi_token_decoding
-
-            if is_decoding:
-                core_attn_out = self.fused_sigmoid_gating_delta_rule_update(
-                    A_log=A_log,
-                    dt_bias=dt_bias,
-                    q=query,
-                    k=key,
-                    v=value,
-                    a=a.contiguous(),
-                    b=b.contiguous(),
-                    initial_state_source=recurrent_state,
-                    initial_state_indices=gated_delta_meta.state_ids,
-                    cu_seqlens=gated_delta_meta.cu_seqlens,
-                    use_qk_l2norm_in_kernel=True,
-                    softplus_beta=1.0,
-                    softplus_threshold=20.0,
-                )
-                return core_attn_out, None
-            elif is_multi_token_decoding:
-
-                beta = b.sigmoid()
-                # If the model is loaded in fp16, without the .float() here, A might be -inf
-                g = (-A_log.float().exp()) * F.softplus(a.float() + dt_bias)
-
-                state_slots = recurrent_state.size(1)
-                flat_recurrent_state = recurrent_state.view(
-                    -1, *recurrent_state.shape[2:]
-                )
-                core_attn_out, _ = self.fused_recurrent_gated_delta_rule(
-                    q=query.contiguous(),
-                    k=key.contiguous(),
-                    v=value.contiguous(),
-                    g=g.contiguous(),
-                    beta=beta.contiguous(),
-                    initial_state=flat_recurrent_state,
-                    inplace_final_state=True,
-                    cu_seqlens=gated_delta_meta.cu_seqlens,
-                    cache_seqlens_rb=gated_delta_meta.cache_seqlens,
-                    state_ids_rb=gated_delta_meta.state_ids,
-                    num_state=state_slots,
-                    use_qk_l2norm_in_kernel=self.use_qk_l2norm_in_kernel,
-                )
-                return core_attn_out, None
-            else:
-
-                beta = b.sigmoid()
-                # If the model is loaded in fp16, without the .float() here, A might be -inf
-                g = (-A_log.float().exp()) * F.softplus(a.float() + dt_bias)
-
-                if gated_delta_meta.spec_state_offsets is not None:
-                    state_ids = gated_delta_meta.state_ids
-                    # Circular-buffer read slot: history_len % NUM_STATE
-                    read_slots = gated_delta_meta.spec_state_offsets[0]
-                    initial_state = (
-                        recurrent_state[state_ids, read_slots]
-                        .transpose(-1, -2)
-                        .contiguous()
-                    )
-                else:
-                    initial_state = recurrent_state[gated_delta_meta.state_ids]
-                initial_state[~gated_delta_meta.has_initial_state, ...] = 0
-                core_attn_out, last_recurrent_state = self.chunk_gated_delta_rule(
-                    q=query,
-                    k=key,
-                    v=value,
-                    g=g,
-                    beta=beta,
-                    initial_state=initial_state,
-                    output_final_state=True,
-                    cu_seqlens=gated_delta_meta.cu_seqlens,
-                    head_first=False,
-                    use_qk_l2norm_in_kernel=self.use_qk_l2norm_in_kernel,
-                )
-                if gated_delta_meta.spec_state_offsets is not None:
-                    state_ids = gated_delta_meta.state_ids
-                    # Circular-buffer write slot: (history_len + query_len) % NUM_STATE
-                    write_slots = gated_delta_meta.spec_state_offsets[1]
-                    recurrent_state[state_ids, write_slots] = (
-                        last_recurrent_state.transpose(-1, -2).to(recurrent_state.dtype)
-                    )
-                else:
-                    recurrent_state[gated_delta_meta.state_ids] = (
-                        last_recurrent_state.to(recurrent_state.dtype)
-                    )
-                return core_attn_out, last_recurrent_state
-
-    gated_delta.GatedDeltaMeta = AscendGatedDeltaMeta
-    gated_delta.CausalConv1dFunc = AscendCausalConv1dFunc
-    gated_delta.GatedDelta = AscendGatedDelta
     gated_delta.build_rmsnorm_gated = build_rmsnorm_gated
 
 
@@ -1450,7 +1181,7 @@ def patch_qwen3_5():
         """forward."""
 
         # load states
-        conv_state, recurrent_state = self._load_state(past_key_value, gated_delta_meta)
+        conv_state, recurrent_state = past_key_value[:2]
 
         # inputs proj
         projected_states_qkv = self.in_proj_qkv(hidden_states)
@@ -1461,7 +1192,7 @@ def patch_qwen3_5():
         b, a = self.fix_ba_ordering(projected_states_ba)
 
         mixed_qkv = projected_states_qkv
-        mixed_qkv, conv_state = self.conv1d(
+        mixed_qkv = self.conv1d(
             mixed_qkv, conv_state, gated_delta_meta=gated_delta_meta
         )
 
@@ -1486,16 +1217,17 @@ def patch_qwen3_5():
         # query = query.repeat_interleave(self.kv_ratio, dim=-2)
         # key = key.repeat_interleave(self.kv_ratio, dim=-2)
 
-        core_attn_out, recurrent_state = self.gated_delta(
+        core_attn_out = self.gated_delta(
             query.contiguous(),
             key.contiguous(),
             value.contiguous(),
-            self.A_log,
-            self.dt_bias,
-            a,
-            b,
+            b=b,
+            a=a,
+            dt_bias=self.dt_bias,
+            a_log_exp=self.get_A_log_exp(),
             recurrent_state=recurrent_state,
             gated_delta_meta=gated_delta_meta,
+            kv_ratio=self.kv_ratio,
         )
 
         z_shape_og = z.shape
