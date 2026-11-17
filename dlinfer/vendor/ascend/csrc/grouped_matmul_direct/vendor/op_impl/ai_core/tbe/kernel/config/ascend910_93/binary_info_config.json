@@ -1,0 +1,430 @@
+{
+  "DlinferGroupedMatmulDirect": {
+    "dynamicRankSupport": true,
+    "simplifiedKeyMode": 0,
+    "optionalInputMode": "gen_placeholder",
+    "optionalOutputMode": "gen_placeholder",
+    "params": {
+      "inputs": [
+        [
+          {
+            "name": "x",
+            "index": 0,
+            "paramType": "dynamic",
+            "formatMode": "static_nd_agnostic"
+          }
+        ],
+        [
+          {
+            "name": "weight",
+            "index": 1,
+            "paramType": "dynamic",
+            "formatMode": "static_nd_agnostic"
+          }
+        ],
+        [
+          {
+            "name": "bias",
+            "index": 2,
+            "paramType": "dynamic",
+            "formatMode": "static_nd_agnostic"
+          }
+        ],
+        [
+          {
+            "name": "scale",
+            "index": 3,
+            "paramType": "dynamic",
+            "formatMode": "static_nd_agnostic"
+          }
+        ],
+        [
+          {
+            "name": "offset",
+            "index": 4,
+            "paramType": "dynamic",
+            "formatMode": "static_nd_agnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_scale",
+            "index": 5,
+            "paramType": "dynamic",
+            "formatMode": "static_nd_agnostic"
+          }
+        ],
+        [
+          {
+            "name": "antiquant_offset",
+            "index": 6,
+            "paramType": "dynamic",
+            "formatMode": "static_nd_agnostic"
+          }
+        ],
+        {
+          "name": "group_list",
+          "index": 7,
+          "paramType": "optional",
+          "formatMode": "static_nd_agnostic"
+        },
+        {
+          "name": "per_token_scale",
+          "index": 8,
+          "paramType": "optional",
+          "formatMode": "static_nd_agnostic"
+        }
+      ],
+      "outputs": [
+        [
+          {
+            "name": "y",
+            "index": 0,
+            "paramType": "dynamic",
+            "formatMode": "static_nd_agnostic"
+          }
+        ]
+      ],
+      "attrs": [
+        {
+          "name": "split_item"
+        },
+        {
+          "name": "dtype"
+        },
+        {
+          "name": "transpose_weight"
+        },
+        {
+          "name": "transpose_x"
+        },
+        {
+          "name": "group_type"
+        },
+        {
+          "name": "group_list_type"
+        },
+        {
+          "name": "act_type"
+        },
+        {
+          "name": "tuning_config"
+        }
+      ]
+    },
+    "binaryList": [
+      {
+        "coreType": 0,
+        "simplifiedKey": [
+          "DlinferGroupedMatmulDirect/d=0,p=1/2,2/2,29/3,2/10,2/0,2/1,2/1,2/3,2",
+          "DlinferGroupedMatmulDirect/d=0,p=0/2,2/2,29/3,2/10,2/0,2/1,2/1,2/3,2",
+          "DlinferGroupedMatmulDirect/d=1,p=1/2,2/2,29/3,2/10,2/0,2/1,2/1,2/3,2",
+          "DlinferGroupedMatmulDirect/d=1,p=0/2,2/2,29/3,2/10,2/0,2/1,2/1,2/3,2"
+        ],
+        "multiKernelType": 1,
+        "binPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_0af973f410e50e3e3b1ff41aea54265c.o",
+        "jsonPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_0af973f410e50e3e3b1ff41aea54265c.json"
+      },
+      {
+        "coreType": 0,
+        "simplifiedKey": [
+          "DlinferGroupedMatmulDirect/d=0,p=1/29,2/29,29/1,2/10,2/0,2/1,2/1,2/1,2",
+          "DlinferGroupedMatmulDirect/d=0,p=0/29,2/29,29/1,2/10,2/0,2/1,2/1,2/1,2",
+          "DlinferGroupedMatmulDirect/d=1,p=1/29,2/29,29/1,2/10,2/0,2/1,2/1,2/1,2",
+          "DlinferGroupedMatmulDirect/d=1,p=0/29,2/29,29/1,2/10,2/0,2/1,2/1,2/1,2"
+        ],
+        "multiKernelType": 1,
+        "binPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_14ea801e0230b6c76bab67d2cd45dd31.o",
+        "jsonPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_14ea801e0230b6c76bab67d2cd45dd31.json"
+      },
+      {
+        "coreType": 0,
+        "simplifiedKey": [
+          "DlinferGroupedMatmulDirect/d=0,p=1/27,2/27,29/0,2/10,2/0,2/1,2/1,2/27,2",
+          "DlinferGroupedMatmulDirect/d=0,p=0/27,2/27,29/0,2/10,2/0,2/1,2/1,2/27,2",
+          "DlinferGroupedMatmulDirect/d=1,p=1/27,2/27,29/0,2/10,2/0,2/1,2/1,2/27,2",
+          "DlinferGroupedMatmulDirect/d=1,p=0/27,2/27,29/0,2/10,2/0,2/1,2/1,2/27,2"
+        ],
+        "multiKernelType": 1,
+        "binPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_173388342555b3fc6f112c998da052a2.o",
+        "jsonPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_173388342555b3fc6f112c998da052a2.json"
+      },
+      {
+        "coreType": 0,
+        "simplifiedKey": [
+          "DlinferGroupedMatmulDirect/d=0,p=1/1,2/29,2/1,2/10,2/0,2/1,2/1,2/1,2",
+          "DlinferGroupedMatmulDirect/d=0,p=0/1,2/29,2/1,2/10,2/0,2/1,2/1,2/1,2",
+          "DlinferGroupedMatmulDirect/d=1,p=1/1,2/29,2/1,2/10,2/0,2/1,2/1,2/1,2",
+          "DlinferGroupedMatmulDirect/d=1,p=0/1,2/29,2/1,2/10,2/0,2/1,2/1,2/1,2"
+        ],
+        "multiKernelType": 1,
+        "binPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_1a98e21bb0869f65d5a8c91d61b0033b.o",
+        "jsonPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_1a98e21bb0869f65d5a8c91d61b0033b.json"
+      },
+      {
+        "coreType": 0,
+        "simplifiedKey": [
+          "DlinferGroupedMatmulDirect/d=0,p=1/29,2/29,29/1,2/10,2/0,2/1,2/1,2/27,2",
+          "DlinferGroupedMatmulDirect/d=0,p=0/29,2/29,29/1,2/10,2/0,2/1,2/1,2/27,2",
+          "DlinferGroupedMatmulDirect/d=1,p=1/29,2/29,29/1,2/10,2/0,2/1,2/1,2/27,2",
+          "DlinferGroupedMatmulDirect/d=1,p=0/29,2/29,29/1,2/10,2/0,2/1,2/1,2/27,2"
+        ],
+        "multiKernelType": 1,
+        "binPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_1b6f67952c45160f3a6117bfd672257c.o",
+        "jsonPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_1b6f67952c45160f3a6117bfd672257c.json"
+      },
+      {
+        "coreType": 0,
+        "simplifiedKey": [
+          "DlinferGroupedMatmulDirect/d=0,p=1/2,2/29,29/0,2/10,2/0,2/1,2/1,2/1,2",
+          "DlinferGroupedMatmulDirect/d=0,p=0/2,2/29,29/0,2/10,2/0,2/1,2/1,2/1,2",
+          "DlinferGroupedMatmulDirect/d=1,p=1/2,2/29,29/0,2/10,2/0,2/1,2/1,2/1,2",
+          "DlinferGroupedMatmulDirect/d=1,p=0/2,2/29,29/0,2/10,2/0,2/1,2/1,2/1,2"
+        ],
+        "multiKernelType": 1,
+        "binPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_25fdaec6c39d32326f15567d56a2e28a.o",
+        "jsonPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_25fdaec6c39d32326f15567d56a2e28a.json"
+      },
+      {
+        "coreType": 0,
+        "simplifiedKey": [
+          "DlinferGroupedMatmulDirect/d=0,p=1/2,2/2,2/3,2/10,2/0,2/1,2/1,2/3,2",
+          "DlinferGroupedMatmulDirect/d=0,p=0/2,2/2,2/3,2/10,2/0,2/1,2/1,2/3,2",
+          "DlinferGroupedMatmulDirect/d=1,p=1/2,2/2,2/3,2/10,2/0,2/1,2/1,2/3,2",
+          "DlinferGroupedMatmulDirect/d=1,p=0/2,2/2,2/3,2/10,2/0,2/1,2/1,2/3,2"
+        ],
+        "multiKernelType": 1,
+        "binPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_2b41b319d91a3be65856f8813f18378f.o",
+        "jsonPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_2b41b319d91a3be65856f8813f18378f.json"
+      },
+      {
+        "coreType": 0,
+        "simplifiedKey": [
+          "DlinferGroupedMatmulDirect/d=0,p=1/2,2/2,2/3,2/0,2/0,2/1,2/1,2/1,2",
+          "DlinferGroupedMatmulDirect/d=0,p=0/2,2/2,2/3,2/0,2/0,2/1,2/1,2/1,2",
+          "DlinferGroupedMatmulDirect/d=1,p=1/2,2/2,2/3,2/0,2/0,2/1,2/1,2/1,2",
+          "DlinferGroupedMatmulDirect/d=1,p=0/2,2/2,2/3,2/0,2/0,2/1,2/1,2/1,2"
+        ],
+        "multiKernelType": 1,
+        "binPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_30f8bfbb76700a482746b159d3ea37fb.o",
+        "jsonPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_30f8bfbb76700a482746b159d3ea37fb.json"
+      },
+      {
+        "coreType": 0,
+        "simplifiedKey": [
+          "DlinferGroupedMatmulDirect/d=0,p=1/2,2/2,2/3,2/10,2/0,2/1,2/1,2/2,2",
+          "DlinferGroupedMatmulDirect/d=0,p=0/2,2/2,2/3,2/10,2/0,2/1,2/1,2/2,2",
+          "DlinferGroupedMatmulDirect/d=1,p=1/2,2/2,2/3,2/10,2/0,2/1,2/1,2/2,2",
+          "DlinferGroupedMatmulDirect/d=1,p=0/2,2/2,2/3,2/10,2/0,2/1,2/1,2/2,2"
+        ],
+        "multiKernelType": 1,
+        "binPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_32b6a71f310564e9332c0f75514b7049.o",
+        "jsonPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_32b6a71f310564e9332c0f75514b7049.json"
+      },
+      {
+        "coreType": 0,
+        "simplifiedKey": [
+          "DlinferGroupedMatmulDirect/d=0,p=1/1,2/2,2/1,2/10,2/0,2/1,2/1,2/1,2",
+          "DlinferGroupedMatmulDirect/d=0,p=0/1,2/2,2/1,2/10,2/0,2/1,2/1,2/1,2",
+          "DlinferGroupedMatmulDirect/d=1,p=1/1,2/2,2/1,2/10,2/0,2/1,2/1,2/1,2",
+          "DlinferGroupedMatmulDirect/d=1,p=0/1,2/2,2/1,2/10,2/0,2/1,2/1,2/1,2"
+        ],
+        "multiKernelType": 1,
+        "binPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_38f063a60c111f0a125f7e242d10cccf.o",
+        "jsonPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_38f063a60c111f0a125f7e242d10cccf.json"
+      },
+      {
+        "coreType": 0,
+        "simplifiedKey": [
+          "DlinferGroupedMatmulDirect/d=0,p=1/1,2/1,29/1,2/10,2/0,2/1,2/1,2/1,2",
+          "DlinferGroupedMatmulDirect/d=0,p=0/1,2/1,29/1,2/10,2/0,2/1,2/1,2/1,2",
+          "DlinferGroupedMatmulDirect/d=1,p=1/1,2/1,29/1,2/10,2/0,2/1,2/1,2/1,2",
+          "DlinferGroupedMatmulDirect/d=1,p=0/1,2/1,29/1,2/10,2/0,2/1,2/1,2/1,2"
+        ],
+        "multiKernelType": 1,
+        "binPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_54e7c7c453eafc8bfd2f8e35ad14e952.o",
+        "jsonPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_54e7c7c453eafc8bfd2f8e35ad14e952.json"
+      },
+      {
+        "coreType": 0,
+        "simplifiedKey": [
+          "DlinferGroupedMatmulDirect/d=0,p=1/2,2/29,2/0,2/10,2/0,2/1,2/1,2/27,2",
+          "DlinferGroupedMatmulDirect/d=0,p=0/2,2/29,2/0,2/10,2/0,2/1,2/1,2/27,2",
+          "DlinferGroupedMatmulDirect/d=1,p=1/2,2/29,2/0,2/10,2/0,2/1,2/1,2/27,2",
+          "DlinferGroupedMatmulDirect/d=1,p=0/2,2/29,2/0,2/10,2/0,2/1,2/1,2/27,2"
+        ],
+        "multiKernelType": 1,
+        "binPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_651dac79c82df857a3d4d03bc03a7cf0.o",
+        "jsonPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_651dac79c82df857a3d4d03bc03a7cf0.json"
+      },
+      {
+        "coreType": 0,
+        "simplifiedKey": [
+          "DlinferGroupedMatmulDirect/d=0,p=1/2,2/2,29/3,2/27,2/0,2/1,2/1,2/27,2",
+          "DlinferGroupedMatmulDirect/d=0,p=0/2,2/2,29/3,2/27,2/0,2/1,2/1,2/27,2",
+          "DlinferGroupedMatmulDirect/d=1,p=1/2,2/2,29/3,2/27,2/0,2/1,2/1,2/27,2",
+          "DlinferGroupedMatmulDirect/d=1,p=0/2,2/2,29/3,2/27,2/0,2/1,2/1,2/27,2"
+        ],
+        "multiKernelType": 1,
+        "binPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_693b2681fd562fa85e51f6297bfb5d5a.o",
+        "jsonPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_693b2681fd562fa85e51f6297bfb5d5a.json"
+      },
+      {
+        "coreType": 0,
+        "simplifiedKey": [
+          "DlinferGroupedMatmulDirect/d=0,p=1/27,2/27,2/0,2/10,2/0,2/1,2/1,2/27,2",
+          "DlinferGroupedMatmulDirect/d=0,p=0/27,2/27,2/0,2/10,2/0,2/1,2/1,2/27,2",
+          "DlinferGroupedMatmulDirect/d=1,p=1/27,2/27,2/0,2/10,2/0,2/1,2/1,2/27,2",
+          "DlinferGroupedMatmulDirect/d=1,p=0/27,2/27,2/0,2/10,2/0,2/1,2/1,2/27,2"
+        ],
+        "multiKernelType": 1,
+        "binPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_6a4b53c9c870c698c07eba4c4b35f3c8.o",
+        "jsonPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_6a4b53c9c870c698c07eba4c4b35f3c8.json"
+      },
+      {
+        "coreType": 0,
+        "simplifiedKey": [
+          "DlinferGroupedMatmulDirect/d=0,p=1/29,2/29,2/1,2/10,2/0,2/1,2/1,2/27,2",
+          "DlinferGroupedMatmulDirect/d=0,p=0/29,2/29,2/1,2/10,2/0,2/1,2/1,2/27,2",
+          "DlinferGroupedMatmulDirect/d=1,p=1/29,2/29,2/1,2/10,2/0,2/1,2/1,2/27,2",
+          "DlinferGroupedMatmulDirect/d=1,p=0/29,2/29,2/1,2/10,2/0,2/1,2/1,2/27,2"
+        ],
+        "multiKernelType": 1,
+        "binPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_798a2ceb092836c6d05f0fe9fec9bf5a.o",
+        "jsonPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_798a2ceb092836c6d05f0fe9fec9bf5a.json"
+      },
+      {
+        "coreType": 0,
+        "simplifiedKey": [
+          "DlinferGroupedMatmulDirect/d=0,p=1/2,2/29,29/0,2/10,2/0,2/1,2/1,2/27,2",
+          "DlinferGroupedMatmulDirect/d=0,p=0/2,2/29,29/0,2/10,2/0,2/1,2/1,2/27,2",
+          "DlinferGroupedMatmulDirect/d=1,p=1/2,2/29,29/0,2/10,2/0,2/1,2/1,2/27,2",
+          "DlinferGroupedMatmulDirect/d=1,p=0/2,2/29,29/0,2/10,2/0,2/1,2/1,2/27,2"
+        ],
+        "multiKernelType": 1,
+        "binPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_86283a1ad10e4c6b780edccce2045ed2.o",
+        "jsonPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_86283a1ad10e4c6b780edccce2045ed2.json"
+      },
+      {
+        "coreType": 0,
+        "simplifiedKey": [
+          "DlinferGroupedMatmulDirect/d=0,p=1/1,2/1,2/1,2/10,2/0,2/1,2/1,2/1,2",
+          "DlinferGroupedMatmulDirect/d=0,p=0/1,2/1,2/1,2/10,2/0,2/1,2/1,2/1,2",
+          "DlinferGroupedMatmulDirect/d=1,p=1/1,2/1,2/1,2/10,2/0,2/1,2/1,2/1,2",
+          "DlinferGroupedMatmulDirect/d=1,p=0/1,2/1,2/1,2/10,2/0,2/1,2/1,2/1,2"
+        ],
+        "multiKernelType": 1,
+        "binPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_8c63cc461dff16c68ca75c3349addb45.o",
+        "jsonPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_8c63cc461dff16c68ca75c3349addb45.json"
+      },
+      {
+        "coreType": 0,
+        "simplifiedKey": [
+          "DlinferGroupedMatmulDirect/d=0,p=1/2,2/29,2/0,2/10,2/0,2/1,2/1,2/1,2",
+          "DlinferGroupedMatmulDirect/d=0,p=0/2,2/29,2/0,2/10,2/0,2/1,2/1,2/1,2",
+          "DlinferGroupedMatmulDirect/d=1,p=1/2,2/29,2/0,2/10,2/0,2/1,2/1,2/1,2",
+          "DlinferGroupedMatmulDirect/d=1,p=0/2,2/29,2/0,2/10,2/0,2/1,2/1,2/1,2"
+        ],
+        "multiKernelType": 1,
+        "binPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_9c97f570647d771ce20bbd181d0d3603.o",
+        "jsonPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_9c97f570647d771ce20bbd181d0d3603.json"
+      },
+      {
+        "coreType": 0,
+        "simplifiedKey": [
+          "DlinferGroupedMatmulDirect/d=0,p=1/2,2/2,29/27,2/27,2/0,2/1,2/1,2/27,2",
+          "DlinferGroupedMatmulDirect/d=0,p=0/2,2/2,29/27,2/27,2/0,2/1,2/1,2/27,2",
+          "DlinferGroupedMatmulDirect/d=1,p=1/2,2/2,29/27,2/27,2/0,2/1,2/1,2/27,2",
+          "DlinferGroupedMatmulDirect/d=1,p=0/2,2/2,29/27,2/27,2/0,2/1,2/1,2/27,2"
+        ],
+        "multiKernelType": 1,
+        "binPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_a002667212e4f3701fcc94ba4ec937fc.o",
+        "jsonPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_a002667212e4f3701fcc94ba4ec937fc.json"
+      },
+      {
+        "coreType": 0,
+        "simplifiedKey": [
+          "DlinferGroupedMatmulDirect/d=0,p=1/2,2/2,29/3,2/0,2/0,2/1,2/1,2/1,2",
+          "DlinferGroupedMatmulDirect/d=0,p=0/2,2/2,29/3,2/0,2/0,2/1,2/1,2/1,2",
+          "DlinferGroupedMatmulDirect/d=1,p=1/2,2/2,29/3,2/0,2/0,2/1,2/1,2/1,2",
+          "DlinferGroupedMatmulDirect/d=1,p=0/2,2/2,29/3,2/0,2/0,2/1,2/1,2/1,2"
+        ],
+        "multiKernelType": 1,
+        "binPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_d5c9aa8fc65613bf4b96a3255c73f0bd.o",
+        "jsonPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_d5c9aa8fc65613bf4b96a3255c73f0bd.json"
+      },
+      {
+        "coreType": 0,
+        "simplifiedKey": [
+          "DlinferGroupedMatmulDirect/d=0,p=1/2,2/2,2/3,2/27,2/0,2/1,2/1,2/27,2",
+          "DlinferGroupedMatmulDirect/d=0,p=0/2,2/2,2/3,2/27,2/0,2/1,2/1,2/27,2",
+          "DlinferGroupedMatmulDirect/d=1,p=1/2,2/2,2/3,2/27,2/0,2/1,2/1,2/27,2",
+          "DlinferGroupedMatmulDirect/d=1,p=0/2,2/2,2/3,2/27,2/0,2/1,2/1,2/27,2"
+        ],
+        "multiKernelType": 1,
+        "binPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_dc06464e9cd662577a331629f094b639.o",
+        "jsonPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_dc06464e9cd662577a331629f094b639.json"
+      },
+      {
+        "coreType": 0,
+        "simplifiedKey": [
+          "DlinferGroupedMatmulDirect/d=0,p=1/29,2/29,2/1,2/10,2/0,2/1,2/1,2/1,2",
+          "DlinferGroupedMatmulDirect/d=0,p=0/29,2/29,2/1,2/10,2/0,2/1,2/1,2/1,2",
+          "DlinferGroupedMatmulDirect/d=1,p=1/29,2/29,2/1,2/10,2/0,2/1,2/1,2/1,2",
+          "DlinferGroupedMatmulDirect/d=1,p=0/29,2/29,2/1,2/10,2/0,2/1,2/1,2/1,2"
+        ],
+        "multiKernelType": 1,
+        "binPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_eafa4417edec4bfc453e0f2ee6c780be.o",
+        "jsonPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_eafa4417edec4bfc453e0f2ee6c780be.json"
+      },
+      {
+        "coreType": 0,
+        "simplifiedKey": [
+          "DlinferGroupedMatmulDirect/d=0,p=1/2,2/2,29/27,2/0,2/0,2/1,2/1,2/27,2",
+          "DlinferGroupedMatmulDirect/d=0,p=0/2,2/2,29/27,2/0,2/0,2/1,2/1,2/27,2",
+          "DlinferGroupedMatmulDirect/d=1,p=1/2,2/2,29/27,2/0,2/0,2/1,2/1,2/27,2",
+          "DlinferGroupedMatmulDirect/d=1,p=0/2,2/2,29/27,2/0,2/0,2/1,2/1,2/27,2"
+        ],
+        "multiKernelType": 1,
+        "binPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_ee878b42b4770d3e18f321c0a424d90d.o",
+        "jsonPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_ee878b42b4770d3e18f321c0a424d90d.json"
+      },
+      {
+        "coreType": 0,
+        "simplifiedKey": [
+          "DlinferGroupedMatmulDirect/d=0,p=1/27,2/29,2/0,2/10,2/0,2/27,2/27,2/27,2",
+          "DlinferGroupedMatmulDirect/d=0,p=0/27,2/29,2/0,2/10,2/0,2/27,2/27,2/27,2",
+          "DlinferGroupedMatmulDirect/d=1,p=1/27,2/29,2/0,2/10,2/0,2/27,2/27,2/27,2",
+          "DlinferGroupedMatmulDirect/d=1,p=0/27,2/29,2/0,2/10,2/0,2/27,2/27,2/27,2"
+        ],
+        "multiKernelType": 1,
+        "binPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_f188226a1116f53431714694c30721e0.o",
+        "jsonPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_f188226a1116f53431714694c30721e0.json"
+      },
+      {
+        "coreType": 0,
+        "simplifiedKey": [
+          "DlinferGroupedMatmulDirect/d=0,p=1/0,2/0,2/0,2/10,2/0,2/1,2/1,2/0,2",
+          "DlinferGroupedMatmulDirect/d=0,p=0/0,2/0,2/0,2/10,2/0,2/1,2/1,2/0,2",
+          "DlinferGroupedMatmulDirect/d=1,p=1/0,2/0,2/0,2/10,2/0,2/1,2/1,2/0,2",
+          "DlinferGroupedMatmulDirect/d=1,p=0/0,2/0,2/0,2/10,2/0,2/1,2/1,2/0,2"
+        ],
+        "multiKernelType": 1,
+        "binPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_fc8a39813d19017ede290022206c2fec.o",
+        "jsonPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_fc8a39813d19017ede290022206c2fec.json"
+      },
+      {
+        "coreType": 0,
+        "simplifiedKey": [
+          "DlinferGroupedMatmulDirect/d=0,p=1/27,2/2,2/0,2/10,2/0,2/27,2/27,2/27,2",
+          "DlinferGroupedMatmulDirect/d=0,p=0/27,2/2,2/0,2/10,2/0,2/27,2/27,2/27,2",
+          "DlinferGroupedMatmulDirect/d=1,p=1/27,2/2,2/0,2/10,2/0,2/27,2/27,2/27,2",
+          "DlinferGroupedMatmulDirect/d=1,p=0/27,2/2,2/0,2/10,2/0,2/27,2/27,2/27,2"
+        ],
+        "multiKernelType": 1,
+        "binPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_ffc5799737aef33466523ffb32ef924a.o",
+        "jsonPath": "ascend910_93/dlinfer_grouped_matmul_direct/DlinferGroupedMatmulDirect_ffc5799737aef33466523ffb32ef924a.json"
+      }
+    ]
+  }
+}
