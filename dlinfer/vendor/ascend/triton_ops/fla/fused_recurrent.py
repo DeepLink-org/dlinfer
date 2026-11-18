@@ -226,6 +226,7 @@ def fused_recurrent_gated_delta_rule_fwd(
     state_ids_rb: torch.Tensor | None = None,
     num_state: int = 1,
     use_qk_l2norm_in_kernel: bool = False,
+    is_kda: bool = False,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     B, T, H, K, V = *k.shape, v.shape[-1]
     HV = v.shape[2]
@@ -285,7 +286,7 @@ def fused_recurrent_gated_delta_rule_fwd(
         IS_BETA_HEADWISE=beta.ndim == v.ndim,
         USE_QK_L2NORM_IN_KERNEL=use_qk_l2norm_in_kernel,
         INPLACE_FINAL_STATE=inplace_final_state,
-        IS_KDA=False,
+        IS_KDA=is_kda,
         num_warps=num_warps,
         num_stages=num_stages,
     )
@@ -350,6 +351,7 @@ def fused_recurrent_gated_delta_rule(
     state_ids_rb: torch.Tensor | None = None,
     num_state: int = 1,
     use_qk_l2norm_in_kernel: bool = False,
+    is_kda: bool = False,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     r"""
     Args:

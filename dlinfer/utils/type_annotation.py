@@ -11,6 +11,7 @@ class MoECommType(Enum):
     ALLGATHER = auto()
     ALLTOALL = auto()
     MC2 = auto()
+    MEGA = auto()
     TP = auto()
     UNDEFINED = auto()
 

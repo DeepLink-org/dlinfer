@@ -32,6 +32,7 @@ __all__ = [
     "paged_prefill_attention",
     "rms_norm",
     "moe_gating_topk_softmax",
+    "moe_gating_top_k",
     "get_cache_len",
     "weight_quant_matmul",
     "fused_moe",
@@ -766,6 +767,40 @@ def moe_gating_topk_softmax(
     return routing_weights, selected_idx
 
 
+@register_ops(vendor_ops_registry)
+def moe_gating_top_k(
+    router_logits: Tensor,
+    bias: Optional[Tensor],
+    top_k: int,
+    k_group: int,
+    group_count: int,
+    renorm: int,
+    norm_type: int,
+    routed_scaling_factor: float,
+    eps: float,
+) -> Tuple[Tensor, Tensor]:
+    """Run Ascend's fused grouped no-aux MoE router."""
+    if bias is not None and bias.dtype != router_logits.dtype:
+        bias = bias.to(router_logits.dtype)
+
+    routing_weights, selected_idx, _ = torch.ops.npu.npu_moe_gating_top_k(
+        router_logits,
+        k=top_k,
+        bias=bias,
+        k_group=k_group,
+        group_count=group_count,
+        group_select_mode=1,  # top-2 score sum per group
+        renorm=0,  # match vLLM-Ascend; softmax renorm is done below
+        norm_type=norm_type,
+        out_flag=False,
+        routed_scaling_factor=routed_scaling_factor,
+        eps=eps,
+    )
+    if norm_type == 0 and renorm == 1:
+        routing_weights = routing_weights / (routing_weights.sum(dim=-1, keepdim=True) + eps)
+    return routing_weights, selected_idx
+
+
 # Quantification of W4A16 is currently supported and tested.
 @register_ops(vendor_ops_registry)
 def weight_quant_matmul(
@@ -885,8 +920,10 @@ def fused_moe_w8a8(
     topk: int,
     renormalize: bool,
     moe_metadata: MoeMetadata,
+    use_fused_op: bool = False,
+    swiglu_limit: float = 0.0,
 ) -> Tensor:
-    """Dynamic W8A8 MoE using only public torch_npu operators."""
+    """Dynamic W8A8 MoE with an optional fused MC2 path."""
     topk_ids = topk_ids.to(torch.int32)
     (
         hidden_states,
@@ -908,20 +945,62 @@ def fused_moe_w8a8(
     )
 
     if moe_metadata.moe_comm_type == MoECommType.MC2:
-        moe_output = moe.fused_moe_mc2(
+        if use_fused_op:
+            moe_output = moe.fused_moe_mc2_w8a8(
+                hidden_states,
+                gate_up_weights,
+                gate_up_scales,
+                down_weights,
+                down_scales,
+                topk_weights,
+                topk_ids,
+                moe_metadata.ep_size,
+                moe_metadata.ep_rank,
+                moe_metadata.moe_group_name,
+                x_active_mask,
+                # Per-rank post-dispatch capacity: worst case one rank
+                # receives ALL (token, slot) pairs = padded_tokens * topk.
+                # max(m, topk) is exactly the mean with zero headroom — any
+                # routing imbalance truncates tokens (vLLM defaults this to
+                # 65536 with an explicit truncation warning).
+                max_output_size=max(512, min(65536, moe_metadata.tp_size * hidden_states.shape[0] * topk_ids.shape[1])),
+                swiglu_limit=swiglu_limit,
+            )
+        else:
+            moe_output = moe.fused_moe_mc2(
+                hidden_states,
+                gate_up_weights,
+                down_weights,
+                topk_weights,
+                topk_ids,
+                renormalize,
+                moe_metadata.ep_size,
+                moe_metadata.ep_rank,
+                moe_metadata.moe_group_name,
+                x_active_mask,
+                None,
+                gate_up_scales,
+                down_scales,
+                swiglu_limit=swiglu_limit,
+            )
+    elif moe_metadata.moe_comm_type == MoECommType.MEGA:
+        if not use_fused_op:
+            raise RuntimeError(
+                "MoECommType.MEGA requires NZ-format W8A8 weights "
+                "(dispatch_ffn_combine present at load time)")
+        moe_output = moe.fused_moe_mega_w8a8(
             hidden_states,
             gate_up_weights,
+            gate_up_scales,
             down_weights,
+            down_scales,
             topk_weights,
             topk_ids,
-            renormalize,
             moe_metadata.ep_size,
-            moe_metadata.ep_rank,
-            moe_metadata.moe_group_name,
+            moe_metadata.ep_group,
+            topk_ids.shape[1],
             x_active_mask,
-            None,
-            gate_up_scales,
-            down_scales,
+            swiglu_limit=swiglu_limit,
         )
     elif moe_metadata.moe_comm_type == MoECommType.ALLTOALL:
         moe_output = moe.fused_moe_all2all(
@@ -938,6 +1017,7 @@ def fused_moe_w8a8(
             None,
             gate_up_scales,
             down_scales,
+            swiglu_limit=swiglu_limit,
         )
     else:
         moe_output = moe.fused_moe_naive(
@@ -951,6 +1031,7 @@ def fused_moe_w8a8(
             None,
             gate_up_scales,
             down_scales,
+            swiglu_limit=swiglu_limit,
         )
 
     return moe.moe_finalize(

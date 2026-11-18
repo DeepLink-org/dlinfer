@@ -40,6 +40,7 @@ def _rms_norm_fwd_kernel(
     HAS_BIAS: tl.constexpr,
     HAS_Z: tl.constexpr,
     NORM_BEFORE_GATE: tl.constexpr,
+    ACTIVATION: tl.constexpr,
     N_CORES: tl.constexpr,
 ):
     row = tl.program_id(0)
@@ -67,7 +68,10 @@ def _rms_norm_fwd_kernel(
         x = tl.load(X_base + cols, mask=cols < N, other=0.0).to(tl.float32)
         if HAS_Z and not NORM_BEFORE_GATE:
             z = tl.load(Z_base + cols, mask=cols < N).to(tl.float32)
-            x *= z * tl.sigmoid(z)
+            if ACTIVATION == "sigmoid":
+                x *= tl.sigmoid(z)
+            else:  # "swish" / "silu"
+                x *= z * tl.sigmoid(z)
 
         xbar = tl.where(cols < N, x, 0.0)
         var = tl.sum(xbar * xbar, axis=0) / N
@@ -81,12 +85,16 @@ def _rms_norm_fwd_kernel(
         y = x * rstd * w + b if HAS_BIAS else x * rstd * w
         if HAS_Z and NORM_BEFORE_GATE:
             z = tl.load(Z_base + cols, mask=mask).to(tl.float32)
-            y *= z * tl.sigmoid(z)
+            if ACTIVATION == "sigmoid":
+                y *= tl.sigmoid(z)
+            else:  # "swish" / "silu"
+                y *= z * tl.sigmoid(z)
         tl.store(Y_base + cols, y, mask=mask)
 
 
 def rmsnorm_fn(
-    x, weight, bias, z=None, eps=1e-6, group_size=None, norm_before_gate=True
+    x, weight, bias, z=None, eps=1e-6, group_size=None, norm_before_gate=True,
+    activation="swish",
 ):
     x_shape_og = x.shape
     x = x.reshape(-1, x.shape[-1])
@@ -133,6 +141,7 @@ def rmsnorm_fn(
             eps,
             BLOCK_N=BLOCK_N,
             NORM_BEFORE_GATE=norm_before_gate,
+            ACTIVATION=activation,
             N_CORES=MAX_CORES,
             num_warps=num_warps,
         )
@@ -147,10 +156,13 @@ class RMSNormGated(nn.Module):
         eps: float = 1e-5,
         group_size: Optional[int] = None,
         norm_before_gate: bool = False,
+        activation: str = "swish",
         device: Optional[torch.device] = None,
         dtype: Optional[torch.dtype] = None,
     ):
         super().__init__()
+        assert activation in ("swish", "silu", "sigmoid"), activation
+        self.activation = activation
         self.eps = eps
         self.weight = nn.Parameter(
             torch.empty(hidden_size, device=device, dtype=torch.bfloat16)
@@ -172,4 +184,5 @@ class RMSNormGated(nn.Module):
             eps=self.eps,
             group_size=self.group_size,
             norm_before_gate=self.norm_before_gate,
+            activation=self.activation,
         )

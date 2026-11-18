@@ -1,6 +1,10 @@
 import os
+import sys
+from pathlib import Path
+
 import torch
 import torch.distributed as dist
+import torch_npu
 from dlinfer.utils.type_annotation import MoECommType
 
 # aclnnGroupedMatmulV5 requires the groupList tensor to have at most 1024
@@ -74,6 +78,243 @@ def zero_chunked_moe_weight_padding(
         chunk_idx += 1
 
 
+_FUSED_MOE_OP_AVAILABLE = None
+_FUSED_MOE_EXPERT_TOKEN_NUMS = {}
+
+
+def _prepend_env_path(name: str, value: Path):
+    """Make a vendor library/search path visible before loading the extension."""
+    old_value = os.environ.get(name, "")
+    value = str(value)
+    if old_value:
+        if value not in old_value.split(":"):
+            os.environ[name] = f"{value}:{old_value}"
+    else:
+        os.environ[name] = value
+
+
+def _find_vllm_ascend_extension():
+    """Find the prebuilt vLLM-Ascend extension without importing vLLM."""
+    candidates = []
+    for env_name in (
+        "DLINFER_ASCEND_CUSTOM_OP_LIBRARY",
+        "VLLM_ASCEND_CUSTOM_OP_LIBRARY",
+    ):
+        value = os.environ.get(env_name)
+        if value:
+            candidates.append(Path(value))
+
+    # Source-tree location used by the Ascend development environment.
+    candidates.extend(Path("/vllm-workspace/vllm-ascend/vllm_ascend").glob("vllm_ascend_C*.so"))
+    for entry in sys.path:
+        if not entry:
+            continue
+        base = Path(entry)
+        candidates.extend((base / "vllm_ascend").glob("vllm_ascend_C*.so"))
+
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def ensure_fused_moe_op() -> bool:
+    """Load the prebuilt dispatch_ffn_combine operator, if available."""
+    global _FUSED_MOE_OP_AVAILABLE
+    if _FUSED_MOE_OP_AVAILABLE is not None:
+        return _FUSED_MOE_OP_AVAILABLE
+
+    try:
+        getattr(torch.ops._C_ascend, "dispatch_ffn_combine")
+        _FUSED_MOE_OP_AVAILABLE = True
+        return True
+    except AttributeError:
+        pass
+
+    extension = _find_vllm_ascend_extension()
+    if extension is None:
+        _FUSED_MOE_OP_AVAILABLE = False
+        return False
+
+    vendor_path = extension.parent / "_cann_ops_custom/vendors/custom_transformer"
+    if vendor_path.is_dir():
+        _prepend_env_path("ASCEND_CUSTOM_OPP_PATH", vendor_path)
+        vendor_lib_path = vendor_path / "op_api/lib"
+        if vendor_lib_path.is_dir():
+            _prepend_env_path("LD_LIBRARY_PATH", vendor_lib_path)
+
+    try:
+        torch.ops.load_library(str(extension))
+        getattr(torch.ops._C_ascend, "dispatch_ffn_combine")
+    except (ImportError, OSError, RuntimeError, AttributeError):
+        _FUSED_MOE_OP_AVAILABLE = False
+    else:
+        _FUSED_MOE_OP_AVAILABLE = True
+    return _FUSED_MOE_OP_AVAILABLE
+
+
+def fused_moe_mc2_w8a8(
+    hidden_states: torch.Tensor,
+    gate_up_weights: torch.Tensor,
+    gate_up_scales: torch.Tensor,
+    down_weights: torch.Tensor,
+    down_scales: torch.Tensor,
+    topk_weights: torch.Tensor,
+    topk_ids: torch.Tensor,
+    ep_size: int,
+    ep_rank: int,
+    moe_group_name: str,
+    x_active_mask: torch.Tensor,
+    max_output_size: int = 512,
+    swiglu_limit: float = 0.0,
+):
+    """Run the prebuilt Ascend W8A8 dispatch/MLP/combine operator."""
+    if not ensure_fused_moe_op():
+        raise RuntimeError("dispatch_ffn_combine is unavailable")
+
+    num_local_experts = gate_up_weights.shape[0]
+    cache_key = (hidden_states.device.type, hidden_states.device.index, num_local_experts)
+    expert_token_nums = _FUSED_MOE_EXPERT_TOKEN_NUMS.get(cache_key)
+    if expert_token_nums is None:
+        expert_token_nums = torch.zeros(
+            (num_local_experts,), dtype=torch.int32, device=hidden_states.device
+        )
+        _FUSED_MOE_EXPERT_TOKEN_NUMS[cache_key] = expert_token_nums
+
+    # The operator accepts a list so that dynamic-EPLB can provide one tensor
+    # per weight shard. GLM-5.2 uses one local shard per rank.
+    empty_bias = torch.empty((0,), dtype=torch.float32)
+    out = torch.empty_like(hidden_states)
+    result, _ = torch.ops._C_ascend.dispatch_ffn_combine(
+        x=hidden_states,
+        weight1=[gate_up_weights],
+        weight2=[down_weights],
+        expert_idx=topk_ids.to(torch.int32),
+        scale1=[gate_up_scales],
+        scale2=[down_scales],
+        bias1=[empty_bias],
+        bias2=[empty_bias],
+        probs=topk_weights.to(torch.float32),
+        group=moe_group_name,
+        max_output_size=int(max_output_size),
+        swiglu_limit=float(swiglu_limit),
+        world_size=int(ep_size),
+        x_active_mask=x_active_mask,
+        out=out,
+        expert_token_nums=expert_token_nums,
+    )
+    return result
+
+
+# ---------------------------------------------------------------------------
+# mega_moe (cann-9.2.1 cann_ops_transformer): fused dispatch+MoE+combine for
+# prefill. Each SymmBuffer owns an HCCL communicator, so ALL layers share one
+# buffer per process; capacity grows monotonically in pow2 steps and every
+# rank takes the same growth decision (padded rows are identical across
+# ranks). Retired buffers are never destroyed: collective close is unverified
+# here, and growth happens at most a handful of times.
+# ---------------------------------------------------------------------------
+_MEGA_SYMMS = []          # [{"sym": SymmBuffer, "capacity": int}]
+_MEGA_EXPERT_LISTS = {}   # (w1.data_ptr(), w2.data_ptr()) -> (w1, w2, l1, l2, l1s, l2s)
+
+
+def _get_mega_symm_buffer(ep_group, num_experts, hidden, intermediate_hidden,
+                          topk, num_tokens):
+    from cann_ops_transformer.ops import get_symm_buffer_for_mega_moe
+    need = max(1, 1 << (num_tokens - 1).bit_length())
+    if _MEGA_SYMMS and _MEGA_SYMMS[-1]["capacity"] >= need:
+        return _MEGA_SYMMS[-1]["sym"]
+    ep_world = torch.distributed.get_world_size(ep_group)
+    sym = get_symm_buffer_for_mega_moe(
+        ep_group, num_experts, need, topk,
+        hidden=hidden, intermediate_hidden=intermediate_hidden,
+        max_recv_token_num=min(65536, need * ep_world * min(topk, num_experts // ep_world)),
+        dispatch_quant_mode=2,        # CANN_MEGA_MOE_QUANT_MODE_INT8
+        dispatch_quant_out_dtype=258,  # CANN_ACL_INT8
+    )
+    _MEGA_SYMMS.append({"sym": sym, "capacity": need})
+    return sym
+
+
+def _mega_expert_lists(gate_up_weights, down_weights, gate_up_scales, down_scales):
+    """Per-expert NZ weight / packed-scale lists, cached per weight identity.
+
+    Entries are views (no device memory); one per layer. The `is` check guards
+    against data_ptr reuse after update_weights swaps in new tensors."""
+    key = (gate_up_weights.data_ptr(), down_weights.data_ptr())
+    hit = _MEGA_EXPERT_LISTS.get(key)
+    if hit is not None and hit[0] is gate_up_weights and hit[1] is down_weights:
+        return hit[2:]
+    if len(_MEGA_EXPERT_LISTS) > 512:
+        _MEGA_EXPERT_LISTS.clear()
+    e = gate_up_weights.shape[0]
+    lists = (
+        list(gate_up_weights.unbind(0)),
+        list(down_weights.unbind(0)),
+        list(gate_up_scales.view(e, -1).unbind(0)),
+        list(down_scales.view(e, -1).unbind(0)),
+    )
+    _MEGA_EXPERT_LISTS[key] = (gate_up_weights, down_weights, *lists)
+    return lists
+
+
+def fused_moe_mega_w8a8(
+    hidden_states: torch.Tensor,
+    gate_up_weights: torch.Tensor,
+    gate_up_scales: torch.Tensor,
+    down_weights: torch.Tensor,
+    down_scales: torch.Tensor,
+    topk_weights: torch.Tensor,
+    topk_ids: torch.Tensor,
+    ep_size: int,
+    ep_group: torch.distributed.ProcessGroup,
+    topk: int,
+    x_active_mask: torch.Tensor,
+    swiglu_limit: float = 0.0,
+):
+    """cann mega_moe: fused dispatch+MoE+combine (prefill).
+
+    Same weight contract as fused_moe_mc2_w8a8 (int8 NZ + packed int64
+    per-out-channel scales). Output = this rank's own tokens' full combine,
+    so moe_finalize consumes it exactly like the MC2 result. Contract
+    verified in /afs-weights/wangqing/deepep_bench/mega_moe_acc.py."""
+    from cann_ops_transformer.ops import mega_moe
+    if hidden_states.dtype != torch.bfloat16:  # mega always outputs bf16
+        raise ValueError(f"MEGA MoE requires bf16 hidden states, got {hidden_states.dtype}")
+    num_experts = ep_size * gate_up_weights.shape[0]
+    sym = _get_mega_symm_buffer(ep_group, num_experts,
+                                hidden_states.shape[1], gate_up_weights.shape[-1],
+                                topk, hidden_states.shape[0])
+    l1, l2, l1s, l2s = _mega_expert_lists(gate_up_weights, down_weights,
+                                          gate_up_scales, down_scales)
+    out, _ = mega_moe(
+        hidden_states, topk_ids, topk_weights.to(torch.float32),
+        l1, l2, sym,
+        l1_weights_sf=l1s, l2_weights_sf=l2s,
+        x_active_mask=x_active_mask.to(torch.int8),  # bool is rejected (EZ0020)
+        weight1_type=258, weight2_type=258,          # ACL_INT8
+        activation="swiglu",
+        activation_clamp=float(swiglu_limit) or None,
+    )
+    return out
+
+
+def _gmm_w8a8_weight(weight: torch.Tensor) -> torch.Tensor:
+    """Return the (E, in, out) view of an expert weight for grouped matmul.
+
+    ND weights are stored OI (E, out, in) and need a transpose; NZ weights
+    (acl format 29, the dispatch_ffn_combine contract) are already IO.
+    GLM-5.3's gate_up is square (2*2048 == hidden == 4096), so the layout
+    must be read from the tensor format, not from the shape.
+    """
+    try:
+        if torch_npu.get_npu_format(weight) == 29:
+            return weight
+    except (RuntimeError, AttributeError):
+        pass
+    return weight.transpose(1, 2)
+
+
 def _grouped_mlp(
     hidden_states: torch.Tensor,
     gate_up_weights: torch.Tensor,
@@ -114,6 +355,9 @@ def _grouped_mlp_w8a8(
     down_scales: torch.Tensor,
     group_list: torch.Tensor,
     group_list_type: int,
+    input_scale: torch.Tensor = None,
+    model_dtype: torch.dtype = None,
+    swiglu_limit: float = 0.0,
 ):
     """Public-op W8A8 MoE fallback: quant GMM1, SwiGLU, quant GMM2.
 
@@ -121,35 +365,49 @@ def _grouped_mlp_w8a8(
     output is dequantized to the model dtype, then requantized per token after
     SwiGLU, matching vllm-ascend's non-fused fallback.
     """
-    quantized, input_scale = torch.ops.npu.npu_dynamic_quant(
-        hidden_states, dst_type=torch.int8
-    )
+    if input_scale is None:
+        quantized, input_scale = torch.ops.npu.npu_dynamic_quant(
+            hidden_states, dst_type=torch.int8
+        )
+        gemm1_out_dtype = hidden_states.dtype
+    else:
+        # D8: activations arrived pre-quantized from the dispatch A2A
+        quantized = hidden_states
+        gemm1_out_dtype = model_dtype
+    gate_up_weight = _gmm_w8a8_weight(gate_up_weights)
     gate_up = torch.ops.npu.npu_grouped_matmul(
         [quantized],
-        [gate_up_weights.transpose(1, 2)],
+        [gate_up_weight],
         scale=[gate_up_scales.squeeze(-1)],
         per_token_scale=[input_scale],
         group_list=group_list,
         split_item=2,
         group_type=0,
         group_list_type=group_list_type,
-        output_dtype=hidden_states.dtype,
+        output_dtype=gemm1_out_dtype,
     )[0]
 
-    activated = torch.ops.npu.npu_swiglu(gate_up, -1)
+    # GLM-5.3 the clamped SwiGLU: gate at +limit, up at +-limit.  Unclamped
+    # models (swiglu_limit=0) match the plain npu_swiglu path.
+    gate, up = gate_up.chunk(2, dim=-1)
+    if swiglu_limit > 0:
+        gate = gate.float().clamp_max(swiglu_limit)
+        up = up.float().clamp(min=-swiglu_limit, max=swiglu_limit)
+    activated = (gate * torch.sigmoid(gate) * up).to(gate_up.dtype)
     activated_quant, activated_scale = torch.ops.npu.npu_dynamic_quant(
         activated, dst_type=torch.int8
     )
+    down_weight = _gmm_w8a8_weight(down_weights)
     return torch.ops.npu.npu_grouped_matmul(
         [activated_quant],
-        [down_weights.transpose(1, 2)],
+        [down_weight],
         scale=[down_scales.squeeze(-1)],
         per_token_scale=[activated_scale],
         group_list=group_list,
         split_item=2,
         group_type=0,
         group_list_type=group_list_type,
-        output_dtype=hidden_states.dtype,
+        output_dtype=gemm1_out_dtype,  # D8: model dtype, x may be int8
     )[0]
 
 
@@ -161,8 +419,11 @@ def apply_mlp_w8a8(
     down_scales: torch.Tensor,
     group_list: torch.Tensor,
     group_list_type: int,
+    input_scale: torch.Tensor = None,
+    model_dtype: torch.dtype = None,
+    swiglu_limit: float = 0.0,
 ):
-    """Apply GLM-5.2 W8A8 experts through the non-fused public-op path."""
+    """Apply W8A8 experts through the non-fused public-op path."""
     if gate_up_weights.size(0) > MAX_GROUP_LIST_SIZE:
         raise RuntimeError(
             "W8A8 fallback supports at most 1024 local experts; "
@@ -176,6 +437,9 @@ def apply_mlp_w8a8(
         down_scales,
         group_list,
         group_list_type,
+        input_scale=input_scale,
+        model_dtype=model_dtype,
+        swiglu_limit=swiglu_limit,
     )
 
 
@@ -362,6 +626,8 @@ def moe_prepare(
 ):
     if ep_size <= 1:
         return hidden_states, None, None, None, topk_ids, topk_weights
+    # MEGA (cann mega_moe) shares MC2's pad/mask/TP-split contract
+    mc2_like = moe_comm_type in (MoECommType.MC2, MoECommType.MEGA)
     num_tokens = hidden_states.size(0)
     # When tp_size > 1, topk_ids may need TP-splitting. Models using
     # moe_gating_topk_softmax already split there; detect by comparing
@@ -370,7 +636,7 @@ def moe_prepare(
     need_topk_split = need_topk_pad and tp_size > 1
     # pad hidden_states (and topk tensors if needed)
     if pad_size > 0:
-        if moe_comm_type == MoECommType.MC2:
+        if mc2_like:
             x_active_mask = torch.nn.functional.pad(
                 x_active_mask, (0, pad_size), value=False
             )
@@ -378,17 +644,45 @@ def moe_prepare(
         if need_topk_pad:
             topk_ids = torch.nn.functional.pad(topk_ids, (0, 0, 0, pad_size))
             topk_weights = torch.nn.functional.pad(topk_weights, (0, 0, 0, pad_size))
+    if mc2_like and need_topk_pad:
+        # dispatch_ffn_combine mis-computes a chunk that owns exactly ONE
+        # active token (standalone rel ~5% at model dims; >=2 active and
+        # fully-masked chunks are exact). Grow the global padding so every
+        # TP chunk has >=2 rows, then duplicate a lone active row into the
+        # neighbouring pad slot. All arithmetic is on host ints; the extra
+        # rows are dropped by moe_finalize's [:num_tokens] slice.
+        if hidden_states.size(0) < 2 * tp_size:
+            extra = 2 * tp_size - hidden_states.size(0)
+            hidden_states = torch.nn.functional.pad(hidden_states, (0, 0, 0, extra))
+            topk_ids = torch.nn.functional.pad(topk_ids, (0, 0, 0, extra))
+            topk_weights = torch.nn.functional.pad(topk_weights, (0, 0, 0, extra))
+            if x_active_mask is not None:
+                x_active_mask = torch.nn.functional.pad(
+                    x_active_mask, (0, extra), value=False
+                )
     # split hidden_states, x_active_mask, and topk tensors if tp_size > 1
     paded_num_tokens = hidden_states.size(0)
     if tp_size > 1:
         split_hidden_states = torch.tensor_split(hidden_states, tp_size, dim=0)
         hidden_states = split_hidden_states[tp_rank]
-        if moe_comm_type == MoECommType.MC2:
+        if mc2_like:
             split_x_active_mask = torch.tensor_split(x_active_mask, tp_size, dim=0)
             x_active_mask = split_x_active_mask[tp_rank]
         if need_topk_split:
             topk_ids = torch.tensor_split(topk_ids, tp_size, dim=0)[tp_rank]
             topk_weights = torch.tensor_split(topk_weights, tp_size, dim=0)[tp_rank]
+        if mc2_like and need_topk_pad:
+            chunk = paded_num_tokens // tp_size
+            if num_tokens == tp_rank * chunk + 1:
+                # this rank's lone active row sits at chunk position 0
+                hidden_states = hidden_states.clone()
+                hidden_states[1] = hidden_states[0]
+                topk_ids = topk_ids.clone()
+                topk_ids[1] = topk_ids[0]
+                topk_weights = topk_weights.clone()
+                topk_weights[1] = topk_weights[0]
+                x_active_mask = x_active_mask.clone()
+                x_active_mask[1] = True
     return (
         hidden_states,
         num_tokens,
@@ -433,6 +727,7 @@ def fused_moe_naive(
     chunked_moe_layout: ChunkedMoeWeightLayout = None,
     gate_up_scales: torch.Tensor = None,
     down_scales: torch.Tensor = None,
+    swiglu_limit: float = 0.0,
 ):
     num_experts = (
         chunked_moe_layout.num_experts
@@ -481,6 +776,7 @@ def fused_moe_naive(
             down_scales,
             expert_tokens,
             group_list_type,
+            swiglu_limit=swiglu_limit,
         )
 
     # distribute combine
@@ -506,6 +802,7 @@ def fused_moe_mc2(
     chunked_moe_layout: ChunkedMoeWeightLayout = None,
     gate_up_scales: torch.Tensor = None,
     down_scales: torch.Tensor = None,
+    swiglu_limit: float = 0.0,
 ):
     # do renormalize
     if renormalize:
@@ -583,6 +880,7 @@ def fused_moe_mc2(
             down_scales,
             expert_tokens,
             group_list_type,
+            swiglu_limit=swiglu_limit,
         )
 
     # distribute combine
@@ -635,6 +933,7 @@ def fused_moe_all2all(
     chunked_moe_layout: ChunkedMoeWeightLayout = None,
     gate_up_scales: torch.Tensor = None,
     down_scales: torch.Tensor = None,
+    swiglu_limit: float = 0.0,
 ):
     num_local_experts = (
         chunked_moe_layout.num_experts
@@ -691,6 +990,23 @@ def fused_moe_all2all(
             )
         )
 
+        # D8 (DLINFER_A2A_PREQUANT=1): quantize to int8 + per-token scale
+        # BEFORE the A2A so the wire carries 1B/elt instead of 2B (vllm-ascend
+        # All2All parity). Same values as quantizing after the exchange, so
+        # the W8A8 GEMM output is bit-identical.
+        prequant = (
+            os.environ.get("DLINFER_A2A_PREQUANT", "0") == "1"
+            and gate_up_scales is not None
+        )
+        local_scale = None
+        if prequant:
+            (
+                permutated_local_input_tokens,
+                local_scale,
+            ) = torch.ops.npu.npu_dynamic_quant(
+                permutated_local_input_tokens, dst_type=torch.int8
+            )
+
         # dispatch
         global_input_tokens = permutated_local_input_tokens.new_empty(
             size=[sum(output_splits)] + list(permutated_local_input_tokens.size()[1:]),
@@ -709,15 +1025,41 @@ def fused_moe_all2all(
         # permutated_local_input_tokens.untyped_storage().resize_(0)
         del permutated_local_input_tokens
 
+        global_scale = None
+        if prequant:
+            global_scale = local_scale.new_empty(
+                (sum(output_splits),) + local_scale.shape[1:]
+            )
+            scale_a2a_handle = torch.distributed.all_to_all_single(
+                global_scale,
+                local_scale,
+                output_split_sizes=output_splits,
+                input_split_sizes=input_splits,
+                group=ep_group,
+                async_op=True,
+            )
+            scale_a2a_handle.wait()
+            del local_scale
+
         # dispatch post-process
         if num_local_experts <= 1:
             return global_input_tokens, None
 
         global_input_tokens, reversed_global_input_permutation_mapping = (
             torch.ops.npu.npu_moe_token_permute(
+                # token_permute handles int8 tokens (standalone-verified);
+                # init_routing_v2's joint scale reorder is subtly wrong here
                 global_input_tokens, global_input_tokens_local_experts_indices
             )
         )
+        if prequant:
+            # mapping[k] = sorted position of original row k (verified:
+            # out[mapping] == input; unpermute consumes it the same way).
+            # Realign scale by scatter: s_sorted[mapping[k]] = s[k].
+            m = reversed_global_input_permutation_mapping.to(torch.long)
+            sorted_scale = torch.empty_like(global_scale)
+            sorted_scale[m] = global_scale
+            global_scale = sorted_scale
 
         context_metadata = {
             "hidden_shape_before_permute": hidden_shape_before_permute,
@@ -729,7 +1071,7 @@ def fused_moe_all2all(
 
         return {
             "hidden_states": global_input_tokens,
-            "dynamic_scale": None,
+            "dynamic_scale": global_scale,
             "group_list": num_tokens_per_local_expert,
             "group_list_type": 1,
             "context_metadata": context_metadata,
@@ -811,6 +1153,9 @@ def fused_moe_all2all(
                 down_scales,
                 group_list,
                 dispatched_outputs["group_list_type"],
+                input_scale=dispatched_outputs["dynamic_scale"],
+                model_dtype=hidden_states.dtype,
+                swiglu_limit=swiglu_limit,
             )
 
         # distribute combine

@@ -1,5 +1,6 @@
 # Copyright (c) 2024, DeepLink. All rights reserved.
 import functools
+import os
 import torch
 import weakref
 from typing import Callable, List
@@ -392,7 +393,8 @@ def _build_npu_profiler(self):
             f"Profiler start on {self.name}. "
             "Please Note that profiling might harm performance."
         )
-        profiler = npu_profile(activities=activities)
+        _ws = os.environ.get('LMDEPLOY_PROFILE_WITH_STACK', '0') == '1'
+        profiler = npu_profile(activities=activities, with_stack=_ws)
         return profiler
     else:
         return None
