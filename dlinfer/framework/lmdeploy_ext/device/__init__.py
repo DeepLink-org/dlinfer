@@ -4,23 +4,65 @@ import torch
 from functools import lru_cache
 from lmdeploy.pytorch.model_inputs import ModelInputs
 from lmdeploy.pytorch.strategies.base.model_agent import ExtraInputs
+from lmdeploy.utils import get_logger
 from dlinfer.vendor import vendor_name
+
+logger = get_logger('dlinfer')
 
 vendor = ["camb", "ascend"]
 
 
+class _SigmoidRMSNormGated(torch.nn.Module):
+    """Plain-PyTorch RMSNorm with sigmoid gating (y = RMSNorm(x) * sigmoid(z)).
+
+    The Ascend Triton ``RMSNormGated`` kernel hardcodes SiLU gating
+    (``z * sigmoid(z)``) with no activation switch, so it cannot serve
+    GLM-5.3's KDA output gate, which requires plain sigmoid gating (matching
+    vLLM-Ascend's ``FusedRMSNormGated`` with ``activation="sigmoid"``).
+    Reusing the SiLU kernel here silently multiplied every KDA layer's gate
+    by an extra factor of ``z``, which is what produced garbled output.
+    """
+
+    def __init__(self, hidden_size, eps=1e-6, device=None, dtype=None):
+        super().__init__()
+        self.eps = eps
+        self.weight = torch.nn.Parameter(
+            torch.ones(hidden_size, device=device, dtype=dtype or torch.bfloat16))
+
+    def forward(self, x, z=None):
+        x_float = x.float()
+        variance = x_float.pow(2).mean(dim=-1, keepdim=True)
+        x_normed = x_float * torch.rsqrt(variance + self.eps)
+        x_normed = x_normed * self.weight.float()
+        if z is not None:
+            x_normed = x_normed * torch.sigmoid(z.float())
+        return x_normed.to(x.dtype)
+
+
 def build_rmsnorm_gated(hidden_size: int, eps=1e-6, **kwargs):
-    """Build the Ascend Triton gated RMSNorm used by Qwen3.5 GDN."""
+    """Build the Ascend gated RMSNorm.
+
+    Qwen3.5's GDN gate uses SiLU and keeps the fused Ascend Triton kernel.
+    GLM-5.3's KDA gate uses plain sigmoid, which that kernel does not
+    implement, so route it to a dedicated PyTorch implementation instead.
+    """
+    device = kwargs.get("device")
+    dtype = kwargs.get("dtype")
+    activation = kwargs.get("activation", "swish")
     try:
         from dlinfer.vendor.ascend.triton_ops import RMSNormGated
+        return RMSNormGated(hidden_size, eps=eps, norm_before_gate=True,
+                            activation=activation, device=device)
     except Exception as exc:
+        if activation == "sigmoid":
+            # kernel unavailable: keep serving with the eager reference impl
+            logger.warning(f"RMSNormGated triton load failed ({exc!r}); "
+                           f"falling back to eager _SigmoidRMSNormGated")
+            return _SigmoidRMSNormGated(hidden_size, eps=eps, device=device, dtype=dtype)
         raise RuntimeError(
             "Triton is not installed or Ascend triton_ops failed to load. "
             "Please install triton-ascend to use this feature."
         ) from exc
-
-    device = kwargs["device"]
-    return RMSNormGated(hidden_size, eps=eps, norm_before_gate=True, device=device)
 
 
 def fake_torch_compile(dynamic=False):
@@ -654,13 +696,23 @@ def patch_deepseek_v2_modelslim_weight_loader():
 
     def map_modelslim_param_name(self, name, params_dict):
         quantization_config = getattr(self.config, "quantization_config", None) or {}
-        if quantization_config.get("quant_method") != "modelslim":
+        if quantization_config.get("quant_method") not in ("modelslim", "smooth_quant"):
+            # GLM-5.3 ModelSlim W8A8_DYNAMIC is normalized to smooth_quant.
             return name
         if name.endswith(".weight_offset"):
+            root = name.removesuffix(".weight_offset")
+            for suffix in (".input_offset", ".quant_bias", ".offset"):
+                mapped_name = root + suffix
+                if mapped_name in params_dict:
+                    return mapped_name
             return None
         if name.endswith(".weight_scale"):
-            mapped_name = name.removesuffix(".weight_scale") + ".scale"
-            return mapped_name if mapped_name in params_dict else None
+            root = name.removesuffix(".weight_scale")
+            for suffix in (".deq_scale", ".scale", ".weight_scale"):
+                mapped_name = root + suffix
+                if mapped_name in params_dict:
+                    return mapped_name
+            return None
         return name
 
     def custom_load_weight_experts(
@@ -712,7 +764,8 @@ def patch_deepseek_v2_modelslim_weight_loader():
 
     def custom_load_weights(self, weights):
         quantization_config = getattr(self.config, "quantization_config", None) or {}
-        if quantization_config.get("quant_method") != "modelslim":
+        if quantization_config.get("quant_method") not in ("modelslim", "smooth_quant"):
+            # GLM-5.3 ModelSlim W8A8_DYNAMIC is normalized to smooth_quant.
             return original_load_weights(self, weights)
 
         params_dict = dict(self.named_parameters())
@@ -1249,6 +1302,76 @@ def patch_qwen3_5():
     )
 
 
+def patch_linear_w8a8_nz_convert():
+    """Convert W8A8 expert weights to the NZ layout with a device d2d copy.
+
+    The layout decision lives here, at weight-load time: weights are
+    converted to NZ (the dispatch_ffn_combine contract) only when the fused
+    operator is actually available, and stay ND otherwise. Downstream code
+    reads the decision off the weight format and never re-probes.
+
+    The conversion itself is a d2d copy (nz.copy_(param.transpose(1, 2))
+    performs the ND->NZ cast on device); a host round-trip here stalls for
+    minutes when all TP workers convert concurrently.
+
+    lmdeploy main's w8a8.py has no NZ support at all (no _weight_nz flag, no
+    convert_weight_to_nz method, and FusedMoEW8A8.update_weights never calls
+    it), so the patch also injects the call site; the conversion itself is
+    idempotent via the flag, which makes the patch safe on branch checkouts
+    that still call convert_weight_to_nz from update_weights.
+    """
+    import torch.nn as nn
+    from lmdeploy.pytorch.nn.moe.w8a8 import FusedMoEW8A8, LinearWeightsW8A8
+
+    if getattr(LinearWeightsW8A8, "_dlinfer_nz_patched", False):
+        return
+
+    def convert_weight_to_nz(self):
+        """Convert the loaded expert matrices to the NZ layout in-place."""
+        if getattr(self, '_weight_nz', False) or self.weight.device.type != 'npu':
+            return
+        from dlinfer.vendor.ascend.moe import ensure_fused_moe_op
+
+        if not ensure_fused_moe_op():
+            # No fused operator -> keep ND weights and the fallback path.
+            return
+        import torch_npu
+
+        # NZ-format weights handed to NPU ops (dispatch_ffn_combine and the
+        # grouped-GEMM fallback alike) require the internal-format path in
+        # torch_npu's op layer; without it the NZ storage is misread and the
+        # MoE returns noise (verified standalone: rel 1.41 vs 0.0098).
+        # vLLM sets the same flag at model_runner init.
+        torch_npu.npu.config.allow_internal_format = True
+
+        old_param = self.weight
+        # shortcut: CANN 9.2.1 rejects the ND->NZ copy_ (TransData groups=1,
+        # op build 500002) for every W8A8 shape; npu_format_cast is the
+        # equivalent path, roundtrip-verified bit-exact on dev1.
+        nz_weight = torch_npu.npu_format_cast(
+            old_param.detach().transpose(1, 2).contiguous(), 29)
+
+        param = nn.Parameter(nz_weight, requires_grad=False)
+        param.weight_loader = old_param.weight_loader
+        del self._parameters['weight']
+        self.register_parameter('weight', param)
+        self._weight_nz = True
+        del old_param
+        torch.npu.empty_cache()
+
+    stock_update_weights = FusedMoEW8A8.update_weights
+
+    def update_weights(self):
+        """Convert expert weights to NZ, then run the stock update."""
+        self.gate_up.convert_weight_to_nz()
+        self.down.convert_weight_to_nz()
+        stock_update_weights(self)
+
+    LinearWeightsW8A8.convert_weight_to_nz = convert_weight_to_nz
+    FusedMoEW8A8.update_weights = update_weights
+    LinearWeightsW8A8._dlinfer_nz_patched = True
+
+
 def vendor_device_init():
     import_vendor_module(vendor_name)
     patch_compiled_func()
@@ -1267,6 +1390,7 @@ def vendor_device_init():
         patch_glm_moe_dsa_split_cache()
         patch_gated_delta_net()
         patch_qwen3_5()
+        patch_linear_w8a8_nz_convert()
 
 
 vendor_device_init()

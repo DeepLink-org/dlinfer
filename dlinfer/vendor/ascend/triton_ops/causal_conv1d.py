@@ -43,11 +43,16 @@ def causal_conv1d_ref(
     dim, width = weight.shape
 
     if initial_states is None:
-        out = F.conv1d(x, weight.unsqueeze(1), bias, padding=width - 1, groups=dim)
+        x = F.pad(x, (width - 1, 0))
     else:
         x = torch.cat([initial_states, x], dim=-1)
-        out = F.conv1d(x, weight.unsqueeze(1), bias, padding=0, groups=dim)
-    out = out[..., :seqlen]
+    # shortcut: native depthwise F.conv1d hits 9.2.1 internal-format Conv2D
+    # builds that fail at sporadic lengths (4, 62, ...); the shifted-MAC form
+    # below is exact fp32 and free of conv op selection. x keeps the same
+    # left-context layout as before, so the final-states window is unchanged.
+    out = (x.unfold(-1, width, 1) * weight.unsqueeze(-2)).sum(-1)
+    if bias is not None:
+        out = out + bias.unsqueeze(-1)
 
     if return_final_states:
         final_states = F.pad(x, (width - 1 - x.shape[-1], 0)).to(dtype_in)
@@ -109,18 +114,30 @@ def causal_conv1d_fn(
     seqlens = seqlens.tolist()
     splits = torch.split(x, seqlens, dim=-1)
     width = weight.shape[1]
+    # Per-slot state rows are either dim-first (..., dim, state_len) or
+    # token-first (..., state_len, dim); token-first rows are normalised to
+    # dim-first views so both pool layouts share the gather/scatter below.
+    token_first = (
+        conv_states.size(-1) == x.size(0) and conv_states.size(-2) != x.size(0)
+    )
+
+    def _slot_dimfirst(i):
+        slot = conv_states[cache_indices[i]]
+        return slot.t() if token_first else slot
+
     out_chunks = []
     for i in range(len(seqlens)):
         x_s = splits[i]
         if cache_indices[i] == PAD_SLOT_ID:
             continue
 
+        slot = _slot_dimfirst(i)
         if has_initial_state[i]:
             if is_ring:
                 slot_idx = read_conv_offsets[i]
-                init_state = conv_states[cache_indices[i]].index_select(-1, slot_idx)
+                init_state = slot.index_select(-1, slot_idx)
             else:
-                init_state = conv_states[cache_indices[i]][..., : (width - 1)]
+                init_state = slot[..., : (width - 1)]
         else:
             init_state = None
 
@@ -133,7 +150,7 @@ def causal_conv1d_fn(
             final_states_out=(
                 None
                 if is_ring
-                else conv_states[cache_indices[i]][..., : (width - 1)].unsqueeze(0)
+                else slot[..., : (width - 1)].unsqueeze(0)
             ),
             initial_states=init_state,
         )
@@ -151,12 +168,16 @@ def causal_conv1d_fn(
                 else x_s.new_zeros(x_s.size(0), width - 1)
             )
             tail = torch.cat([hist.to(x_s.dtype), x_s], dim=-1)[..., -width:]
-            conv_states[cache_indices[i]].scatter_(
+            # Write through the dim-first view: token-first slots are
+            # (..., state_len, dim), so scattering on the raw slot would
+            # hit the feature axis instead of the state axis.
+            target = _slot_dimfirst(i)
+            target.scatter_(
                 -1,
                 write_conv_offsets[i]
                 .to(torch.int64)
                 .unsqueeze(0)
-                .expand(conv_states.size(1), -1),
+                .expand(target.size(0), -1),
                 tail.to(conv_states.dtype),
             )
     out = torch.cat(out_chunks, dim=-1)

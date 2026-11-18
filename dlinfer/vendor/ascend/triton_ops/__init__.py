@@ -9,6 +9,7 @@ __all__ = [
     "fused_recurrent_gated_delta_rule",
     "fused_sigmoid_gating_delta_rule_update",
     "RMSNormGated",
+    "swiglu_clamp",
     "rejection_sample",
 ]
 
@@ -16,5 +17,6 @@ from .fla.chunk import chunk_gated_delta_rule
 from .fla.sigmoid_gating import fused_sigmoid_gating_delta_rule_update
 from .fla.fused_recurrent import fused_recurrent_gated_delta_rule
 from .rms_norm_gated import RMSNormGated
+from .swiglu import swiglu_clamp
 from .causal_conv1d import causal_conv1d_fn, causal_conv1d_update_npu
 from .reject_sample import rejection_sample
